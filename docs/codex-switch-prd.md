@@ -8,6 +8,8 @@
 - 版本范围：MVP / CLI First
 - 文档定位：正式 PRD
 - 对应研究稿：[`codex-switch-product-research.md`](./codex-switch-product-research.md)
+- 对应技术架构：[`codex-switch-technical-architecture.md`](./codex-switch-technical-architecture.md)
+- 对应命令设计：[`codex-switch-command-design.md`](./codex-switch-command-design.md)
 
 ## 一句话定义
 

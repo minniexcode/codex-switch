@@ -36,13 +36,13 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/build.cjs",
     "prepare": "npm run build",
     "start": "node ./dist/cli.js",
-    "test": "node ./dist/cli.js --help"
+    "test": "npm run build && node tests/run-tests.js"
   },
   "devDependencies": {
-    "@types/node": "^24.9.1",
+    "@types/node": "^24.12.3",
     "typescript": "^5.9.3"
   }
 }

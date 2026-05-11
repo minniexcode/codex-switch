@@ -17,12 +17,9 @@ codexs
 
 ## Status
 
-This scoped package is currently being reserved and scaffolded for the first public release.
+The repository now contains the first end-to-end modular CLI implementation for the MVP command set defined in `docs/`.
 
-The product scope is already defined, but the full CLI feature set is not implemented yet. The first published versions may be bootstrap releases used to reserve the npm package name and establish the command entrypoint.
-
-If you install the package now, expect a minimal CLI shell rather than the complete switching workflow.
-The project is scaffolded as a TypeScript CLI and publishes compiled output from `dist/`.
+The project is implemented as a TypeScript CLI, builds into `dist/`, and is organized into `cli`, `app`, `domain`, and `infra` layers for maintainability.
 
 ## Why This Exists
 
@@ -61,9 +58,9 @@ Core design principles:
 - failures should trigger rollback
 - CLI output should stay stable and machine-readable
 
-## Planned MVP
+## MVP Commands
 
-The planned MVP command surface is:
+The current MVP command surface is:
 
 ```bash
 codexs list
@@ -78,7 +75,7 @@ codexs doctor
 codexs rollback
 ```
 
-Planned shared flags:
+Shared flags:
 
 ```bash
 --json
@@ -119,7 +116,7 @@ One-off execution:
 npx @minniexcode/codex-switch
 ```
 
-Current bootstrap behavior:
+Current CLI entry check:
 
 ```bash
 codexs --help
@@ -127,22 +124,23 @@ codexs --help
 
 ## Current Repository Contents
 
-This repository currently contains the product definition and PRD used to shape the first implementation:
+This repository contains both the product documents and the CLI implementation:
 
 - [Product Overview](./docs/codex-switch-product-overview.md)
 - [Product Research](./docs/codex-switch-product-research.md)
 - [PRD](./docs/codex-switch-prd.md)
+- [Technical Architecture](./docs/codex-switch-technical-architecture.md)
+- [Command Design](./docs/codex-switch-command-design.md)
 
-## Roadmap
+## Implementation Notes
 
-Near-term priorities:
+Current implementation characteristics:
 
-- publish the package name and CLI entrypoint
-- implement provider storage and validation
-- implement config backup and rollback
-- implement safe switching flow around `config.toml`
-- support structured `--json` output for automation
-- add cross-platform tests for Windows, macOS, and Linux paths
+- modular TypeScript architecture split into `app`, `domain`, `infra`, and `cli`
+- safe write flows with backup manifests under `backups/`
+- rollback support for `config.toml` and optional `auth.json`
+- stable `--json` envelopes for automation
+- test coverage in `tests/` using a custom serial runner (`tests/run-tests.js`) because the current environment hits `node --test` worker/spawn restrictions
 
 ## Non-Goals for MVP
 
@@ -156,13 +154,12 @@ The first version is not trying to be:
 
 ## Development
 
-At this stage the package is a bootstrap CLI shell. The implementation will follow the product documents in `docs/`.
-
 Local development:
 
 ```bash
 npm install
 npm run build
+npm test
 node dist/cli.js --help
 ```
 
