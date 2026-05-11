@@ -1,3 +1,52 @@
+# dependencies
 node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# build outputs
 dist/
+coverage/
+*.tsbuildinfo
 *.tgz
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# environment
+.env
+.env.*
+!.env.example
+
+# editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# local tooling caches
+.npm-cache-local/
+.eslintcache
+.parcel-cache/
+.next/
+.nuxt/
+.svelte-kit/
+vite.svg
+tmp/
+temp/
+
+# repository-specific generated fixtures
+test-fixtures/runtime-codex/
+test-fixtures/runtime-codex-2/
+test-fixtures/case-*/
+test-fixtures/providers-export.json
