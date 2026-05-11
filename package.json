@@ -5,12 +5,13 @@
   "license": "MIT",
   "type": "commonjs",
   "bin": {
-    "codexs": "./bin/codexs.js"
+    "codexs": "./dist/cli.js"
   },
   "files": [
-    "bin",
+    "dist",
     "docs",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "keywords": [
     "codex",
@@ -32,7 +33,13 @@
   },
   "homepage": "https://github.com/minniexcode/codex-switch#readme",
   "scripts": {
-    "start": "node ./bin/codexs.js",
-    "test": "node ./bin/codexs.js --help"
+    "build": "tsc",
+    "prepare": "npm run build",
+    "start": "node ./dist/cli.js",
+    "test": "node ./dist/cli.js --help"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "typescript": "^5.9.3"
   }
 }

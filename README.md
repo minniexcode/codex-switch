@@ -22,6 +22,7 @@ This scoped package is currently being reserved and scaffolded for the first pub
 The product scope is already defined, but the full CLI feature set is not implemented yet. The first published versions may be bootstrap releases used to reserve the npm package name and establish the command entrypoint.
 
 If you install the package now, expect a minimal CLI shell rather than the complete switching workflow.
+The project is scaffolded as a TypeScript CLI and publishes compiled output from `dist/`.
 
 ## Why This Exists
 
@@ -156,6 +157,14 @@ The first version is not trying to be:
 ## Development
 
 At this stage the package is a bootstrap CLI shell. The implementation will follow the product documents in `docs/`.
+
+Local development:
+
+```bash
+npm install
+npm run build
+node dist/cli.js --help
+```
 
 ## License
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const args = process.argv.slice(2);
+const version = "0.0.1";
 
 const helpText = `codex-switch
 
@@ -12,7 +13,7 @@ Usage:
   codexs --version
 
 Status:
-  This package currently reserves the npm name and exposes the planned CLI entrypoint.
+  This package currently reserves the npm scope and exposes the planned CLI entrypoint.
   The full switching workflow is not implemented yet.
 
 Docs:
@@ -20,7 +21,7 @@ Docs:
 `;
 
 if (args.includes("--version") || args.includes("-v")) {
-  console.log("0.0.1");
+  console.log(version);
   process.exit(0);
 }
 
