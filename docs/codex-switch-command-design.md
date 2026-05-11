@@ -40,7 +40,7 @@
 - 参数显式
 - 输出稳定
 - 能被 AI 和脚本直接消费
-- 不把 GUI 交互假装成 CLI 接口
+- 交互只作为 TTY 中的人类增强层，而不是自动化契约
 
 ## 2. 公共命令约定
 
@@ -106,6 +106,13 @@ codexs
 - `CODEX_LOGIN_FAILED`
 - `ROLLBACK_FAILED`
 - `INVALID_IMPORT_FILE`
+
+### 2.5 渐进式交互约定
+
+- `--json` 一律禁用交互
+- 非 TTY 一律不进入交互
+- 交互主要服务于人类高频写命令，不改变自动化显式参数契约
+- 用户取消 prompt、`Ctrl+C`、或确认选择否时，不应产生任何文件写入
 
 ## 3. 命令清单概览
 
@@ -275,6 +282,12 @@ JSON 示例：
 codexs switch <provider> [--no-login] [--json] [--codex-dir <path>]
 ```
 
+#### 交互行为
+
+- 当 `<provider>` 缺失且当前是 TTY 时，先从 `providers.json` 读取 provider 列表，再用选择器选择 provider
+- 当 `<provider>` 已显式传入时，不额外确认
+- `--no-login` 仍保持显式 flag，不进入提问
+
 #### 前置校验
 
 - `providers.json` 必须存在
@@ -341,6 +354,8 @@ codexs import <file> [--json] [--codex-dir <path>]
 - 只支持整体替换
 - 不支持 merge
 - 写入前备份当前 `providers.json`
+- 路径参数必须显式传入
+- TTY 中实际替换前增加一次确认
 
 #### 成功输出
 
@@ -379,6 +394,8 @@ codexs export <file> [--force] [--json] [--codex-dir <path>]
 
 - 默认不覆盖已有文件
 - 传 `--force` 后允许覆盖
+- 路径参数必须显式传入
+- 当目标文件已存在、当前是 TTY 且未传 `--force` 时，可通过确认后继续覆盖
 
 #### 成功输出
 
@@ -424,7 +441,11 @@ codexs add <provider> \
 
 - provider 名必须唯一
 - 写入前备份旧 `providers.json`
-- 当前不支持交互式模式
+- 显式参数模式保持可用
+- 当缺少必填字段且 stdin/stdout 都是 TTY 时，允许渐进式提问
+- `--json` 或非 TTY 场景下仍要求显式传入必填参数
+- `profile` 优先从 `config.toml` 已有 profile 列表里选择，获取失败时退回文本输入
+- `apiKey` 使用隐藏输入并要求二次确认
 
 #### 成功输出
 
@@ -457,12 +478,15 @@ codexs add <provider> \
 #### 输入
 
 ```bash
-codexs remove <provider> --force [--json] [--codex-dir <path>]
+codexs remove <provider> [--force] [--json] [--codex-dir <path>]
 ```
 
 #### 行为语义
 
-- 必须显式传入 `--force`
+- TTY 中若缺少 `<provider>`，允许先选择 provider
+- TTY 中始终需要确认，确认文案必须带 provider 名
+- TTY 中即使未传 `--force`，也可通过确认完成删除
+- 非 TTY 或 `--json` 场景下仍要求显式 `<provider> --force`
 - 先备份再删除
 
 #### 失败错误码
@@ -536,6 +560,7 @@ codexs rollback [--json] [--codex-dir <path>]
 - 读取 `backups/latest.json`
 - 恢复 manifest 中记录的文件
 - 如果最近一次备份包含 `auth.json`，一并恢复
+- TTY 中执行前会展示备份目录和受影响文件摘要，并请求确认
 
 #### 成功输出
 

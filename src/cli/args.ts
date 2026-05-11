@@ -6,14 +6,6 @@ import { ParsedArgs } from "../app/types";
  * Parses argv into command positionals, global flags, and command-scoped options.
  */
 export function parseArgs(argv: string[]): ParsedArgs {
-  if (argv.includes("--help") || argv.includes("-h")) {
-    return defaultParsed("help");
-  }
-
-  if (argv.includes("--version") || argv.includes("-v")) {
-    return defaultParsed("version");
-  }
-
   let json = false;
   let codexDir = resolveCodexDir();
   const remaining: string[] = [];
@@ -38,12 +30,42 @@ export function parseArgs(argv: string[]): ParsedArgs {
     remaining.push(value);
   }
 
+  if (remaining[0] === "help") {
+    return {
+      command: null,
+      positionals: [],
+      globalOptions: {
+        json,
+        codexDir,
+      },
+      commandOptions: new Map<string, string[]>(),
+      helpRequested: true,
+      helpTarget: remaining[1] ?? null,
+      versionRequested: false,
+    };
+  }
+
+  const versionRequested = remaining.includes("--version") || remaining.includes("-v");
+  if (versionRequested) {
+    return defaultParsed(null, {
+      json,
+      codexDir,
+      versionRequested: true,
+    });
+  }
+
   const command = remaining[0] ?? null;
   const positionals: string[] = [];
   const commandOptions = new Map<string, string[]>();
+  let helpRequested = false;
 
   for (let index = 1; index < remaining.length; index += 1) {
     const value = remaining[index];
+    if (value === "--help" || value === "-h") {
+      helpRequested = true;
+      continue;
+    }
+
     if (value.startsWith("--")) {
       const optionName = value;
       const next = remaining[index + 1];
@@ -71,21 +93,36 @@ export function parseArgs(argv: string[]): ParsedArgs {
       codexDir,
     },
     commandOptions,
+    helpRequested,
+    helpTarget: helpRequested ? command : null,
+    versionRequested: false,
   };
 }
 
 /**
  * Creates a parsed result for built-in synthetic commands such as help/version.
  */
-function defaultParsed(command: string): ParsedArgs {
+function defaultParsed(
+  command: string | null,
+  overrides?: {
+    json?: boolean;
+    codexDir?: string;
+    helpRequested?: boolean;
+    helpTarget?: string | null;
+    versionRequested?: boolean;
+  }
+): ParsedArgs {
   return {
     command,
     positionals: [],
     globalOptions: {
-      json: false,
-      codexDir: resolveCodexDir(),
+      json: overrides?.json ?? false,
+      codexDir: overrides?.codexDir ?? resolveCodexDir(),
     },
     commandOptions: new Map<string, string[]>(),
+    helpRequested: overrides?.helpRequested ?? false,
+    helpTarget: overrides?.helpTarget ?? null,
+    versionRequested: overrides?.versionRequested ?? false,
   };
 }
 

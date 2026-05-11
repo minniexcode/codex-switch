@@ -84,6 +84,29 @@ Shared flags:
 --codex-dir <path>
 ```
 
+## CLI Experience
+
+The CLI supports both explicit automation-friendly commands and progressive terminal flows for high-frequency human write commands.
+
+- explicit flags remain the primary contract for scripts and AI agents
+- `codexs add` prompts for missing required values in a real TTY
+- `codexs switch` can let you select a provider when `<provider>` is omitted in a TTY
+- `codexs remove` selects and confirms deletions in a TTY, while automation still requires `--force`
+- `codexs import`, `codexs export`, and `codexs rollback` ask for dangerous-action confirmation in a TTY
+- `--json` stays non-interactive and should be used for machine parsing
+
+Examples:
+
+```bash
+codexs help
+codexs help add
+codexs add packycode --profile packycode --api-key sk-xxx
+codexs add
+codexs switch
+codexs remove freemodel
+codexs rollback
+```
+
 ## Example Provider Model
 
 Planned `providers.json` shape:
@@ -145,6 +168,8 @@ Current implementation characteristics:
 - rollback support for `config.toml` and optional `auth.json`
 - `status` and `doctor` expose live-state drift so future backfill/edit/sync flows can reuse the same core model
 - stable `--json` envelopes for automation
+- richer top-level and command-specific help output
+- inquirer-backed progressive TTY flows for add, switch, remove, import/export confirmations, and rollback confirmation
 - test coverage in `tests/` using a custom serial runner (`tests/run-tests.js`) because the current environment hits `node --test` worker/spawn restrictions
 
 ## Storage Model

@@ -236,6 +236,27 @@ scripts/
 - 文件访问
 - 输出格式化
 
+#### `src/cli/prompt.ts`
+
+负责：
+
+- 对 `inquirer` 做轻量封装
+- 提供 `input` / `password` / `select` / `confirm` 四类 typed 交互能力
+- 把 prompt 取消统一转换成稳定 CLI 错误
+
+不负责：
+
+- 业务判断某个命令是否应该进入交互
+- 直接读写 provider/config 文件
+
+#### `src/cli/interactive.ts`
+
+负责：
+
+- 统一判定何时允许交互
+- 组合 provider 选择、危险确认、rollback 摘要展示等 CLI 级辅助逻辑
+- 保持命令分支对交互的接入方式一致
+
 #### `src/cli/output.ts`
 
 负责：
@@ -524,19 +545,20 @@ scripts/
 
 流程如下：
 
-1. 获取单操作写锁
-2. 读取并解析 `providers.json`
-3. 校验目标 provider 是否存在
-4. 读取 `config.toml`
-5. 校验 provider 对应的 `profile` 在配置中存在
-6. 创建备份：
+1. CLI 层在 TTY 且 `<provider>` 缺失时，先用 selector 选 provider
+2. 获取单操作写锁
+3. 读取并解析 `providers.json`
+4. 校验目标 provider 是否存在
+5. 读取 `config.toml`
+6. 校验 provider 对应的 `profile` 在配置中存在
+7. 创建备份：
    - `config.toml`
    - `auth.json`（如果存在）
-7. 更新顶层 `profile`
-8. 如果未传 `--no-login`，执行 `codex login --with-api-key`
-9. 成功后把这次备份记录为 `latest.json`
-10. 若任何步骤失败，按 manifest 回滚
-11. 释放写锁
+8. 更新顶层 `profile`
+9. 如果未传 `--no-login`，执行 `codex login --with-api-key`
+10. 成功后把这次备份记录为 `latest.json`
+11. 若任何步骤失败，按 manifest 回滚
+12. 释放写锁
 
 #### 为什么 `switch` 必须由应用层编排
 
@@ -625,11 +647,13 @@ failure path:
 
 流程：
 
-1. 读取外部文件
-2. 校验 JSON 和 schema
-3. 备份当前 `providers.json`
-4. 整体替换写入
-5. 写失败则恢复旧文件
+1. CLI 层保留显式路径参数
+2. TTY 中写入前先确认
+3. 读取外部文件
+4. 校验 JSON 和 schema
+5. 备份当前 `providers.json`
+6. 整体替换写入
+7. 写失败则恢复旧文件
 
 当前明确不支持 merge import。
 
@@ -639,37 +663,46 @@ failure path:
 
 1. 读取当前 `providers.json`
 2. 检查目标文件是否存在
-3. 默认拒绝覆盖
-4. 传入 `--force` 时允许覆盖
+3. TTY 中若文件已存在且未传 `--force`，先确认是否覆盖
+4. 默认拒绝覆盖
+5. 传入 `--force` 或确认覆盖时允许写入
 
 ### 6.8 `add`
 
 流程：
 
-1. 读取现有 provider 集合
-2. 校验重名
-3. 备份旧文件
-4. 追加一条 provider 记录
-5. 写回 `providers.json`
+1. CLI 层仅在缺失必填字段且当前是 TTY 时进入交互
+2. provider 名在 prompt 阶段尽早做重名检查
+3. profile 优先从 `config.toml` 里解析出的现有 profile 列表选择
+4. apiKey 通过隐藏输入采集并二次确认
+5. 读取现有 provider 集合
+6. 校验重名
+7. 备份旧文件
+8. 追加一条 provider 记录
+9. 写回 `providers.json`
 
 ### 6.9 `remove`
 
 流程：
 
-1. 校验 provider 存在
-2. 要求显式 `--force`
-3. 备份 `providers.json`
-4. 删除目标 provider
-5. 写回
+1. CLI 层在 TTY 且缺少 provider 时可先选择 provider
+2. CLI 层在 TTY 中始终做删除确认
+3. 非 TTY 或 `--json` 场景继续要求显式 `--force`
+4. 校验 provider 存在
+5. 备份 `providers.json`
+6. 删除目标 provider
+7. 写回
 
 ### 6.10 `rollback`
 
 流程：
 
-1. 读取 `backups/latest.json`
-2. 加载最近一次 manifest
-3. 按 manifest 恢复文件
-4. 返回恢复文件列表和备份目录
+1. TTY 中先读取 `backups/latest.json`
+2. 展示备份目录和待恢复文件摘要
+3. 请求确认
+4. 加载最近一次 manifest
+5. 按 manifest 恢复文件
+6. 返回恢复文件列表和备份目录
 
 #### `rollback` 时序图
 
@@ -934,15 +967,23 @@ tests/
 
 从 MVP 可用性上没问题，但长期更推荐拆成专门的 CLI availability 错误。
 
-### 13.3 当前没有真正的交互式命令层
+### 13.3 当前交互式命令层范围仍然受控
 
-现在所有命令都是显式参数模式，没有：
+当前 CLI 仍以显式参数模式为主，但已经把 `inquirer` 交互扩展到了高频写命令：
 
-- 交互式 provider 选择
-- 向导式 add/import
+- `add` 缺失必填字段时的渐进式提问
+- `switch` 的 provider 选择
+- `remove` 的 provider 选择与确认
+- `import` / `export` 的危险确认
+- `rollback` 的恢复确认
+
+当前仍然没有：
+
+- 路径向导式 import/export
 - TUI 状态面板
+- 脱离显式参数契约的自动化交互
 
-这符合 PRD 的 MVP 边界。
+这继续保持了 CLI-first 和自动化优先的主体边界。
 
 ### 13.4 尚未引入持久化审计日志
 

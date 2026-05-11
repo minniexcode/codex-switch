@@ -99,6 +99,10 @@ AI 需要通过 `status` 或 `doctor --json` 判断本地配置是否完整、�
 
 关键命令必须提供稳定、可解析的 `--json` 输出。
 
+### Progressive For Humans
+
+高频人类写命令可以在 TTY 中提供渐进式交互，但这层体验不能改变自动化的显式参数契约。
+
 ### Local First
 
 MVP 的核心对象是本地文件与本机配置，不依赖云端控制面。
@@ -278,6 +282,12 @@ MVP 固定包含以下命令：
 - 位置参数：`<provider>`
 - 可选参数：`--no-login`
 
+交互边界：
+
+- 当 `<provider>` 缺失且运行在 TTY 中时，允许用户从 provider 列表中选择
+- `--json` 或非 TTY 场景下仍要求显式 provider
+- 当 provider 已显式传入时，不做额外确认
+
 前置校验：
 
 - `providers.json` 存在且可解析
@@ -346,6 +356,8 @@ MVP 固定包含以下命令：
 说明：
 
 - MVP 不做 merge 导入，固定为整体替换
+- 路径参数保持显式，不做路径向导
+- TTY 中在真正覆盖前增加确认
 
 ### `codexs export <file>`
 
@@ -361,6 +373,8 @@ MVP 固定包含以下命令：
 
 - 默认不覆盖已有文件
 - 只有传入 `--force` 时才允许覆盖
+- TTY 中若目标已存在且未传 `--force`，允许通过确认覆盖
+- 非 TTY 与 `--json` 保持显式 `--force` 契约
 
 ### `codexs add <provider>`
 
@@ -383,8 +397,11 @@ MVP 固定包含以下命令：
 
 范围限制：
 
-- MVP 只支持显式参数模式
-- 不提供交互式 wizard
+- 显式参数模式仍是自动化主路径
+- 当 `add` 缺少必填参数且运行在 TTY 中时，允许进入渐进式交互录入
+- `--json` 或非 TTY 场景下仍要求显式传参
+- `profile` 优先展示 `config.toml` 中现有 profile 供选择
+- `apiKey` 以隐藏输入采集并要求二次确认
 
 ### `codexs remove <provider>`
 
@@ -406,7 +423,8 @@ MVP 固定包含以下命令：
 
 范围限制：
 
-- 自动化调用场景下，要求显式传 `--force`
+- TTY 中可选择 provider，并通过确认代替 `--force`
+- 自动化调用场景下，仍要求显式传 `--force`
 
 ### `codexs doctor`
 
@@ -442,6 +460,7 @@ MVP 固定包含以下命令：
 说明：
 
 - `rollback` 进入 MVP，因为它直接支撑“默认安全”的产品承诺
+- TTY 中在恢复前展示将被恢复的文件摘要，并请求确认
 
 ## 输出契约
 

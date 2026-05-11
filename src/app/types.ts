@@ -14,6 +14,9 @@ export type ParsedArgs = {
   positionals: string[];
   globalOptions: GlobalOptions;
   commandOptions: Map<string, string[]>;
+  helpRequested: boolean;
+  helpTarget: string | null;
+  versionRequested: boolean;
 };
 
 /**
