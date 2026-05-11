@@ -1,6 +1,6 @@
-# codex-switch
+# @minniexcode/codex-switch
 
-`codex-switch` is a local-first CLI for managing and switching Codex provider/profile configuration safely.
+`@minniexcode/codex-switch` is a local-first CLI for managing and switching Codex provider/profile configuration safely.
 
 Current product direction:
 
@@ -17,7 +17,7 @@ codexs
 
 ## Status
 
-This package is currently being reserved and scaffolded for the first public release.
+This scoped package is currently being reserved and scaffolded for the first public release.
 
 The product scope is already defined, but the full CLI feature set is not implemented yet. The first published versions may be bootstrap releases used to reserve the npm package name and establish the command entrypoint.
 
@@ -30,7 +30,7 @@ Managing multiple Codex providers or profiles locally usually falls into two bad
 - ad hoc scripts that work once but are hard to maintain
 - heavier account or desktop tools that solve a broader problem than local switching
 
-`codex-switch` sits between those extremes. It aims to provide a stable CLI interface for:
+`@minniexcode/codex-switch` sits between those extremes. It aims to provide a stable CLI interface for:
 
 - viewing the current Codex profile
 - listing locally configured providers
@@ -42,7 +42,7 @@ Managing multiple Codex providers or profiles locally usually falls into two bad
 
 ## Product Definition
 
-`codex-switch` is intended to manage files under `~/.codex/`:
+`@minniexcode/codex-switch` is intended to manage files under `~/.codex/`:
 
 ```text
 ~/.codex/
@@ -109,13 +109,13 @@ Planned `providers.json` shape:
 Global install:
 
 ```bash
-npm install -g codex-switch
+npm install -g @minniexcode/codex-switch
 ```
 
 One-off execution:
 
 ```bash
-npx codex-switch
+npx @minniexcode/codex-switch
 ```
 
 Current bootstrap behavior:
