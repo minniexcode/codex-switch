@@ -1,0 +1,38 @@
+{
+  "name": "codex-switch",
+  "version": "0.0.1",
+  "description": "Local-first CLI for managing and switching Codex provider/profile configuration.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "codexs": "./bin/codexs.js"
+  },
+  "files": [
+    "bin",
+    "docs",
+    "README.md"
+  ],
+  "keywords": [
+    "codex",
+    "cli",
+    "switch",
+    "provider",
+    "profile",
+    "automation"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/minniexcode/codex-switch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/minniexcode/codex-switch/issues"
+  },
+  "homepage": "https://github.com/minniexcode/codex-switch#readme",
+  "scripts": {
+    "start": "node ./bin/codexs.js",
+    "test": "node ./bin/codexs.js --help"
+  }
+}
