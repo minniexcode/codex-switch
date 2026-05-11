@@ -32,6 +32,9 @@
     "url": "https://github.com/minniexcode/codex-switch/issues"
   },
   "homepage": "https://github.com/minniexcode/codex-switch#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
