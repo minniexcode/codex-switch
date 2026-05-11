@@ -1,10 +1,13 @@
 import { cleanProviderRecord } from "../domain/providers";
-import { cliError, normalizeError } from "../domain/errors";
-import { createBackup, restoreManifest, saveLatestManifest } from "../infra/backup-repo";
+import { cliError } from "../domain/errors";
 import { ensureDir } from "../infra/fs-utils";
 import { readProvidersFileIfExists, writeProvidersFile } from "../infra/providers-repo";
+import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 
+/**
+ * Adds a new provider record to the managed providers registry.
+ */
 export function addProvider(args: {
   codexDir: string;
   backupsDir: string;
@@ -23,10 +26,6 @@ export function addProvider(args: {
     throw cliError("INVALID_IMPORT_FILE", `Provider "${args.providerName}" already exists.`);
   }
 
-  const backup = createBackup(args.codexDir, args.backupsDir, "add", [
-    { absolutePath: args.providersPath, relativePath: "providers.json" },
-  ]);
-
   const next = {
     providers: {
       ...providers.providers,
@@ -40,31 +39,19 @@ export function addProvider(args: {
     },
   };
 
-  try {
-    writeProvidersFile(args.providersPath, next);
-    saveLatestManifest(args.latestBackupPath, backup);
-    return {
-      data: {
+  return runMutation({
+    codexDir: args.codexDir,
+    backupsDir: args.backupsDir,
+    latestBackupPath: args.latestBackupPath,
+    operation: "add",
+    files: [{ absolutePath: args.providersPath, relativePath: "providers.json" }],
+    mutate: () => {
+      // Persist only the normalized provider payload so later reads are deterministic.
+      writeProvidersFile(args.providersPath, next);
+      return {
         provider: args.providerName,
         profile: args.profile,
-        backupPath: backup.backupDir,
-      },
-    };
-  } catch (error: unknown) {
-    try {
-      restoreManifest(backup);
-    } catch (rollbackError: unknown) {
-      throw cliError("ROLLBACK_FAILED", "Add failed and rollback was not successful.", {
-        cause: normalizeError(error).message,
-        rollbackReason: normalizeError(rollbackError).message,
-        backupPath: backup.backupDir,
-      });
-    }
-
-    throw cliError("INVALID_IMPORT_FILE", "Add failed and previous providers.json was restored.", {
-      cause: normalizeError(error).message,
-      rollbackApplied: true,
-      backupPath: backup.backupDir,
-    });
-  }
+      };
+    },
+  });
 }

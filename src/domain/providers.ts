@@ -1,3 +1,6 @@
+/**
+ * Provider definition stored in providers.json.
+ */
 export type ProviderRecord = {
   profile: string;
   apiKey: string;
@@ -6,10 +9,16 @@ export type ProviderRecord = {
   tags?: string[];
 };
 
+/**
+ * Root providers.json document shape.
+ */
 export type ProvidersFile = {
   providers: Record<string, ProviderRecord>;
 };
 
+/**
+ * Validates and normalizes unknown JSON into the providers.json domain model.
+ */
 export function validateProvidersShape(input: unknown): ProvidersFile {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("Root value must be an object.");
@@ -47,6 +56,7 @@ export function validateProvidersShape(input: unknown): ProvidersFile {
       throw new Error(`Provider "${name}" has invalid tags.`);
     }
 
+    // Normalize provider fields during validation so the persisted format stays clean.
     providers[name] = cleanProviderRecord({
       profile: provider.profile,
       apiKey: provider.apiKey,
@@ -59,6 +69,9 @@ export function validateProvidersShape(input: unknown): ProvidersFile {
   return { providers };
 }
 
+/**
+ * Trims optional fields and removes empty values from a provider record.
+ */
 export function cleanProviderRecord(record: ProviderRecord): ProviderRecord {
   const next: ProviderRecord = {
     profile: record.profile.trim(),
@@ -78,6 +91,9 @@ export function cleanProviderRecord(record: ProviderRecord): ProviderRecord {
   return next;
 }
 
+/**
+ * Returns a copy of the providers file with provider names sorted deterministically.
+ */
 export function sortProviders(providers: ProvidersFile): ProvidersFile {
   const orderedProviders = Object.keys(providers.providers)
     .sort()
@@ -89,6 +105,9 @@ export function sortProviders(providers: ProvidersFile): ProvidersFile {
   return { providers: orderedProviders };
 }
 
+/**
+ * Finds the provider name associated with a given Codex profile.
+ */
 export function findProviderByProfile(providers: ProvidersFile, profile: string): string | null {
   for (const [name, provider] of Object.entries(providers.providers)) {
     if (provider.profile === profile) {

@@ -5,6 +5,9 @@ import { ensureDir } from "../infra/fs-utils";
 import { readProvidersFile, writeProvidersFile } from "../infra/providers-repo";
 import { CommandResult } from "./types";
 
+/**
+ * Exports the current providers registry to a user-specified file.
+ */
 export function exportProviders(args: {
   providersPath: string;
   targetFile: string;
@@ -18,6 +21,7 @@ export function exportProviders(args: {
   }
 
   const providers = readProvidersFile(args.providersPath);
+  // Create the target directory first so exports work for nested paths.
   ensureDir(path.dirname(absoluteTarget));
   writeProvidersFile(absoluteTarget, providers);
 

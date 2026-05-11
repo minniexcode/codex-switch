@@ -1,10 +1,14 @@
 import * as fs from "node:fs";
 import { parseProfileNames, parseTopLevelProfile } from "../domain/config";
+import { getStorageRoles, inspectLiveStateDrift } from "../domain/runtime-state";
 import { checkCodexAvailable } from "../infra/codex-cli";
 import { readProvidersFile } from "../infra/providers-repo";
 import { normalizeError } from "../domain/errors";
 import { CommandResult } from "./types";
 
+/**
+ * Performs consistency checks across config.toml, providers.json, and the local Codex CLI.
+ */
 export function runDoctor(args: {
   codexDir: string;
   configPath: string;
@@ -12,6 +16,8 @@ export function runDoctor(args: {
 }): CommandResult {
   const issues: Array<Record<string, unknown>> = [];
   let configProfiles: Set<string> = new Set();
+  let currentProfile: string | null = null;
+  let providers = null;
 
   if (!fs.existsSync(args.configPath)) {
     issues.push({
@@ -22,7 +28,8 @@ export function runDoctor(args: {
   } else {
     const configContent = fs.readFileSync(args.configPath, "utf8");
     configProfiles = parseProfileNames(configContent);
-    if (!parseTopLevelProfile(configContent)) {
+    currentProfile = parseTopLevelProfile(configContent);
+    if (!currentProfile) {
       issues.push({
         code: "PROFILE_NOT_FOUND",
         message: "config.toml has no top-level profile.",
@@ -39,7 +46,8 @@ export function runDoctor(args: {
     });
   } else {
     try {
-      const providers = readProvidersFile(args.providersPath);
+      providers = readProvidersFile(args.providersPath);
+      // Every managed provider must map to a profile that still exists in config.toml.
       for (const [name, provider] of Object.entries(providers.providers)) {
         if (!configProfiles.has(provider.profile)) {
           issues.push({
@@ -60,6 +68,18 @@ export function runDoctor(args: {
     }
   }
 
+  const drift = inspectLiveStateDrift(currentProfile, providers);
+  if (drift.canBackfillActiveProvider) {
+    // Distinguish unmanaged live state from hard parse/configuration errors.
+    issues.push({
+      code: "LIVE_STATE_DRIFT",
+      message: `Active profile "${drift.currentProfile}" is present in config.toml but not mapped by providers.json.`,
+      currentProfile: drift.currentProfile,
+      suggestedAction: "backfill-active-provider",
+      storage: getStorageRoles(),
+    });
+  }
+
   const codexCheck = checkCodexAvailable();
   if (!codexCheck.ok) {
     issues.push({
@@ -74,6 +94,8 @@ export function runDoctor(args: {
       healthy: issues.length === 0,
       issues,
       codexDir: args.codexDir,
+      storage: getStorageRoles(),
+      liveState: drift,
     },
     warnings: issues.length === 0 ? [] : [`doctor found ${issues.length} issue(s)`],
   };

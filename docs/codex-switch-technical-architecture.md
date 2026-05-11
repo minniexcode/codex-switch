@@ -97,6 +97,10 @@
   - 关键命令支持统一 JSON envelope
 - `Low Coupling`
   - 参数解析、业务编排、文件访问、错误模型彼此解耦
+- `Split State Model`
+  - `providers.json` 是管理态事实源，`config.toml` / `auth.json` 是运行态镜像
+- `Lightweight Transactions`
+  - 单次写操作要有锁、备份、回滚边界
 
 ### 3.2 分层结构
 
@@ -117,6 +121,14 @@ Infrastructure 层
 ```
 
 这四层的边界是当前架构最重要的维护基础。
+
+当前实现还明确区分三类状态对象：
+
+- 管理态单一事实源：`providers.json`
+- 运行态镜像：`config.toml`、`auth.json`
+- 回滚态：`backups/latest.json` 和对应 manifest
+
+这意味着未来即使引入 GUI / MCP / HTTP 适配层，核心同步目标仍然是 runtime files，而不是把 runtime files 本身当成长期管理数据库。
 
 ### 3.3 模块依赖图
 
@@ -253,11 +265,13 @@ scripts/
 - `remove-provider.ts`
 - `run-doctor.ts`
 - `rollback-latest.ts`
+- `run-mutation.ts`
 
 这一层的职责是：
 
 - 组合多个 infra 能力
 - 串起校验、备份、写入、回滚、输出数据准备
+- 为所有写操作提供统一 orchestration contract
 - 保证命令行为满足 PRD 语义
 
 它不关心：
@@ -280,6 +294,8 @@ scripts/
 - `BACKUP_FAILED`
 - `CODEX_LOGIN_FAILED`
 - `ROLLBACK_FAILED`
+- `LOCK_CONFLICT`
+- `LIVE_STATE_DRIFT`
 - `INVALID_IMPORT_FILE`
 
 并提供：
@@ -365,6 +381,14 @@ scripts/
 - 记录 `latest.json`
 - 依据 manifest 恢复文件
 
+#### `lock-repo.ts`
+
+负责轻量并发控制：
+
+- 在 `~/.codex/.codex-switch.lock` 上建立单操作锁
+- 并发写入时快速失败
+- 为 CLI、脚本和 AI agent 并发调用提供最小安全边界
+
 #### `codex-cli.ts`
 
 负责调用真实 `codex` CLI：
@@ -426,6 +450,8 @@ scripts/
   - 选填
   - 预留给未来筛选与推荐
 
+从建模角度看，`providers.json` 是管理态 SSOT。未来如果支持 backfill，也应是显式命令把受控的 live 信息反向写回 registry，而不是默认把 runtime file 当成事实源。
+
 ### 5.2 `config.toml`
 
 当前实现只关心两类信息：
@@ -439,7 +465,17 @@ scripts/
 - 深度解析 profile 内部更多字段
 - 管理 base URL 或模型等 profile 内容
 
-### 5.3 备份 manifest
+它在当前架构里属于运行态镜像，只承担“当前活跃 profile 落地”的职责。
+
+### 5.3 `auth.json`
+
+当前实现不直接建模其内部字段，但它有明确架构角色：
+
+- 属于运行态镜像
+- 在存在时纳入备份与回滚
+- 不是 provider registry 的事实源
+
+### 5.4 备份 manifest
 
 当前备份 manifest 记录：
 
@@ -488,17 +524,19 @@ scripts/
 
 流程如下：
 
-1. 读取并解析 `providers.json`
-2. 校验目标 provider 是否存在
-3. 读取 `config.toml`
-4. 校验 provider 对应的 `profile` 在配置中存在
-5. 创建备份：
+1. 获取单操作写锁
+2. 读取并解析 `providers.json`
+3. 校验目标 provider 是否存在
+4. 读取 `config.toml`
+5. 校验 provider 对应的 `profile` 在配置中存在
+6. 创建备份：
    - `config.toml`
    - `auth.json`（如果存在）
-6. 更新顶层 `profile`
-7. 如果未传 `--no-login`，执行 `codex login --with-api-key`
-8. 成功后把这次备份记录为 `latest.json`
-9. 若任何步骤失败，按 manifest 回滚
+7. 更新顶层 `profile`
+8. 如果未传 `--no-login`，执行 `codex login --with-api-key`
+9. 成功后把这次备份记录为 `latest.json`
+10. 若任何步骤失败，按 manifest 回滚
+11. 释放写锁
 
 #### 为什么 `switch` 必须由应用层编排
 
@@ -519,6 +557,7 @@ User/Agent
   -> CLI parseArgs
   -> executeCommand("switch")
   -> app/switchProvider
+  -> app/runMutation
   -> providers-repo.readProvidersFile
   -> config-repo.ensureProfileExists
   -> backup-repo.createBackup
@@ -560,6 +599,8 @@ failure path:
 - `currentProfile`
 - `currentProfileMapped`
 - `provider`
+- `liveState`
+- `storage`
 
 ### 6.5 `doctor`
 
@@ -571,6 +612,7 @@ failure path:
 - `providers.json` 是否存在
 - `providers.json` 是否可解析
 - provider 映射的 profile 是否存在
+- 当前 live profile 是否已经脱离 `providers.json` 映射
 - `codex` CLI 是否可执行
 
 当前实现里，如果 `codex` 不可执行，会返回：
@@ -690,6 +732,14 @@ CLI
 - 失败后按 manifest 恢复受影响文件
 
 这样更安全，也更容易扩展到未来多文件事务。
+
+当前进一步把“事务”固定为单操作窗口：
+
+- 先拿锁
+- 再备份
+- 再变更
+- 失败则补偿恢复
+- 最后释放锁
 
 ### 8.3 错误传播路径
 

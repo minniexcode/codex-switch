@@ -7,14 +7,22 @@ export type ErrorCode =
   | "BACKUP_FAILED"
   | "CODEX_LOGIN_FAILED"
   | "ROLLBACK_FAILED"
+  | "LOCK_CONFLICT"
+  | "LIVE_STATE_DRIFT"
   | "INVALID_IMPORT_FILE";
 
+/**
+ * Structured error payload shared by CLI rendering and domain services.
+ */
 export type CliErrorShape = {
   code: ErrorCode;
   message: string;
   details?: Record<string, unknown>;
 };
 
+/**
+ * Creates an Error instance enriched with a stable CLI error code and optional details.
+ */
 export function cliError(
   code: ErrorCode,
   message: string,
@@ -26,6 +34,9 @@ export function cliError(
   return error;
 }
 
+/**
+ * Normalizes unknown thrown values into the shared CLI error shape.
+ */
 export function normalizeError(error: unknown): CliErrorShape {
   if (error && typeof error === "object" && "code" in error && "message" in error) {
     const candidate = error as Partial<CliErrorShape>;

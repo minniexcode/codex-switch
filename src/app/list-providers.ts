@@ -1,6 +1,9 @@
 import { CommandResult } from "./types";
 import { readProvidersFile } from "../infra/providers-repo";
 
+/**
+ * Returns the sorted list of configured providers for display.
+ */
 export function listProviders(providersPath: string): CommandResult {
   const providers = readProvidersFile(providersPath);
   const names = Object.keys(providers.providers).sort();

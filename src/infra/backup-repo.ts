@@ -4,6 +4,9 @@ import { BackupManifest, FileBackupEntry } from "../domain/backup";
 import { cliError, normalizeError } from "../domain/errors";
 import { ensureDir, writeTextFileAtomic } from "./fs-utils";
 
+/**
+ * Creates a point-in-time backup for the managed files involved in a mutation.
+ */
 export function createBackup(
   codexDir: string,
   backupsDir: string,
@@ -20,6 +23,7 @@ export function createBackup(
       const exists = fs.existsSync(file.absolutePath);
       const backupFileName = exists ? file.relativePath.replace(/[\\/]/g, "__") : null;
       if (exists && backupFileName) {
+        // Flatten relative paths into a single filename inside the backup directory.
         fs.copyFileSync(file.absolutePath, path.join(backupDir, backupFileName));
       }
 
@@ -48,11 +52,15 @@ export function createBackup(
   }
 }
 
+/**
+ * Restores all files described by a backup manifest back into the Codex directory.
+ */
 export function restoreManifest(manifest: BackupManifest): void {
   for (const entry of manifest.files) {
     const targetPath = path.join(manifest.rootDir, entry.relativePath);
     if (!entry.existed) {
       if (fs.existsSync(targetPath)) {
+        // Remove files that were created by the failed mutation but were absent before it.
         fs.rmSync(targetPath, { force: true });
       }
       continue;
@@ -72,10 +80,16 @@ export function restoreManifest(manifest: BackupManifest): void {
   }
 }
 
+/**
+ * Persists the latest successful backup manifest for manual rollback.
+ */
 export function saveLatestManifest(latestBackupPath: string, manifest: BackupManifest): void {
   writeTextFileAtomic(latestBackupPath, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
+/**
+ * Loads and validates the latest rollback manifest file.
+ */
 export function loadLatestManifest(latestBackupPath: string): BackupManifest {
   if (!fs.existsSync(latestBackupPath)) {
     throw cliError("ROLLBACK_FAILED", "No rollback backup is available.", {
@@ -97,6 +111,9 @@ export function loadLatestManifest(latestBackupPath: string): BackupManifest {
   }
 }
 
+/**
+ * Formats a filesystem-safe timestamp for backup directory names.
+ */
 function createTimestamp(): string {
   const now = new Date();
   const pad = (value: number) => value.toString().padStart(2, "0");

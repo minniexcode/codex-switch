@@ -9,6 +9,7 @@ const {
   cleanProviderRecord,
   findProviderByProfile,
 } = require("../dist/domain/providers");
+const { inspectLiveStateDrift, getStorageRoles } = require("../dist/domain/runtime-state");
 
 function run() {
   const content = [
@@ -58,6 +59,23 @@ function run() {
     "freemodel"
   );
   assert.equal(name, "freemodel");
+
+  assert.deepEqual(getStorageRoles(), {
+    managementSSOT: "providers.json",
+    runtimeMirrors: ["config.toml", "auth.json"],
+    rollbackState: "backups/latest.json",
+  });
+
+  const drift = inspectLiveStateDrift("freemodel", {
+    providers: {
+      packycode: {
+        profile: "packycode",
+        apiKey: "sk-123",
+      },
+    },
+  });
+  assert.equal(drift.canBackfillActiveProvider, true);
+  assert.equal(drift.reason, "provider-unmapped");
 }
 
 module.exports = { run };

@@ -2,11 +2,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { validateProvidersShape } from "../domain/providers";
 import { cliError, normalizeError } from "../domain/errors";
-import { createBackup, restoreManifest, saveLatestManifest } from "../infra/backup-repo";
 import { ensureDir } from "../infra/fs-utils";
 import { writeProvidersFile } from "../infra/providers-repo";
+import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 
+/**
+ * Imports provider definitions from an external JSON file into the managed registry.
+ */
 export function importProviders(args: {
   codexDir: string;
   backupsDir: string;
@@ -17,6 +20,7 @@ export function importProviders(args: {
   const absoluteSource = path.resolve(args.sourceFile);
   let imported;
   try {
+    // Validate before writing so malformed imports never touch the managed file.
     imported = validateProvidersShape(JSON.parse(fs.readFileSync(absoluteSource, "utf8")));
   } catch (error: unknown) {
     throw cliError("INVALID_IMPORT_FILE", "Import file is not valid providers.json data.", {
@@ -26,34 +30,17 @@ export function importProviders(args: {
   }
 
   ensureDir(args.codexDir);
-  const backup = createBackup(args.codexDir, args.backupsDir, "import", [
-    { absolutePath: args.providersPath, relativePath: "providers.json" },
-  ]);
-
-  try {
-    writeProvidersFile(args.providersPath, imported);
-    saveLatestManifest(args.latestBackupPath, backup);
-    return {
-      data: {
+  return runMutation({
+    codexDir: args.codexDir,
+    backupsDir: args.backupsDir,
+    latestBackupPath: args.latestBackupPath,
+    operation: "import",
+    files: [{ absolutePath: args.providersPath, relativePath: "providers.json" }],
+    mutate: () => {
+      writeProvidersFile(args.providersPath, imported);
+      return {
         importedProviders: Object.keys(imported.providers).sort(),
-        backupPath: backup.backupDir,
-      },
-    };
-  } catch (error: unknown) {
-    try {
-      restoreManifest(backup);
-    } catch (rollbackError: unknown) {
-      throw cliError("ROLLBACK_FAILED", "Import failed and rollback was not successful.", {
-        cause: normalizeError(error).message,
-        rollbackReason: normalizeError(rollbackError).message,
-        backupPath: backup.backupDir,
-      });
-    }
-
-    throw cliError("INVALID_IMPORT_FILE", "Import failed and previous providers.json was restored.", {
-      cause: normalizeError(error).message,
-      backupPath: backup.backupDir,
-      rollbackApplied: true,
-    });
-  }
+      };
+    },
+  });
 }

@@ -15,7 +15,7 @@ import { createCodexPaths } from "./infra/codex-paths";
 import { parseArgs, getSingleOption, hasFlag } from "./cli/args";
 import { outputFailure, outputSuccess } from "./cli/output";
 
-const VERSION = "0.0.1";
+const VERSION = "0.0.2";
 
 const HELP_TEXT = `codex-switch
 
@@ -40,14 +40,23 @@ Global options:
   --help
   --version`;
 
+/**
+ * Prints the command help text to stdout.
+ */
 export function printHelp(): void {
   process.stdout.write(`${HELP_TEXT}\n`);
 }
 
+/**
+ * Prints the current CLI version to stdout.
+ */
 export function printVersion(): void {
   process.stdout.write(`${VERSION}\n`);
 }
 
+/**
+ * Parses arguments, dispatches the selected command, and renders the final output.
+ */
 function main(): void {
   const parsed = parseArgs(process.argv.slice(2));
 
@@ -80,6 +89,9 @@ function main(): void {
     });
 }
 
+/**
+ * Dispatches a parsed CLI command into the application layer.
+ */
 export async function executeCommand(ctx: CommandContext, parsed: ParsedArgs): Promise<CommandResult> {
   const paths = createCodexPaths(ctx.options.codexDir);
 

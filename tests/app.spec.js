@@ -26,6 +26,7 @@ function run() {
   testDoctor();
   testFailurePaths();
   testListAndDoctorErrorPaths();
+  testLiveStateDriftAndLockConflict();
 }
 
 function testReadCommands() {
@@ -42,6 +43,8 @@ function testReadCommands() {
     const status = getStatus(paths.codexDir, paths.configPath, paths.providersPath);
     assert.equal(status.data.currentProfile, "packycode");
     assert.equal(status.data.provider, "packycode");
+    assert.equal(status.data.storage.managementSSOT, "providers.json");
+    assert.equal(status.data.liveState.reason, "ok");
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -169,6 +172,7 @@ function testSwitchSuccessWithLogin() {
       });
       assert.equal(switched.data.provider, "freemodel");
       assert.equal(switched.data.loginPerformed, true);
+      assert.equal(switched.data.managedState.transaction, "single-process-file-lock");
     } finally {
       resetCodexSpawnImplementation();
     }
@@ -220,6 +224,7 @@ function testDoctor() {
       providersPath: paths.providersPath,
     });
     assert.equal(Array.isArray(doctor.data.issues), true);
+    assert.equal(doctor.data.storage.managementSSOT, "providers.json");
     resetCodexSpawnImplementation();
   } finally {
     resetCodexSpawnImplementation();
@@ -354,6 +359,68 @@ function testListAndDoctorErrorPaths() {
     });
     const configIssueCodes = doctorWithoutConfig.data.issues.map((issue) => issue.code);
     assert.equal(configIssueCodes.includes("CONFIG_NOT_FOUND"), true);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testLiveStateDriftAndLockConflict() {
+  const tempRoot = makeTempRoot();
+  try {
+    const paths = createFixturePaths(path.join(tempRoot, "case-drift-lock"));
+
+    fs.writeFileSync(
+      paths.configPath,
+      [
+        'profile = "manual-only"',
+        "",
+        "[profiles.packycode]",
+        'model = "gpt-5"',
+        "",
+        "[profiles.manual-only]",
+        'model = "gpt-5-mini"',
+      ].join("\n"),
+      "utf8"
+    );
+
+    const status = getStatus(paths.codexDir, paths.configPath, paths.providersPath);
+    assert.equal(status.data.currentProfileMapped, false);
+    assert.equal(status.data.liveState.canBackfillActiveProvider, true);
+    assert.equal(status.warnings.length > 0, true);
+
+    const doctor = runDoctor({
+      codexDir: paths.codexDir,
+      configPath: paths.configPath,
+      providersPath: paths.providersPath,
+    });
+    const issueCodes = doctor.data.issues.map((issue) => issue.code);
+    assert.equal(issueCodes.includes("LIVE_STATE_DRIFT"), true);
+
+    const lockPath = path.join(paths.codexDir, ".codex-switch.lock");
+    fs.writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: 999,
+        operation: "switch",
+        createdAt: "2026-05-11T00:00:00.000Z",
+      }),
+      "utf8"
+    );
+
+    assert.throws(
+      () =>
+        addProvider({
+          codexDir: paths.codexDir,
+          backupsDir: paths.backupsDir,
+          latestBackupPath: paths.latestBackupPath,
+          providersPath: paths.providersPath,
+          providerName: "blocked",
+          profile: "packycode",
+          apiKey: "sk-blocked",
+          tags: [],
+        }),
+      (error) => error.code === "LOCK_CONFLICT"
+    );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

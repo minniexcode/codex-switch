@@ -2,6 +2,9 @@ import { cliError } from "../domain/errors";
 import { resolveCodexDir } from "../infra/codex-paths";
 import { ParsedArgs } from "../app/types";
 
+/**
+ * Parses argv into command positionals, global flags, and command-scoped options.
+ */
 export function parseArgs(argv: string[]): ParsedArgs {
   if (argv.includes("--help") || argv.includes("-h")) {
     return defaultParsed("help");
@@ -45,6 +48,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const optionName = value;
       const next = remaining[index + 1];
       if (!next || next.startsWith("--")) {
+        // Boolean flags are stored as "true" so later access uses one uniform map shape.
         commandOptions.set(optionName, ["true"]);
         continue;
       }
@@ -70,6 +74,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
   };
 }
 
+/**
+ * Creates a parsed result for built-in synthetic commands such as help/version.
+ */
 function defaultParsed(command: string): ParsedArgs {
   return {
     command,
@@ -82,10 +89,16 @@ function defaultParsed(command: string): ParsedArgs {
   };
 }
 
+/**
+ * Checks whether a boolean-style option was supplied.
+ */
 export function hasFlag(options: Map<string, string[]>, name: string): boolean {
   return options.has(name);
 }
 
+/**
+ * Returns the last supplied value for a single-valued command option.
+ */
 export function getSingleOption(
   options: Map<string, string[]>,
   name: string,

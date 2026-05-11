@@ -1,6 +1,9 @@
 import * as os from "node:os";
 import * as path from "node:path";
 
+/**
+ * Absolute paths used by codex-switch inside the Codex home directory.
+ */
 export type CodexPaths = {
   codexDir: string;
   configPath: string;
@@ -10,10 +13,16 @@ export type CodexPaths = {
   latestBackupPath: string;
 };
 
+/**
+ * Resolves the working Codex directory, defaulting to `~/.codex`.
+ */
 export function resolveCodexDir(codexDir?: string): string {
   return codexDir ? path.resolve(codexDir) : path.join(os.homedir(), ".codex");
 }
 
+/**
+ * Expands a Codex home directory into the file paths used by the CLI.
+ */
 export function createCodexPaths(codexDir: string): CodexPaths {
   return {
     codexDir,

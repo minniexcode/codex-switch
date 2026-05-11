@@ -16,6 +16,9 @@ export type RenderedOutput = {
   exitCode: number;
 };
 
+/**
+ * Renders a successful command result for either JSON or human-readable output.
+ */
 export function renderSuccess(ctx: CommandContext, result: CommandResult): RenderedOutput {
   const warnings = result.warnings ?? [];
   if (ctx.options.json) {
@@ -41,6 +44,9 @@ export function renderSuccess(ctx: CommandContext, result: CommandResult): Rende
   };
 }
 
+/**
+ * Renders a failed command result for either JSON or human-readable output.
+ */
 export function renderFailure(ctx: CommandContext, error: CliErrorShape): RenderedOutput {
   if (ctx.options.json) {
     const payload: JsonEnvelope = {
@@ -65,6 +71,9 @@ export function renderFailure(ctx: CommandContext, error: CliErrorShape): Render
   };
 }
 
+/**
+ * Writes successful command output to stdout.
+ */
 export function outputSuccess(ctx: CommandContext, result: CommandResult): void {
   const rendered = renderSuccess(ctx, result);
   for (const line of rendered.stdout) {
@@ -72,6 +81,9 @@ export function outputSuccess(ctx: CommandContext, result: CommandResult): void 
   }
 }
 
+/**
+ * Writes failure output to stderr and exits with the rendered status code.
+ */
 export function outputFailure(ctx: CommandContext, error: CliErrorShape): void {
   const rendered = renderFailure(ctx, error);
   for (const line of rendered.stderr) {
@@ -80,6 +92,9 @@ export function outputFailure(ctx: CommandContext, error: CliErrorShape): void {
   process.exit(rendered.exitCode);
 }
 
+/**
+ * Builds the plain-text success view for interactive terminal usage.
+ */
 function renderHumanSuccess(command: string, data: Record<string, unknown> | null, warnings: string[]): string[] {
   const lines: string[] = [];
   switch (command) {
@@ -142,6 +157,7 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       break;
   }
 
+  // Emit warnings after the primary payload so the main outcome remains easy to scan.
   for (const warning of warnings) {
     lines.push(`Warning: ${warning}`);
   }
@@ -149,6 +165,9 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
   return lines;
 }
 
+/**
+ * Writes one rendered line to either stdout or stderr.
+ */
 function printText(message: string, toStderr = false): void {
   if (toStderr) {
     process.stderr.write(`${message}\n`);

@@ -2,6 +2,9 @@ import { cliError, normalizeError } from "../domain/errors";
 import { loadLatestManifest, restoreManifest } from "../infra/backup-repo";
 import { CommandResult } from "./types";
 
+/**
+ * Restores the most recent mutation backup recorded by codex-switch.
+ */
 export function rollbackLatest(latestBackupPath: string): CommandResult {
   const manifest = loadLatestManifest(latestBackupPath);
   try {

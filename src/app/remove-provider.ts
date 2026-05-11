@@ -1,8 +1,11 @@
-import { cliError, normalizeError } from "../domain/errors";
-import { createBackup, restoreManifest, saveLatestManifest } from "../infra/backup-repo";
+import { cliError } from "../domain/errors";
 import { readProvidersFile, writeProvidersFile } from "../infra/providers-repo";
+import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 
+/**
+ * Removes a provider from the managed providers registry.
+ */
 export function removeProvider(args: {
   codexDir: string;
   backupsDir: string;
@@ -15,37 +18,21 @@ export function removeProvider(args: {
     throw cliError("PROVIDER_NOT_FOUND", `Provider "${args.providerName}" was not found.`);
   }
 
-  const backup = createBackup(args.codexDir, args.backupsDir, "remove", [
-    { absolutePath: args.providersPath, relativePath: "providers.json" },
-  ]);
-
   const nextProviders = { ...providers.providers };
+  // Delete against a copied object so the original parsed state stays untouched.
   delete nextProviders[args.providerName];
 
-  try {
-    writeProvidersFile(args.providersPath, { providers: nextProviders });
-    saveLatestManifest(args.latestBackupPath, backup);
-    return {
-      data: {
+  return runMutation({
+    codexDir: args.codexDir,
+    backupsDir: args.backupsDir,
+    latestBackupPath: args.latestBackupPath,
+    operation: "remove",
+    files: [{ absolutePath: args.providersPath, relativePath: "providers.json" }],
+    mutate: () => {
+      writeProvidersFile(args.providersPath, { providers: nextProviders });
+      return {
         provider: args.providerName,
-        backupPath: backup.backupDir,
-      },
-    };
-  } catch (error: unknown) {
-    try {
-      restoreManifest(backup);
-    } catch (rollbackError: unknown) {
-      throw cliError("ROLLBACK_FAILED", "Remove failed and rollback was not successful.", {
-        cause: normalizeError(error).message,
-        rollbackReason: normalizeError(rollbackError).message,
-        backupPath: backup.backupDir,
-      });
-    }
-
-    throw cliError("INVALID_IMPORT_FILE", "Remove failed and previous providers.json was restored.", {
-      cause: normalizeError(error).message,
-      rollbackApplied: true,
-      backupPath: backup.backupDir,
-    });
-  }
+      };
+    },
+  });
 }

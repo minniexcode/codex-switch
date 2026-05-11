@@ -52,10 +52,12 @@ Managing multiple Codex providers or profiles locally usually falls into two bad
 
 Core design principles:
 
-- `config.toml` remains the source of the active top-level `profile`
-- `providers.json` stores provider-to-profile and provider-to-key mappings
+- `providers.json` is the management-state single source of truth for provider metadata and mappings
+- `config.toml` and `auth.json` are runtime mirrors that codex-switch synchronizes safely
+- `backups/latest.json` tracks rollback state for the latest managed mutation window
 - all writes should be backed up first
 - failures should trigger rollback
+- write operations should execute under a lightweight single-process file lock
 - CLI output should stay stable and machine-readable
 
 ## MVP Commands
@@ -137,10 +139,33 @@ This repository contains both the product documents and the CLI implementation:
 Current implementation characteristics:
 
 - modular TypeScript architecture split into `app`, `domain`, `infra`, and `cli`
+- repository-style infra modules for providers, config, backups, and write locks
+- a shared mutation orchestration contract that wraps backup, rollback, and lock handling
 - safe write flows with backup manifests under `backups/`
 - rollback support for `config.toml` and optional `auth.json`
+- `status` and `doctor` expose live-state drift so future backfill/edit/sync flows can reuse the same core model
 - stable `--json` envelopes for automation
 - test coverage in `tests/` using a custom serial runner (`tests/run-tests.js`) because the current environment hits `node --test` worker/spawn restrictions
+
+## Storage Model
+
+The current storage model is intentionally split:
+
+- management state: `providers.json`
+- runtime state: `config.toml` and `auth.json`
+- rollback state: `backups/latest.json` and timestamped backup manifests
+
+That keeps the MVP file-based while preserving the same boundary a future database-backed registry would use.
+
+## Concurrency And Drift
+
+Current write semantics are intentionally lightweight:
+
+- every mutating command runs inside `~/.codex/.codex-switch.lock`
+- each mutation creates a backup first and rolls back on failure
+- `status` and `doctor` detect when the active runtime profile in `config.toml` is no longer mapped in `providers.json`
+
+That drift signal is the contract for future `edit`, `sync`, and explicit backfill flows. The current version detects and reports drift, but does not silently write live runtime changes back into the management registry.
 
 ## Non-Goals for MVP
 
