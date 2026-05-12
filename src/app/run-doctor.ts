@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
-import { parseProfileNames, parseTopLevelProfile } from "../domain/config";
+import { collectConfigConsistencyIssues, ConfigConsistencyIssue, ParsedConfigDocument } from "../domain/config";
 import { getStorageRoles, inspectLiveStateDrift } from "../domain/runtime-state";
 import { checkCodexAvailable } from "../infra/codex-cli";
+import { readStructuredConfig } from "../infra/config-repo";
 import { readProvidersFile } from "../infra/providers-repo";
 import { normalizeError } from "../domain/errors";
 import { CommandResult } from "./types";
@@ -15,9 +16,9 @@ export function runDoctor(args: {
   providersPath: string;
 }): CommandResult {
   const issues: Array<Record<string, unknown>> = [];
-  let configProfiles: Set<string> = new Set();
   let currentProfile: string | null = null;
   let providers = null;
+  let document: ParsedConfigDocument | null = null;
 
   if (!fs.existsSync(args.configPath)) {
     issues.push({
@@ -26,9 +27,8 @@ export function runDoctor(args: {
       file: args.configPath,
     });
   } else {
-    const configContent = fs.readFileSync(args.configPath, "utf8");
-    configProfiles = parseProfileNames(configContent);
-    currentProfile = parseTopLevelProfile(configContent);
+    document = readStructuredConfig(args.configPath);
+    currentProfile = document.activeProfile;
     if (!currentProfile) {
       issues.push({
         code: "PROFILE_NOT_FOUND",
@@ -47,14 +47,11 @@ export function runDoctor(args: {
   } else {
     try {
       providers = readProvidersFile(args.providersPath);
-      // Every managed provider must map to a profile that still exists in config.toml.
-      for (const [name, provider] of Object.entries(providers.providers)) {
-        if (!configProfiles.has(provider.profile)) {
+      if (document) {
+        for (const issue of collectConfigConsistencyIssues(document, providers)) {
           issues.push({
-            code: "PROFILE_NOT_FOUND",
-            message: `Provider "${name}" maps to missing profile "${provider.profile}".`,
-            provider: name,
-            profile: provider.profile,
+            ...issue,
+            message: renderConfigIssueMessage(issue),
           });
         }
       }
@@ -69,16 +66,6 @@ export function runDoctor(args: {
   }
 
   const drift = inspectLiveStateDrift(currentProfile, providers);
-  if (drift.canBackfillActiveProvider) {
-    // Distinguish unmanaged live state from hard parse/configuration errors.
-    issues.push({
-      code: "LIVE_STATE_DRIFT",
-      message: `Active profile "${drift.currentProfile}" is present in config.toml but not mapped by providers.json.`,
-      currentProfile: drift.currentProfile,
-      suggestedAction: "backfill-active-provider",
-      storage: getStorageRoles(),
-    });
-  }
 
   const codexCheck = checkCodexAvailable();
   if (!codexCheck.ok) {
@@ -99,4 +86,19 @@ export function runDoctor(args: {
     },
     warnings: issues.length === 0 ? [] : [`doctor found ${issues.length} issue(s)`],
   };
+}
+
+function renderConfigIssueMessage(issue: ConfigConsistencyIssue): string {
+  switch (issue.code) {
+    case "ORPHANED_PROFILE_REFERENCE":
+      return `Profile "${issue.profile}" is referenced by providers but missing from config.toml.`;
+    case "UNMANAGED_ACTIVE_PROFILE":
+      return `Active profile "${issue.profile}" is not mapped by providers.json.`;
+    case "SHARED_PROFILE_REFERENCE":
+      return `Profile "${issue.profile}" is shared by multiple providers.`;
+    case "ORPHANED_PROFILE_SECTION":
+      return `Profile section "${issue.profile}" is not linked to any provider.`;
+    case "DESTRUCTIVE_REMOVE_BLOCKED":
+      return `Provider "${issue.provider}" cannot be removed while "${issue.activeProfile}" remains active.`;
+  }
 }

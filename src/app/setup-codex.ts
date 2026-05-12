@@ -1,10 +1,10 @@
 import * as fs from "node:fs";
 import { buildSetupDrafts, findIncompleteSetupProfiles } from "../domain/setup";
 import { cliError } from "../domain/errors";
+import { buildManagedProfileViews } from "../domain/config";
 import { ProviderRecord } from "../domain/providers";
-import { findCodexDirCandidates } from "../infra/codex-discovery";
 import { checkCodexAvailable, checkCodexVersion } from "../infra/codex-cli";
-import { listConfigProfiles } from "../infra/config-repo";
+import { applyConfigMutation, createConfigMutationPlan, readStructuredConfig } from "../infra/config-repo";
 import { ensureDir } from "../infra/fs-utils";
 import { mergeProviders, readProvidersFileIfExists, writeProvidersFile } from "../infra/providers-repo";
 import { runDoctor } from "./run-doctor";
@@ -24,6 +24,7 @@ export function setupCodex(args: {
   backupsDir: string;
   latestBackupPath: string;
   strategy: "merge" | "overwrite";
+  adoptProfiles: string[];
   providerDetailsByProfile: Record<string, { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }>;
 }): CommandResult {
   const available = checkCodexAvailable();
@@ -42,31 +43,38 @@ export function setupCodex(args: {
     });
   }
 
-  const candidates = findCodexDirCandidates(args.codexDirOption);
-  if (candidates.length === 0) {
-    throw cliError("CODEX_DIR_NOT_FOUND", "No Codex directory could be found.", {
-      codexDir: args.codexDir,
-    });
-  }
-  if (candidates.length > 1) {
-    throw cliError("CODEX_DIR_AMBIGUOUS", "Multiple Codex directories were found.", {
-      candidates,
-    });
-  }
   if (!fs.existsSync(args.codexDir)) {
     throw cliError("CODEX_DIR_NOT_FOUND", "The requested Codex directory does not exist.", {
       codexDir: args.codexDir,
     });
   }
 
-  const profiles = Array.from(listConfigProfiles(args.configPath)).sort();
-  if (profiles.length === 0) {
+  const document = readStructuredConfig(args.configPath);
+  const profileViews = buildManagedProfileViews(document, null);
+  const adoptableProfiles = profileViews
+    .filter((view) => view.source === "unmanaged" && view.model && view.baseUrl)
+    .map((view) => view.name)
+    .sort();
+  if (profileViews.length === 0) {
     throw cliError("PROFILE_NOT_FOUND", "No profiles were found in config.toml.", {
       file: args.configPath,
     });
   }
 
-  const drafts = buildSetupDrafts(profiles, args.providerDetailsByProfile);
+  const invalidAdoptProfiles = args.adoptProfiles.filter((profile) => !adoptableProfiles.includes(profile));
+  if (invalidAdoptProfiles.length > 0) {
+    throw cliError("INVALID_ARGUMENT", "setup only adopts unmanaged profiles that already contain model and base_url.", {
+      invalidProfiles: invalidAdoptProfiles.sort(),
+      adoptableProfiles,
+    });
+  }
+  if (args.adoptProfiles.length === 0) {
+    throw cliError("INVALID_ARGUMENT", "setup requires at least one explicit profile to adopt.", {
+      adoptableProfiles,
+    });
+  }
+
+  const drafts = buildSetupDrafts(args.adoptProfiles, args.providerDetailsByProfile);
   const incompleteProfiles = findIncompleteSetupProfiles(drafts);
   if (incompleteProfiles.length > 0) {
     throw cliError("INVALID_ARGUMENT", "setup requires complete provider data for every selected profile.", {
@@ -97,14 +105,25 @@ export function setupCodex(args: {
     backupsDir: args.backupsDir,
     latestBackupPath: args.latestBackupPath,
     operation: "setup",
-    files: [{ absolutePath: args.providersPath, relativePath: "providers.json" }],
+    files: [
+      { absolutePath: args.providersPath, relativePath: "providers.json" },
+      { absolutePath: args.configPath, relativePath: "config.toml" },
+    ],
     mutate: () => {
+      const configPlan = createConfigMutationPlan(document, {});
       writeProvidersFile(args.providersPath, finalProviders);
+      applyConfigMutation(args.configPath, document, configPlan);
       return {
         codexDir: args.codexDir,
         strategy: args.strategy,
         providersInitialized: Object.keys(nextProviders.providers).length,
         providerNames: Object.keys(finalProviders.providers).sort(),
+        createdProfileSections: configPlan.createdProfileSections,
+        deletedProfileSections: configPlan.deletedProfileSections,
+        keptSharedProfiles: [],
+        switchedActiveProfile: false,
+        adoptedProfiles: [...args.adoptProfiles].sort(),
+        repairedProfiles: [],
       };
     },
   });

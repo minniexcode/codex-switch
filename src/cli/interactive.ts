@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { BackupManifest } from "../domain/backup";
 import { cliError } from "../domain/errors";
 import { getBackupId } from "../domain/backups";
+import { resolveCodexDir } from "../infra/codex-paths";
 import { readProvidersFile } from "../infra/providers-repo";
 import { loadLatestManifest, loadManifestById } from "../infra/backup-repo";
 import { CliPromptRuntime, PromptChoice } from "./prompt";
@@ -139,6 +140,62 @@ export async function chooseSetupStrategy(runtime: CliPromptRuntime): Promise<"m
   ]);
 }
 
+export async function chooseCodexDir(
+  runtime: CliPromptRuntime,
+  candidates: string[]
+): Promise<string> {
+  if (candidates.length === 0) {
+    const manual = (await runtime.inputText("Codex directory path")).trim();
+    if (!manual) {
+      throw cliError("CODEX_DIR_NOT_FOUND", "No Codex directory was provided.");
+    }
+    return resolveCodexDir(manual);
+  }
+
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  const selected = await runtime.selectOne("Choose a Codex directory", [
+    ...candidates.map((candidate) => ({
+      value: candidate,
+      label: candidate,
+    })),
+    {
+      value: "__manual__",
+      label: "Enter manually",
+    },
+  ]);
+
+  if (selected !== "__manual__") {
+    return selected;
+  }
+
+  const manual = (await runtime.inputText("Codex directory path")).trim();
+  if (!manual) {
+    throw cliError("CODEX_DIR_NOT_FOUND", "No Codex directory was provided.");
+  }
+  return resolveCodexDir(manual);
+}
+
+export async function chooseSetupProfiles(
+  runtime: CliPromptRuntime,
+  profiles: Array<{ name: string; model: string; baseUrl: string }>
+): Promise<string[]> {
+  if (profiles.length === 0) {
+    return [];
+  }
+
+  return runtime.selectMany(
+    "Choose unmanaged config profiles to adopt into providers.json.",
+    profiles.map((profile) => ({
+      value: profile.name,
+      label: profile.name,
+      hint: `${profile.model} | ${profile.baseUrl}`,
+    }))
+  );
+}
+
 export async function collectSetupProviderDetails(
   runtime: CliPromptRuntime,
   profiles: string[]
@@ -164,6 +221,24 @@ export async function collectSetupProviderDetails(
   }
 
   return result;
+}
+
+export async function collectImportRepairDetails(
+  runtime: CliPromptRuntime,
+  profiles: string[]
+): Promise<Record<string, { model?: string; baseUrl?: string }>> {
+  const repairs: Record<string, { model?: string; baseUrl?: string }> = {};
+
+  for (const profile of profiles) {
+    const model = (await runtime.inputText(`Model for missing profile "${profile}"`)).trim();
+    const baseUrl = (await runtime.inputText(`Base URL for missing profile "${profile}"`)).trim();
+    repairs[profile] = {
+      model: model || undefined,
+      baseUrl: baseUrl || undefined,
+    };
+  }
+
+  return repairs;
 }
 
 export async function collectEditInput(

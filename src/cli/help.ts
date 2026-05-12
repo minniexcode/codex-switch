@@ -17,6 +17,28 @@ const GROUP_TITLES: Record<CommandGroup, string> = {
 
 const COMMANDS: CommandHelpDefinition[] = [
   {
+    name: "config-show",
+    group: "read",
+    summary: "Show the structured config profile view.",
+    usage: ["codexs config show [profile] [--json] [--codex-dir <path>]"],
+    details: [
+      "Returns all recognizable config profiles by default, including unmanaged and orphaned references.",
+      "Passing [profile] narrows the response to one profile while preserving the same shape.",
+    ],
+    examples: ["codexs config show", "codexs config show packycode --json"],
+  },
+  {
+    name: "config-list-profiles",
+    group: "read",
+    summary: "List recognizable config profiles with managed-state hints.",
+    usage: ["codexs config list-profiles [--json] [--codex-dir <path>]"],
+    details: [
+      "Lists managed, unmanaged, and orphaned config profiles in one stable view.",
+      "Use config show for richer single-profile details.",
+    ],
+    examples: ["codexs config list-profiles", "codexs config list-profiles --json"],
+  },
+  {
     name: "setup",
     group: "write",
     summary: "Initialize providers.json from an existing Codex directory.",
@@ -69,6 +91,7 @@ const COMMANDS: CommandHelpDefinition[] = [
     usage: ["codexs status [--json] [--codex-dir <path>]"],
     details: [
       "Reports file presence, current profile, and whether the live profile is mapped.",
+      "Surfaces config consistency signals without mutating any files.",
       "Use doctor for deeper diagnostics.",
     ],
     examples: ["codexs status", "codexs status --json --codex-dir ./.tmp-codex"],
@@ -79,12 +102,14 @@ const COMMANDS: CommandHelpDefinition[] = [
     summary: "Update fields on a single provider record.",
     usage: [
       "codexs edit <provider> [--profile <name>] [--api-key <key>] [--base-url <url>] [--note <text>] [--tag <tag> ...] [--json] [--codex-dir <path>]",
+      "codexs edit <provider> --profile <name> --create-profile --model <name> --base-url <url>",
     ],
     details: [
       "Passed flags replace only the selected fields and keep the rest unchanged.",
       "TTY mode can first select a provider, then prompt for fields when no editable options were provided.",
       "Interactive tags use preset multi-select plus optional custom comma-separated input.",
-      "Backs up providers.json before writing.",
+      "When rebinding to a missing profile, --create-profile requires both --model and --base-url.",
+      "Backs up providers.json and config.toml before writing.",
     ],
     examples: ["codexs edit packycode --note primary", "codexs edit packycode --tag daily --tag paid --json"],
   },
@@ -94,6 +119,7 @@ const COMMANDS: CommandHelpDefinition[] = [
     summary: "Add a provider with explicit flags or progressive TTY prompts.",
     usage: [
       "codexs add <provider> --profile <name> --api-key <key> [--base-url <url>] [--note <text>] [--tag <tag> ...]",
+      "codexs add <provider> --profile <name> --api-key <key> --create-profile --model <name> --base-url <url>",
       "codexs add [--profile <name>] [--api-key <key>] [--base-url <url>] [--note <text>] [--tag <tag> ...]",
     ],
     details: [
@@ -102,6 +128,7 @@ const COMMANDS: CommandHelpDefinition[] = [
       "Confirm API key when prompted interactively because the hidden prompt asks twice before writing.",
       "Interactive tags use preset multi-select plus optional custom comma-separated input.",
       "Automation and non-TTY environments must pass all required values explicitly.",
+      "Creating a missing profile section requires --create-profile together with --model and --base-url.",
     ],
     examples: [
       "codexs add packycode --profile packycode --api-key sk-xxx",
@@ -126,12 +153,13 @@ const COMMANDS: CommandHelpDefinition[] = [
     name: "remove",
     group: "write",
     summary: "Remove a provider from providers.json.",
-    usage: ["codexs remove <provider> [--force] [--json] [--codex-dir <path>]"],
+    usage: ["codexs remove <provider> [--force] [--switch-to <profile>] [--json] [--codex-dir <path>]"],
     details: [
       "TTY mode can select a missing provider interactively and always asks for deletion confirmation.",
       "Non-TTY and --json automation still require both <provider> and --force.",
       "The confirmation prompt includes the provider name and cancels without writing when declined.",
-      "Backs up providers.json before removing the record.",
+      "When removing the last provider linked to the active profile, pass --switch-to first.",
+      "Backs up providers.json and config.toml before removing the record.",
     ],
     examples: ["codexs remove freemodel", "codexs remove freemodel --force --json"],
   },
@@ -206,7 +234,16 @@ export function isKnownCommandName(commandName: string): boolean {
 }
 
 export function buildHelpText(commandName?: string | null): string {
-  const normalizedCommandName = commandName === "backups-list" ? "backups" : commandName;
+  const normalizedCommandName =
+    commandName === "backups-list"
+      ? "backups"
+      : commandName === "config-show"
+        ? "config-show"
+        : commandName === "config-list-profiles"
+          ? "config-list-profiles"
+          : commandName === "config"
+            ? "config-show"
+            : commandName;
   if (!commandName) {
     return [
       "codex-switch",
@@ -245,6 +282,7 @@ export function buildHelpText(commandName?: string | null): string {
       "  codexs list",
       "  codexs switch",
       "  codexs add packycode --profile packycode --api-key sk-xxx",
+      "  codexs config show",
       "  codexs remove freemodel",
       "  codexs backups list",
       "  codexs rollback",

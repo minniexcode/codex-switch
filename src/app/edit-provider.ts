@@ -1,5 +1,7 @@
 import { cliError } from "../domain/errors";
+import { planProfileLifecycleOutcome, validateManagedProfileCreation } from "../domain/config";
 import { cleanProviderRecord } from "../domain/providers";
+import { applyConfigMutation, createConfigMutationPlan, readCurrentProfile, readStructuredConfig } from "../infra/config-repo";
 import { ensureDir } from "../infra/fs-utils";
 import { readProvidersFile, writeProvidersFile } from "../infra/providers-repo";
 import { runMutation } from "./run-mutation";
@@ -13,15 +15,20 @@ export function editProvider(args: {
   backupsDir: string;
   latestBackupPath: string;
   providersPath: string;
+  configPath: string;
   providerName: string;
   profile?: string | null;
   apiKey?: string | null;
   baseUrl?: string | null;
+  model?: string | null;
   note?: string | null;
   tags?: string[] | null;
+  createProfile?: boolean;
+  switchToProfile?: string | null;
 }): CommandResult {
   ensureDir(args.codexDir);
   const providers = readProvidersFile(args.providersPath);
+  const document = readStructuredConfig(args.configPath);
   const current = providers.providers[args.providerName];
   if (!current) {
     throw cliError("PROVIDER_NOT_FOUND", `Provider "${args.providerName}" was not found.`, {
@@ -55,23 +62,94 @@ export function editProvider(args: {
     updatedFields.push("tags");
   }
 
+  const oldProfile = current.profile;
+  const newProfile = nextRecord.profile;
+  const targetSection = document.profiles.find((profile) => profile.name === newProfile) ?? null;
+  const targetProfileExists = Boolean(targetSection);
+  let upsertProfiles: Record<string, { model?: string; baseUrl?: string }> | undefined;
+  if (!targetProfileExists) {
+    if (!args.createProfile) {
+      throw cliError("PROFILE_NOT_FOUND", `Profile "${newProfile}" does not exist in config.toml.`, {
+        profile: newProfile,
+        provider: args.providerName,
+      });
+    }
+    upsertProfiles = {
+      [newProfile]: validateManagedProfileCreation(newProfile, {
+        model: args.model ?? undefined,
+        baseUrl: args.baseUrl ?? undefined,
+      }),
+    };
+  } else if (args.model !== undefined || args.baseUrl !== undefined) {
+    upsertProfiles = {
+      [newProfile]: {
+        ...(args.model !== undefined && args.model !== null ? { model: args.model } : {}),
+        ...(args.baseUrl !== undefined && args.baseUrl !== null ? { baseUrl: args.baseUrl } : {}),
+      },
+    };
+    if (args.model !== undefined && (targetSection?.model !== args.model) && !updatedFields.includes("model")) {
+      updatedFields.push("model");
+    }
+    if (args.baseUrl !== undefined && targetSection?.baseUrl !== args.baseUrl && !updatedFields.includes("baseUrl")) {
+      updatedFields.push("baseUrl");
+    }
+  }
+
+  const remainingLinksByProfile = new Map<string, string[]>();
+  for (const [name, provider] of Object.entries(providers.providers)) {
+    if (name === args.providerName) {
+      continue;
+    }
+    const list = remainingLinksByProfile.get(provider.profile) ?? [];
+    list.push(name);
+    remainingLinksByProfile.set(provider.profile, list);
+  }
+  if (newProfile !== oldProfile) {
+    const list = remainingLinksByProfile.get(newProfile) ?? [];
+    list.push(args.providerName);
+    remainingLinksByProfile.set(newProfile, list);
+  }
+  const lifecycle = planProfileLifecycleOutcome({
+    providerName: args.providerName,
+    oldProfile,
+    newProfile,
+    activeProfile: document.activeProfile,
+    remainingLinksByProfile,
+    switchToProfile: args.switchToProfile ?? null,
+  });
+
   return runMutation({
     codexDir: args.codexDir,
     backupsDir: args.backupsDir,
     latestBackupPath: args.latestBackupPath,
     operation: "edit",
-    files: [{ absolutePath: args.providersPath, relativePath: "providers.json" }],
+    files: [
+      { absolutePath: args.providersPath, relativePath: "providers.json" },
+      { absolutePath: args.configPath, relativePath: "config.toml" },
+    ],
     mutate: () => {
+      const configPlan = createConfigMutationPlan(document, {
+        upsertProfiles,
+        deleteProfiles: lifecycle.deletedProfileSections,
+        setActiveProfile: lifecycle.nextActiveProfile,
+      });
       writeProvidersFile(args.providersPath, {
         providers: {
           ...providers.providers,
           [args.providerName]: nextRecord,
         },
       });
+      applyConfigMutation(args.configPath, document, configPlan);
 
       return {
         provider: args.providerName,
         updatedFields,
+        createdProfileSections: configPlan.createdProfileSections,
+        deletedProfileSections: configPlan.deletedProfileSections,
+        keptSharedProfiles: lifecycle.keptSharedProfiles,
+        switchedActiveProfile: lifecycle.switchedActiveProfile,
+        adoptedProfiles: [],
+        repairedProfiles: [],
       };
     },
   });

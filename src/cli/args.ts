@@ -8,6 +8,7 @@ import { ParsedArgs } from "../app/types";
 export function parseArgs(argv: string[]): ParsedArgs {
   let json = false;
   let codexDir = resolveCodexDir();
+  let codexDirExplicit = false;
   const remaining: string[] = [];
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -23,6 +24,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         throw cliError("INVALID_ARGUMENT", "--codex-dir requires a path value.");
       }
       codexDir = resolveCodexDir(next);
+      codexDirExplicit = true;
       index += 1;
       continue;
     }
@@ -39,6 +41,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       globalOptions: {
         json,
         codexDir,
+        codexDirExplicit,
       },
       commandOptions: new Map<string, string[]>(),
       helpRequested: true,
@@ -57,11 +60,18 @@ export function parseArgs(argv: string[]): ParsedArgs {
   }
 
   const commandToken = remaining[0] ?? null;
-  const command = commandToken === "backups" && remaining[1] === "list" ? "backups-list" : commandToken;
+  const command =
+    commandToken === "backups" && remaining[1] === "list"
+      ? "backups-list"
+      : commandToken === "config" && remaining[1] === "show"
+        ? "config-show"
+        : commandToken === "config" && remaining[1] === "list-profiles"
+          ? "config-list-profiles"
+          : commandToken;
   const positionals: string[] = [];
   const commandOptions = new Map<string, string[]>();
   let helpRequested = false;
-  const startIndex = command === "backups-list" ? 2 : 1;
+  const startIndex = command === "backups-list" || command === "config-show" || command === "config-list-profiles" ? 2 : 1;
 
   for (let index = startIndex; index < remaining.length; index += 1) {
     const value = remaining[index];
@@ -92,10 +102,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
   return {
     command,
     positionals,
-    globalOptions: {
-      json,
-      codexDir,
-    },
+      globalOptions: {
+        json,
+        codexDir,
+        codexDirExplicit,
+      },
     commandOptions,
     helpRequested,
     helpTarget: helpRequested ? (command === "backups-list" ? "backups" : command) : null,
@@ -122,6 +133,7 @@ function defaultParsed(
     globalOptions: {
       json: overrides?.json ?? false,
       codexDir: overrides?.codexDir ?? resolveCodexDir(),
+      codexDirExplicit: false,
     },
     commandOptions: new Map<string, string[]>(),
     helpRequested: overrides?.helpRequested ?? false,

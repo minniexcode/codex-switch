@@ -6,26 +6,34 @@ import { exportProviders } from "./app/export-providers";
 import { getCurrentProfile } from "./app/get-current-profile";
 import { getStatus } from "./app/get-status";
 import { importProviders } from "./app/import-providers";
+import { listConfigProfilesView } from "./app/list-config-profiles";
 import { listBackupEntries } from "./app/list-backups";
 import { listProviders } from "./app/list-providers";
 import { removeProvider } from "./app/remove-provider";
 import { rollbackBackup } from "./app/rollback-backup";
 import { runDoctor } from "./app/run-doctor";
 import { setupCodex } from "./app/setup-codex";
+import { showConfig } from "./app/show-config";
 import { showProvider } from "./app/show-provider";
 import { switchProvider } from "./app/switch-provider";
 import { CommandContext, CommandResult, ParsedArgs } from "./app/types";
+import { buildManagedProfileViews } from "./domain/config";
 import { cliError, normalizeError } from "./domain/errors";
-import { listConfigProfiles } from "./infra/config-repo";
-import { readProvidersFileIfExists } from "./infra/providers-repo";
+import { validateProvidersShape } from "./domain/providers";
+import { findCodexDirCandidates, listConfigProfiles } from "./infra/config-repo";
+import { readStructuredConfig } from "./infra/config-repo";
+import { mergeProviders, readProvidersFileIfExists } from "./infra/providers-repo";
 import { createCodexPaths } from "./infra/codex-paths";
 import { parseArgs, getSingleOption, hasFlag } from "./cli/args";
 import { collectAddInput, createNonInteractiveAddError } from "./cli/add-interactive";
 import { buildHelpText, isKnownCommandName } from "./cli/help";
 import {
   canPrompt,
+  chooseCodexDir,
+  chooseSetupProfiles,
   chooseSetupStrategy,
   collectEditInput,
+  collectImportRepairDetails,
   collectSetupProviderDetails,
   confirmExportOverwrite,
   confirmImport,
@@ -37,7 +45,7 @@ import {
 import { outputFailure, outputSuccess } from "./cli/output";
 import { CliPromptRuntime, createPromptRuntime } from "./cli/prompt";
 
-const VERSION = "0.0.4";
+const VERSION = "0.0.5";
 
 /**
  * Prints the command help text to stdout.
@@ -106,7 +114,8 @@ export async function executeCommand(
   parsed: ParsedArgs,
   runtime: CliPromptRuntime = createPromptRuntime()
 ): Promise<CommandResult> {
-  const paths = createCodexPaths(ctx.options.codexDir);
+  let setupPaths = createCodexPaths(ctx.options.codexDir);
+  const paths = setupPaths;
 
   switch (ctx.command) {
     case "list":
@@ -130,6 +139,17 @@ export async function executeCommand(
       return getCurrentProfile(paths.configPath);
     case "status":
       return getStatus(paths.codexDir, paths.configPath, paths.providersPath);
+    case "config-show":
+      return showConfig({
+        configPath: paths.configPath,
+        providersPath: paths.providersPath,
+        profileName: parsed.positionals[0] ?? null,
+      });
+    case "config-list-profiles":
+      return listConfigProfilesView({
+        configPath: paths.configPath,
+        providersPath: paths.providersPath,
+      });
     case "switch": {
       let providerName = parsed.positionals[0] ?? null;
       if (!providerName && canPrompt(runtime, ctx.options.json)) {
@@ -157,9 +177,21 @@ export async function executeCommand(
         throw cliError("INVALID_ARGUMENT", "Missing import file path.");
       }
       const merge = hasFlag(parsed.commandOptions, "--merge");
+      let repairProfiles: Record<string, { model?: string; baseUrl?: string }> | undefined;
 
       if (canPrompt(runtime, ctx.options.json)) {
         await confirmImport(runtime, sourceFile, merge);
+        const document = readStructuredConfig(paths.configPath);
+        const imported = validateProvidersShape(JSON.parse(fs.readFileSync(sourceFile, "utf8")));
+        const current = readProvidersFileIfExists(paths.providersPath);
+        const next = merge ? mergeProviders(current, imported) : imported;
+        const missingProfiles = buildManagedProfileViews(document, next)
+          .filter((view) => view.source === "orphaned-reference")
+          .map((view) => view.name)
+          .sort();
+        if (missingProfiles.length > 0) {
+          repairProfiles = await collectImportRepairDetails(runtime, missingProfiles);
+        }
       }
 
       return importProviders({
@@ -167,8 +199,10 @@ export async function executeCommand(
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
+        configPath: paths.configPath,
         sourceFile,
         merge,
+        repairProfiles,
       });
     }
     case "export": {
@@ -197,8 +231,10 @@ export async function executeCommand(
       let profile = getSingleOption(parsed.commandOptions, "--profile");
       let apiKey = getSingleOption(parsed.commandOptions, "--api-key");
       let baseUrl = getSingleOption(parsed.commandOptions, "--base-url", false);
+      let model = getSingleOption(parsed.commandOptions, "--model", false);
       let note = getSingleOption(parsed.commandOptions, "--note", false);
       let tags = parsed.commandOptions.get("--tag") ?? [];
+      const createProfile = hasFlag(parsed.commandOptions, "--create-profile");
 
       if (!providerName || !profile || !apiKey) {
         if (ctx.options.json || !runtime.isInteractive()) {
@@ -231,12 +267,15 @@ export async function executeCommand(
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
+        configPath: paths.configPath,
         providerName,
         profile,
         apiKey,
         baseUrl,
+        model,
         note,
         tags,
+        createProfile,
       });
     }
     case "edit": {
@@ -252,15 +291,19 @@ export async function executeCommand(
       let profile: string | undefined = getSingleOption(parsed.commandOptions, "--profile", false) ?? undefined;
       let apiKey: string | undefined = getSingleOption(parsed.commandOptions, "--api-key", false) ?? undefined;
       let baseUrl: string | undefined = getSingleOption(parsed.commandOptions, "--base-url", false) ?? undefined;
+      let model: string | undefined = getSingleOption(parsed.commandOptions, "--model", false) ?? undefined;
       let note: string | undefined = getSingleOption(parsed.commandOptions, "--note", false) ?? undefined;
       let tags: string[] | undefined = parsed.commandOptions.has("--tag")
         ? parsed.commandOptions.get("--tag") ?? []
         : undefined;
+      const createProfile = hasFlag(parsed.commandOptions, "--create-profile");
+      const switchToProfile = getSingleOption(parsed.commandOptions, "--switch-to", false) ?? undefined;
 
       if (
         profile === undefined &&
         apiKey === undefined &&
         baseUrl === undefined &&
+        model === undefined &&
         note === undefined &&
         tags === undefined &&
         canPrompt(runtime, ctx.options.json)
@@ -277,7 +320,14 @@ export async function executeCommand(
         tags = prompted.tags;
       }
 
-      if (profile === undefined && apiKey === undefined && baseUrl === undefined && note === undefined && tags === undefined) {
+      if (
+        profile === undefined &&
+        apiKey === undefined &&
+        baseUrl === undefined &&
+        model === undefined &&
+        note === undefined &&
+        tags === undefined
+      ) {
         throw cliError("INVALID_ARGUMENT", "edit requires at least one field to update.");
       }
 
@@ -286,17 +336,22 @@ export async function executeCommand(
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
+        configPath: paths.configPath,
         providerName,
         profile,
         apiKey,
         baseUrl,
+        model,
         note,
         tags,
+        createProfile,
+        switchToProfile,
       });
     }
     case "remove": {
       let providerName = parsed.positionals[0] ?? null;
       const force = hasFlag(parsed.commandOptions, "--force");
+      const switchToProfile = getSingleOption(parsed.commandOptions, "--switch-to", false) ?? undefined;
 
       if (!providerName && canPrompt(runtime, ctx.options.json)) {
         providerName = await promptForProviderSelection(runtime, paths.providersPath, "Choose a provider to remove");
@@ -319,7 +374,9 @@ export async function executeCommand(
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
+        configPath: paths.configPath,
         providerName,
+        switchToProfile,
       });
     }
     case "doctor":
@@ -329,6 +386,26 @@ export async function executeCommand(
         providersPath: paths.providersPath,
       });
     case "setup": {
+      let codexDir = ctx.options.codexDir;
+      const candidates = findCodexDirCandidates(ctx.options.codexDirExplicit ? ctx.options.codexDir : null);
+      if (!ctx.options.codexDirExplicit) {
+        if (candidates.length > 1) {
+          if (!canPrompt(runtime, ctx.options.json)) {
+            throw cliError("CODEX_DIR_AMBIGUOUS", "Multiple Codex directories were found.", {
+              candidates,
+            });
+          }
+          codexDir = await chooseCodexDir(runtime, candidates);
+        } else if (candidates.length === 0) {
+          if (!canPrompt(runtime, ctx.options.json)) {
+            throw cliError("CODEX_DIR_NOT_FOUND", "No Codex directory could be found.");
+          }
+          codexDir = await chooseCodexDir(runtime, candidates);
+        } else {
+          codexDir = candidates[0];
+        }
+      }
+      setupPaths = createCodexPaths(codexDir);
       const overwrite = hasFlag(parsed.commandOptions, "--overwrite");
       const merge = hasFlag(parsed.commandOptions, "--merge");
       if (overwrite && merge) {
@@ -336,11 +413,11 @@ export async function executeCommand(
       }
 
       let strategy: "merge" | "overwrite" | null = overwrite ? "overwrite" : merge ? "merge" : null;
-      const providersExists = fs.existsSync(paths.providersPath);
+      const providersExists = fs.existsSync(setupPaths.providersPath);
       if (providersExists && strategy === null) {
         if (!canPrompt(runtime, ctx.options.json)) {
           throw cliError("PROVIDERS_ALREADY_EXISTS", "providers.json already exists. Pass --merge or --overwrite.", {
-            file: paths.providersPath,
+            file: setupPaths.providersPath,
           });
         }
 
@@ -351,24 +428,38 @@ export async function executeCommand(
         strategy = selected;
       }
 
-      const profiles = Array.from(listConfigProfiles(paths.configPath)).sort();
+      const document = readStructuredConfig(setupPaths.configPath);
+      const adoptableProfiles = buildManagedProfileViews(document, null)
+        .filter((view) => view.source === "unmanaged" && view.model && view.baseUrl)
+        .map((view) => ({
+          name: view.name,
+          model: view.model as string,
+          baseUrl: view.baseUrl as string,
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name));
+      const selectedProfiles = Array.from(listConfigProfiles(setupPaths.configPath)).sort();
+      let adoptProfiles: string[] = [];
       let providerDetailsByProfile: Record<
         string,
         { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }
       > = {};
 
       if (canPrompt(runtime, ctx.options.json)) {
-        providerDetailsByProfile = await collectSetupProviderDetails(runtime, profiles);
+        adoptProfiles = await chooseSetupProfiles(runtime, adoptableProfiles);
+        providerDetailsByProfile = await collectSetupProviderDetails(runtime, adoptProfiles);
+      } else {
+        adoptProfiles = selectedProfiles.filter((profile) => Object.prototype.hasOwnProperty.call(providerDetailsByProfile, profile));
       }
 
       return setupCodex({
         codexDirOption: ctx.options.codexDir,
-        codexDir: paths.codexDir,
-        configPath: paths.configPath,
-        providersPath: paths.providersPath,
-        backupsDir: paths.backupsDir,
-        latestBackupPath: paths.latestBackupPath,
+        codexDir: setupPaths.codexDir,
+        configPath: setupPaths.configPath,
+        providersPath: setupPaths.providersPath,
+        backupsDir: setupPaths.backupsDir,
+        latestBackupPath: setupPaths.latestBackupPath,
         strategy: strategy ?? "overwrite",
+        adoptProfiles,
         providerDetailsByProfile,
       });
     }

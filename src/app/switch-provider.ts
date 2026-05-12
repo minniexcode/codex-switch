@@ -1,5 +1,5 @@
 import { cliError } from "../domain/errors";
-import { ensureProfileExists, updateTopLevelProfile } from "../infra/config-repo";
+import { applyConfigMutation, createConfigMutationPlan, ensureProfileExists } from "../infra/config-repo";
 import { runCodexLogin } from "../infra/codex-cli";
 import { readProvidersFile } from "../infra/providers-repo";
 import { runMutation } from "./run-mutation";
@@ -26,7 +26,7 @@ export function switchProvider(args: {
     });
   }
 
-  const configContent = ensureProfileExists(args.configPath, provider.profile, args.providerName);
+  const document = ensureProfileExists(args.configPath, provider.profile, args.providerName);
   return runMutation({
     codexDir: args.codexDir,
     backupsDir: args.backupsDir,
@@ -37,8 +37,11 @@ export function switchProvider(args: {
       { absolutePath: args.authPath, relativePath: "auth.json" },
     ],
     mutate: () => {
+      const configPlan = createConfigMutationPlan(document, {
+        setActiveProfile: provider.profile,
+      });
       // Update the runtime profile first so any subsequent login is associated with the new target.
-      updateTopLevelProfile(args.configPath, configContent, provider.profile);
+      applyConfigMutation(args.configPath, document, configPlan);
       if (!args.noLogin) {
         runCodexLogin(provider.apiKey, args.codexDir);
       }

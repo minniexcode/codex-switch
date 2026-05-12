@@ -4,8 +4,13 @@ const fs = require("node:fs");
 const { parseArgs } = require("../dist/cli/args");
 const { buildHelpText } = require("../dist/cli/help");
 const { executeCommand } = require("../dist/cli");
+const { chooseCodexDir } = require("../dist/cli/interactive");
 const { renderSuccess, renderFailure } = require("../dist/cli/output");
 const { normalizeError } = require("../dist/domain/errors");
+const {
+  setCodexSpawnImplementation,
+  resetCodexSpawnImplementation,
+} = require("../dist/infra/codex-cli");
 const { makeTempRoot, createFixturePaths } = require("./helpers");
 
 async function run() {
@@ -19,6 +24,7 @@ async function run() {
   await testInteractiveSwitchSelection();
   await testSwitchWithoutProviderStillFailsNonInteractive();
   await testShowAndEditCommands();
+  await testConfigCommands();
   await testInteractiveRemoveSelectionAndConfirm();
   await testRemoveRequiresForceNonInteractive();
   await testRemoveCancellationPreventsWrite();
@@ -30,6 +36,10 @@ async function run() {
   await testRollbackConfirmationAndPreview();
   await testBackupsListAndRollbackById();
   await testRollbackCancellationPreventsWrite();
+  await testSetupAmbiguousCodexDir();
+  await testSetupInteractiveAdoptSelection();
+  await testManualCodexDirNormalization();
+  await testInteractiveImportRepairPrompts();
 }
 
 function createMockRuntime(overrides = {}) {
@@ -71,6 +81,30 @@ function withEnv(overrides, run) {
   }
 }
 
+async function withEnvAsync(overrides, run) {
+  const original = {};
+  for (const [key, value] of Object.entries(overrides)) {
+    original[key] = Object.prototype.hasOwnProperty.call(process.env, key) ? process.env[key] : undefined;
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    return await run();
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 function testArgParsing() {
   const parsed = parseArgs(["list", "--json", "--codex-dir", "./tmp"]);
   assert.equal(parsed.command, "list");
@@ -92,6 +126,11 @@ function testArgParsing() {
 
   const backupsList = parseArgs(["backups", "list", "--json"]);
   assert.equal(backupsList.command, "backups-list");
+  const configShow = parseArgs(["config", "show", "packycode", "--json"]);
+  assert.equal(configShow.command, "config-show");
+  assert.deepEqual(configShow.positionals, ["packycode"]);
+  const configList = parseArgs(["config", "list-profiles"]);
+  assert.equal(configList.command, "config-list-profiles");
 
   withEnv({ CODEXS_CODEX_DIR: path.join("env", "codex"), NODE_ENV: undefined }, () => {
     const envParsed = parseArgs(["list"]);
@@ -126,9 +165,13 @@ function testHelpText() {
 
   const removeHelp = buildHelpText("remove");
   assert.match(removeHelp, /always asks for deletion confirmation/i);
+  assert.match(removeHelp, /--switch-to/i);
 
   const showHelp = buildHelpText("show");
   assert.match(showHelp, /select a missing provider interactively/i);
+
+  const configHelp = buildHelpText("config-show");
+  assert.match(configHelp, /structured config profile view/i);
 
   const rollbackHelp = buildHelpText("rollback");
   assert.match(rollbackHelp, /previews the target backup path/i);
@@ -419,6 +462,43 @@ async function testShowAndEditCommands() {
     const providersAfterSelectionEdit = JSON.parse(fs.readFileSync(paths.providersPath, "utf8"));
     assert.equal(providersAfterSelectionEdit.providers.freemodel.note, "selected interactively");
     assert.deepEqual(providersAfterSelectionEdit.providers.freemodel.tags, ["backup", "free"]);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function testConfigCommands() {
+  const tempRoot = makeTempRoot();
+  try {
+    const paths = createFixturePaths(path.join(tempRoot, "case-cli-config-commands"));
+
+    const showParsed = parseArgs(["config", "show", "--codex-dir", paths.codexDir]);
+    const showResult = await executeCommand(
+      { command: showParsed.command, options: showParsed.globalOptions },
+      showParsed,
+      createMockRuntime()
+    );
+    assert.equal(showResult.data.activeProfile, "packycode");
+    assert.equal(showResult.data.profiles.some((profile) => profile.name === "manual-only"), true);
+
+    const singleParsed = parseArgs(["config", "show", "packycode", "--json", "--codex-dir", paths.codexDir]);
+    const singleResult = await executeCommand(
+      { command: singleParsed.command, options: singleParsed.globalOptions },
+      singleParsed,
+      createMockRuntime()
+    );
+    assert.equal(singleResult.data.selectedProfile, "packycode");
+    assert.equal(singleResult.data.profiles.length, 1);
+    assert.equal(singleResult.data.profiles[0].baseUrl, "https://relay.example.com/v1");
+
+    const listParsed = parseArgs(["config", "list-profiles", "--codex-dir", paths.codexDir]);
+    const listResult = await executeCommand(
+      { command: listParsed.command, options: listParsed.globalOptions },
+      listParsed,
+      createMockRuntime()
+    );
+    assert.equal(listResult.data.count >= 3, true);
+    assert.equal(listResult.data.profiles.some((profile) => profile.source === "unmanaged"), true);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -795,6 +875,168 @@ async function testRollbackCancellationPreventsWrite() {
     );
 
     assert.equal(fs.readFileSync(paths.configPath, "utf8"), broken);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function testSetupAmbiguousCodexDir() {
+  const tempRoot = makeTempRoot();
+  try {
+    const envCodexDir = path.join(tempRoot, "env-codex");
+    createFixturePaths(envCodexDir);
+    setCodexSpawnImplementation((_command, args) => {
+      if (args.includes("--version") || args.some((value) => String(value).includes("codex --version"))) {
+        return { status: 0, stderr: "", stdout: "codex 0.0.5", error: undefined };
+      }
+      return { status: 0, stderr: "", stdout: "", error: undefined };
+    });
+
+    await assert.rejects(
+      async () => {
+        let parsed;
+        withEnv({ CODEXS_CODEX_DIR: envCodexDir, NODE_ENV: "development" }, () => {
+          parsed = parseArgs(["setup"]);
+        });
+        await withEnvAsync({ CODEXS_CODEX_DIR: envCodexDir, NODE_ENV: "development" }, async () =>
+          executeCommand(
+            { command: parsed.command, options: parsed.globalOptions },
+            parsed,
+            createMockRuntime()
+          )
+        );
+      },
+      (error) => error.code === "CODEX_DIR_AMBIGUOUS"
+    );
+  } finally {
+    resetCodexSpawnImplementation();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function testSetupInteractiveAdoptSelection() {
+  const tempRoot = makeTempRoot();
+  try {
+    const paths = createFixturePaths(path.join(tempRoot, "case-cli-setup-adopt-selection"));
+    fs.rmSync(paths.providersPath, { force: true });
+    setCodexSpawnImplementation((_command, args) => {
+      if (args.includes("--version") || args.some((value) => String(value).includes("codex --version"))) {
+        return { status: 0, stderr: "", stdout: "codex 0.0.5", error: undefined };
+      }
+      return { status: 0, stderr: "", stdout: "", error: undefined };
+    });
+
+    const parsed = parseArgs(["setup", "--codex-dir", paths.codexDir]);
+    const prompts = [];
+    const result = await executeCommand(
+      { command: parsed.command, options: parsed.globalOptions },
+      parsed,
+      createMockRuntime({
+        isInteractive: () => true,
+        selectMany: async (message) => {
+          prompts.push(message);
+          return ["manual-only"];
+        },
+        inputText: async (message, options) => {
+          prompts.push(message);
+          return options?.defaultValue ?? "";
+        },
+        inputSecret: async () => "sk-manual-only",
+      })
+    );
+
+    assert.deepEqual(result.data.adoptedProfiles, ["manual-only"]);
+    assert.equal(prompts[0], "Choose unmanaged config profiles to adopt into providers.json.");
+  } finally {
+    resetCodexSpawnImplementation();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function testManualCodexDirNormalization() {
+  const tempRoot = makeTempRoot();
+  try {
+    const manualDir = path.join(tempRoot, "manual-codex");
+    createFixturePaths(manualDir);
+
+    const selected = await chooseCodexDir(
+      createMockRuntime({
+        inputText: async () => manualDir,
+      }),
+      []
+    );
+    assert.equal(selected, path.resolve(manualDir));
+
+    await withEnvAsync({ CODEXS_CODEX_DIR: path.join(tempRoot, "env-codex"), NODE_ENV: "development" }, async () => {
+      createFixturePaths(path.join(tempRoot, "env-codex"));
+      const parsed = parseArgs(["setup", "--overwrite"]);
+      setCodexSpawnImplementation((_command, args) => {
+        if (args.includes("--version") || args.some((value) => String(value).includes("codex --version"))) {
+          return { status: 0, stderr: "", stdout: "codex 0.0.5", error: undefined };
+        }
+        return { status: 0, stderr: "", stdout: "", error: undefined };
+      });
+      const setupResult = await executeCommand(
+        { command: parsed.command, options: parsed.globalOptions },
+        parsed,
+        createMockRuntime({
+          isInteractive: () => true,
+          selectOne: async () => "__manual__",
+          selectMany: async () => ["manual-only"],
+          inputText: async (message, options) => options?.defaultValue ?? manualDir,
+          inputSecret: async () => "sk-manual-only",
+        })
+      );
+      assert.equal(setupResult.data.codexDir, path.resolve(manualDir));
+    });
+  } finally {
+    resetCodexSpawnImplementation();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function testInteractiveImportRepairPrompts() {
+  const tempRoot = makeTempRoot();
+  try {
+    const paths = createFixturePaths(path.join(tempRoot, "case-cli-import-repair-prompts"));
+    const importFile = path.join(tempRoot, "providers-import-repair.json");
+    fs.writeFileSync(
+      importFile,
+      JSON.stringify({
+        providers: {
+          repaired: {
+            profile: "missing-profile",
+            apiKey: "sk-repaired",
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const prompts = [];
+    const parsed = parseArgs(["import", importFile, "--merge", "--codex-dir", paths.codexDir]);
+    const result = await executeCommand(
+      { command: parsed.command, options: parsed.globalOptions },
+      parsed,
+      createMockRuntime({
+        isInteractive: () => true,
+        confirmAction: async () => true,
+        inputText: async (message) => {
+          prompts.push(message);
+          if (message.includes("Model")) {
+            return "gpt-4.1";
+          }
+          if (message.includes("Base URL")) {
+            return "https://missing.example.com/v1";
+          }
+          return "";
+        },
+      })
+    );
+
+    assert.deepEqual(result.data.repairedProfiles, ["missing-profile"]);
+    assert.ok(prompts.some((message) => message.includes('Model for missing profile "missing-profile"')));
+    assert.ok(prompts.some((message) => message.includes('Base URL for missing profile "missing-profile"')));
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

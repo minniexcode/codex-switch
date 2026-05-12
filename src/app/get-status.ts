@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
-import { parseTopLevelProfile } from "../domain/config";
+import { buildManagedProfileViews, collectConfigConsistencyIssues } from "../domain/config";
 import { getStorageRoles, inspectLiveStateDrift } from "../domain/runtime-state";
+import { readStructuredConfig } from "../infra/config-repo";
 import { readProvidersFile } from "../infra/providers-repo";
 import { CommandResult } from "./types";
 
@@ -13,10 +14,14 @@ export function getStatus(codexDir: string, configPath: string, providersPath: s
   let currentProfile: string | null = null;
   const warnings: string[] = [];
   const providers = providersExists ? readProvidersFile(providersPath) : null;
+  let configViews: ReturnType<typeof buildManagedProfileViews> = [];
+  let consistencyIssues: ReturnType<typeof collectConfigConsistencyIssues> = [];
 
   if (configExists) {
-    const configContent = fs.readFileSync(configPath, "utf8");
-    currentProfile = parseTopLevelProfile(configContent);
+    const document = readStructuredConfig(configPath);
+    currentProfile = document.activeProfile;
+    configViews = buildManagedProfileViews(document, providers);
+    consistencyIssues = collectConfigConsistencyIssues(document, providers);
     if (!currentProfile) {
       warnings.push("config.toml exists but has no top-level profile.");
     }
@@ -39,6 +44,8 @@ export function getStatus(codexDir: string, configPath: string, providersPath: s
       currentProfileMapped: liveState.profileMapped,
       provider: liveState.mappedProvider,
       liveState,
+      configProfiles: configViews,
+      issues: consistencyIssues,
     },
   };
 }

@@ -1,14 +1,8 @@
-import * as fs from "node:fs";
-import { resolveCodexDir } from "./codex-paths";
+import { findCodexDirCandidates as findCodexDirCandidatesFromConfigRepo } from "./config-repo";
 
 /**
- * Finds candidate Codex home directories. v0.0.4 only supports explicit and default locations.
+ * Finds candidate Codex home directories using the shared config-aware discovery rules.
  */
 export function findCodexDirCandidates(explicitCodexDir?: string | null): string[] {
-  if (explicitCodexDir) {
-    return [resolveCodexDir(explicitCodexDir)];
-  }
-
-  const defaultDir = resolveCodexDir();
-  return fs.existsSync(defaultDir) ? [defaultDir] : [];
+  return findCodexDirCandidatesFromConfigRepo(explicitCodexDir);
 }

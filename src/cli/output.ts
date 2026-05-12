@@ -138,7 +138,27 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`providersExists: ${String(data?.providersExists ?? false)}`);
       lines.push(`currentProfile: ${String(data?.currentProfile ?? "")}`);
       lines.push(`mappedProvider: ${String(data?.provider ?? "")}`);
+      lines.push(`issues: ${Array.isArray(data?.issues) ? (data?.issues as Array<unknown>).length : 0}`);
       break;
+    case "config-show": {
+      lines.push(`activeProfile: ${String(data?.activeProfile ?? "")}`);
+      const profiles = (data?.profiles as Array<Record<string, unknown>>) ?? [];
+      for (const profile of profiles) {
+        lines.push(
+          `${String(profile.name)} managed=${String(profile.managed)} active=${String(profile.isActive)} source=${String(profile.source)} model=${String(profile.model ?? "")} baseUrl=${String(profile.baseUrl ?? "")}`
+        );
+      }
+      break;
+    }
+    case "config-list-profiles": {
+      const profiles = (data?.profiles as Array<Record<string, unknown>>) ?? [];
+      for (const profile of profiles) {
+        lines.push(
+          `${String(profile.name)} managed=${String(profile.managed)} active=${String(profile.isActive)} source=${String(profile.source)}`
+        );
+      }
+      break;
+    }
     case "switch":
       lines.push(`Switched to provider ${String(data?.provider ?? "")} using profile ${String(data?.profile ?? "")}.`);
       lines.push(`Backup: ${String(data?.backupPath ?? "")}`);
@@ -162,9 +182,15 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       break;
     case "add":
       lines.push(`Added provider ${String(data?.provider ?? "")}. Backup: ${String(data?.backupPath ?? "")}`);
+      if (Array.isArray(data?.createdProfileSections) && (data?.createdProfileSections as string[]).length > 0) {
+        lines.push(`Created profiles: ${(data?.createdProfileSections as string[]).join(", ")}`);
+      }
       break;
     case "remove":
       lines.push(`Removed provider ${String(data?.provider ?? "")}. Backup: ${String(data?.backupPath ?? "")}`);
+      if (Array.isArray(data?.deletedProfileSections) && (data?.deletedProfileSections as string[]).length > 0) {
+        lines.push(`Deleted profiles: ${(data?.deletedProfileSections as string[]).join(", ")}`);
+      }
       break;
     case "doctor": {
       const healthy = Boolean(data?.healthy);

@@ -12,13 +12,20 @@ function createFixturePaths(dirPath) {
   fs.writeFileSync(
     path.join(dirPath, "config.toml"),
     [
+      "# managed config fixture",
       'profile = "packycode"',
       "",
       "[profiles.packycode]",
       'model = "gpt-5"',
+      'base_url = "https://relay.example.com/v1"',
       "",
       "[profiles.freemodel]",
       'model = "gpt-5-mini"',
+      'base_url = "https://free.example.com/v1"',
+      "",
+      "[profiles.manual-only]",
+      'model = "gpt-4.1-mini"',
+      'base_url = "https://manual.example.com/v1"',
       "",
     ].join("\n"),
     "utf8"

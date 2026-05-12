@@ -4,6 +4,7 @@
 export type GlobalOptions = {
   json: boolean;
   codexDir: string;
+  codexDirExplicit?: boolean;
 };
 
 /**
