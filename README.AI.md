@@ -17,16 +17,20 @@ Primary goals:
 ## Main Command Surface
 
 ```bash
+codexs setup
 codexs list
+codexs show <provider>
 codexs current
-codexs switch <provider>
 codexs status
+codexs edit <provider>
+codexs switch <provider>
 codexs import <file>
 codexs export <file>
 codexs add <provider>
 codexs remove <provider>
+codexs backups list
 codexs doctor
-codexs rollback
+codexs rollback [backup-id]
 ```
 
 Shared flags:
@@ -88,11 +92,12 @@ codexs status --json
 Current package version in this repository:
 
 ```text
-0.0.3
+0.0.4
 ```
 
 Recent version summary:
 
+- `0.0.4`: setup/show/edit/backups list/specific rollback/import merge and clearer CLI semantics
 - `0.0.3`: interactive TTY flows and improved help
 - `0.0.2`: mutation orchestration, backups, rollback, locks, drift detection improvements
 - `0.0.1`: initial TypeScript CLI and baseline docs

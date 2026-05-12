@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { BackupManifest, FileBackupEntry } from "../domain/backup";
+import { sortBackupList, toBackupListItem, validateBackupManifest } from "../domain/backups";
 import { cliError, normalizeError } from "../domain/errors";
 import { ensureDir, writeTextFileAtomic } from "./fs-utils";
 
@@ -92,23 +93,89 @@ export function saveLatestManifest(latestBackupPath: string, manifest: BackupMan
  */
 export function loadLatestManifest(latestBackupPath: string): BackupManifest {
   if (!fs.existsSync(latestBackupPath)) {
-    throw cliError("ROLLBACK_FAILED", "No rollback backup is available.", {
+    throw cliError("BACKUP_NOT_FOUND", "No rollback backup is available.", {
       file: latestBackupPath,
     });
   }
 
   try {
-    const manifest = JSON.parse(fs.readFileSync(latestBackupPath, "utf8")) as BackupManifest;
-    if (!manifest || typeof manifest !== "object" || !Array.isArray(manifest.files)) {
-      throw new Error("Invalid latest backup manifest.");
-    }
-    return manifest;
+    return validateBackupManifest(JSON.parse(fs.readFileSync(latestBackupPath, "utf8")));
   } catch (error: unknown) {
     throw cliError("ROLLBACK_FAILED", "Failed to read latest backup manifest.", {
       file: latestBackupPath,
       cause: normalizeError(error).message,
     });
   }
+}
+
+/**
+ * Loads a backup manifest by its explicit backup id.
+ */
+export function loadManifestById(backupsDir: string, backupId: string): BackupManifest {
+  const manifestPath = path.join(backupsDir, backupId, "manifest.json");
+  if (!fs.existsSync(manifestPath)) {
+    throw cliError("BACKUP_NOT_FOUND", `Backup "${backupId}" was not found.`, {
+      backupId,
+      file: manifestPath,
+    });
+  }
+
+  try {
+    return validateBackupManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
+  } catch (error: unknown) {
+    throw cliError("ROLLBACK_FAILED", `Failed to read backup manifest "${backupId}".`, {
+      backupId,
+      file: manifestPath,
+      cause: normalizeError(error).message,
+    });
+  }
+}
+
+/**
+ * Lists valid backup manifests under backups/, newest first, while skipping corrupt entries with warnings.
+ */
+export function listBackups(backupsDir: string): {
+  backups: Array<ReturnType<typeof toBackupListItem>>;
+  warnings: string[];
+} {
+  if (!fs.existsSync(backupsDir)) {
+    throw cliError("BACKUP_NOT_FOUND", "No backups directory exists.", {
+      directory: backupsDir,
+    });
+  }
+
+  const entries = fs.readdirSync(backupsDir, { withFileTypes: true });
+  const backups: Array<ReturnType<typeof toBackupListItem>> = [];
+  const warnings: string[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === "latest.json") {
+      continue;
+    }
+
+    const manifestPath = path.join(backupsDir, entry.name, "manifest.json");
+    if (!fs.existsSync(manifestPath)) {
+      warnings.push(`Skipped backup "${entry.name}" because manifest.json is missing.`);
+      continue;
+    }
+
+    try {
+      backups.push(toBackupListItem(validateBackupManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8")))));
+    } catch (error: unknown) {
+      warnings.push(`Skipped backup "${entry.name}" because manifest.json is invalid: ${normalizeError(error).message}`);
+    }
+  }
+
+  if (backups.length === 0) {
+    throw cliError("BACKUP_NOT_FOUND", "No valid backups were found.", {
+      directory: backupsDir,
+    });
+  }
+
+  return {
+    backups: sortBackupList(backups),
+    warnings,
+  };
 }
 
 /**

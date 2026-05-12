@@ -8,8 +8,10 @@ const {
   validateProvidersShape,
   cleanProviderRecord,
   findProviderByProfile,
+  maskSecret,
 } = require("../dist/domain/providers");
 const { inspectLiveStateDrift, getStorageRoles } = require("../dist/domain/runtime-state");
+const { getBackupId, sortBackupList, toBackupListItem } = require("../dist/domain/backups");
 
 function run() {
   const content = [
@@ -44,11 +46,12 @@ function run() {
 
   const record = cleanProviderRecord({
     profile: " freemodel ",
-    apiKey: " sk-abc ",
+    apiKey: " sk-abcde ",
     tags: [" daily "],
   });
   assert.equal(record.profile, "freemodel");
-  assert.equal(record.apiKey, "sk-abc");
+  assert.equal(record.apiKey, "sk-abcde");
+  assert.equal(maskSecret(record.apiKey), "sk-***de");
 
   const name = findProviderByProfile(
     {
@@ -76,6 +79,23 @@ function run() {
   });
   assert.equal(drift.canBackfillActiveProvider, true);
   assert.equal(drift.reason, "provider-unmapped");
+
+  const backupItem = toBackupListItem({
+    version: 1,
+    createdAt: "2026-05-12T01:02:03.000Z",
+    reason: "switch",
+    rootDir: "/tmp/.codex",
+    backupDir: "/tmp/.codex/backups/20260512-010203-switch",
+    files: [{ relativePath: "config.toml", existed: true, backupFileName: "config.toml" }],
+  });
+  assert.equal(getBackupId(backupItem.backupPath), "20260512-010203-switch");
+  assert.equal(backupItem.files[0], "config.toml");
+
+  const sorted = sortBackupList([
+    { backupId: "old", createdAt: "2026-05-11T00:00:00.000Z", reason: "add", files: [], backupPath: "old" },
+    { backupId: "new", createdAt: "2026-05-12T00:00:00.000Z", reason: "switch", files: [], backupPath: "new" },
+  ]);
+  assert.deepEqual(sorted.map((item) => item.backupId), ["new", "old"]);
 }
 
 module.exports = { run };

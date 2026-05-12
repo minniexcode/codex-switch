@@ -1,6 +1,9 @@
 import * as os from "node:os";
 import * as path from "node:path";
 
+export const CODEX_DIR_ENV_NAME = "CODEXS_CODEX_DIR";
+const DEVELOPMENT_DEFAULT_CODEX_DIR = path.resolve(process.cwd(), "test-fixtures", "sample-codex");
+
 /**
  * Absolute paths used by codex-switch inside the Codex home directory.
  */
@@ -17,7 +20,20 @@ export type CodexPaths = {
  * Resolves the working Codex directory, defaulting to `~/.codex`.
  */
 export function resolveCodexDir(codexDir?: string): string {
-  return codexDir ? path.resolve(codexDir) : path.join(os.homedir(), ".codex");
+  if (codexDir) {
+    return path.resolve(codexDir);
+  }
+
+  const envCodexDir = process.env[CODEX_DIR_ENV_NAME];
+  if (envCodexDir) {
+    return path.resolve(envCodexDir);
+  }
+
+  if (process.env.NODE_ENV === "development") {
+    return DEVELOPMENT_DEFAULT_CODEX_DIR;
+  }
+
+  return path.join(os.homedir(), ".codex");
 }
 
 /**

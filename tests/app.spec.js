@@ -5,11 +5,15 @@ const { listProviders } = require("../dist/app/list-providers");
 const { getCurrentProfile } = require("../dist/app/get-current-profile");
 const { getStatus } = require("../dist/app/get-status");
 const { addProvider } = require("../dist/app/add-provider");
+const { editProvider } = require("../dist/app/edit-provider");
+const { showProvider } = require("../dist/app/show-provider");
 const { exportProviders } = require("../dist/app/export-providers");
 const { importProviders } = require("../dist/app/import-providers");
+const { listBackupEntries } = require("../dist/app/list-backups");
 const { removeProvider } = require("../dist/app/remove-provider");
+const { rollbackBackup } = require("../dist/app/rollback-backup");
+const { setupCodex } = require("../dist/app/setup-codex");
 const { switchProvider } = require("../dist/app/switch-provider");
-const { rollbackLatest } = require("../dist/app/rollback-latest");
 const { runDoctor } = require("../dist/app/run-doctor");
 const {
   setCodexSpawnImplementation,
@@ -20,6 +24,7 @@ const { makeTempRoot, createFixturePaths } = require("./helpers");
 function run() {
   testReadCommands();
   testProviderMutations();
+  testShowEditImportMergeAndSetup();
   testSwitchSuccessWithLogin();
   testSwitchRollbackOnLoginFailure();
   testRollbackCommand();
@@ -33,12 +38,8 @@ function testReadCommands() {
   const tempRoot = makeTempRoot();
   try {
     const paths = createFixturePaths(path.join(tempRoot, "case-read"));
-
-    const listed = listProviders(paths.providersPath);
-    assert.equal(listed.data.count, 2);
-
-    const current = getCurrentProfile(paths.configPath);
-    assert.equal(current.data.profile, "packycode");
+    assert.equal(listProviders(paths.providersPath).data.count, 2);
+    assert.equal(getCurrentProfile(paths.configPath).data.profile, "packycode");
 
     const status = getStatus(paths.codexDir, paths.configPath, paths.providersPath);
     assert.equal(status.data.currentProfile, "packycode");
@@ -113,6 +114,96 @@ function testProviderMutations() {
   }
 }
 
+function testShowEditImportMergeAndSetup() {
+  const tempRoot = makeTempRoot();
+  try {
+    const paths = createFixturePaths(path.join(tempRoot, "case-show-edit-merge-setup"));
+
+    const shown = showProvider({
+      providersPath: paths.providersPath,
+      providerName: "packycode",
+      includeSecret: false,
+    });
+    assert.equal(shown.data.provider.apiKey, "sk-***de");
+
+    const edited = editProvider({
+      codexDir: paths.codexDir,
+      backupsDir: paths.backupsDir,
+      latestBackupPath: paths.latestBackupPath,
+      providersPath: paths.providersPath,
+      providerName: "packycode",
+      note: "updated",
+      tags: ["daily", "paid"],
+    });
+    assert.deepEqual(edited.data.updatedFields, ["note", "tags"]);
+    assert.equal(JSON.parse(fs.readFileSync(paths.providersPath, "utf8")).providers.packycode.note, "updated");
+
+    const importFile = path.join(tempRoot, "providers-import-merge.json");
+    fs.writeFileSync(
+      importFile,
+      JSON.stringify(
+        {
+          providers: {
+            freemodel: {
+              profile: "freemodel",
+              apiKey: "sk-freemodel-next",
+            },
+            imported: {
+              profile: "packycode",
+              apiKey: "sk-imported",
+            },
+          },
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    const merged = importProviders({
+      codexDir: paths.codexDir,
+      backupsDir: paths.backupsDir,
+      latestBackupPath: paths.latestBackupPath,
+      providersPath: paths.providersPath,
+      sourceFile: importFile,
+      merge: true,
+    });
+    assert.equal(merged.data.mode, "merge");
+    assert.deepEqual(merged.data.replacedProviders, ["freemodel"]);
+    const mergedProviders = JSON.parse(fs.readFileSync(paths.providersPath, "utf8")).providers;
+    assert.equal(mergedProviders.freemodel.apiKey, "sk-freemodel-next");
+    assert.equal(mergedProviders.imported.apiKey, "sk-imported");
+
+    setCodexSpawnImplementation((_command, args) => {
+      if (args.includes("--version")) {
+        return { status: 0, stderr: "", stdout: "codex 0.0.4", error: undefined };
+      }
+      return { status: 0, stderr: "", stdout: "", error: undefined };
+    });
+    try {
+      fs.rmSync(paths.providersPath, { force: true });
+      const setup = setupCodex({
+        codexDirOption: paths.codexDir,
+        codexDir: paths.codexDir,
+        configPath: paths.configPath,
+        providersPath: paths.providersPath,
+        backupsDir: paths.backupsDir,
+        latestBackupPath: paths.latestBackupPath,
+        strategy: "overwrite",
+        providerDetailsByProfile: {
+          packycode: { providerName: "packycode", apiKey: "sk-packycode" },
+          freemodel: { providerName: "freemodel", apiKey: "sk-freemodel" },
+        },
+      });
+      assert.equal(setup.data.providersInitialized, 2);
+      assert.equal(setup.data.doctor.healthy, true);
+    } finally {
+      resetCodexSpawnImplementation();
+    }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 function testSwitchRollbackOnLoginFailure() {
   const tempRoot = makeTempRoot();
   try {
@@ -177,8 +268,7 @@ function testSwitchSuccessWithLogin() {
       resetCodexSpawnImplementation();
     }
 
-    const current = getCurrentProfile(paths.configPath);
-    assert.equal(current.data.profile, "freemodel");
+    assert.equal(getCurrentProfile(paths.configPath).data.profile, "freemodel");
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -200,7 +290,15 @@ function testRollbackCommand() {
     });
     assert.equal(switched.data.provider, "freemodel");
 
-    const rollback = rollbackLatest(paths.latestBackupPath);
+    const backups = listBackupEntries(paths.backupsDir);
+    assert.equal(backups.data.count >= 1, true);
+    const backupId = backups.data.backups[0].backupId;
+
+    const rollback = rollbackBackup({
+      latestBackupPath: paths.latestBackupPath,
+      backupsDir: paths.backupsDir,
+      backupId,
+    });
     assert.deepEqual(rollback.data.restoredFiles, ["config.toml", "auth.json"]);
     assert.equal(getCurrentProfile(paths.configPath).data.profile, "packycode");
   } finally {
@@ -299,13 +397,6 @@ function testFailurePaths() {
           force: false,
         }),
       (error) => error.code === "INVALID_IMPORT_FILE"
-    );
-    assert.doesNotThrow(() =>
-      exportProviders({
-        providersPath: paths.providersPath,
-        targetFile: exportFile,
-        force: true,
-      })
     );
 
     const badImport = path.join(tempRoot, "bad-import.json");

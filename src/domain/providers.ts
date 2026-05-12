@@ -117,3 +117,14 @@ export function findProviderByProfile(providers: ProvidersFile, profile: string)
 
   return null;
 }
+
+/**
+ * Masks a secret for human-readable output while preserving a short fingerprint.
+ */
+export function maskSecret(value: string): string {
+  if (value.length <= 5) {
+    return "*".repeat(Math.max(value.length, 1));
+  }
+
+  return `${value.slice(0, 3)}***${value.slice(-2)}`;
+}

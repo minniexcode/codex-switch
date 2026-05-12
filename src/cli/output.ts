@@ -113,6 +113,22 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       }
       break;
     }
+    case "show": {
+      const provider = (data?.provider as Record<string, unknown>) ?? {};
+      lines.push(`Provider: ${String(data?.providerName ?? "")}`);
+      lines.push(`profile: ${String(provider.profile ?? "")}`);
+      lines.push(`apiKey: ${String(provider.apiKey ?? "")}`);
+      if (provider.baseUrl) {
+        lines.push(`baseUrl: ${String(provider.baseUrl)}`);
+      }
+      if (provider.note) {
+        lines.push(`note: ${String(provider.note)}`);
+      }
+      if (Array.isArray(provider.tags) && provider.tags.length > 0) {
+        lines.push(`tags: ${(provider.tags as string[]).join(", ")}`);
+      }
+      break;
+    }
     case "current":
       lines.push(`Current profile: ${String(data?.profile ?? "")}`);
       break;
@@ -129,10 +145,20 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`Login performed: ${String(data?.loginPerformed ?? false)}`);
       break;
     case "import":
-      lines.push(`Imported providers from file. Backup: ${String(data?.backupPath ?? "")}`);
+      lines.push(`Imported providers from file using mode ${String(data?.mode ?? "replace")}. Backup: ${String(data?.backupPath ?? "")}`);
       break;
     case "export":
       lines.push(`Exported providers to ${String(data?.exportedTo ?? "")}.`);
+      break;
+    case "setup":
+      lines.push(`Initialized providers in ${String(data?.codexDir ?? "")} using ${String(data?.strategy ?? "")}.`);
+      lines.push(`Providers initialized: ${String(data?.providersInitialized ?? 0)}`);
+      lines.push(`Doctor healthy: ${String((data?.doctor as Record<string, unknown> | undefined)?.healthy ?? false)}`);
+      lines.push(`Backup: ${String(data?.backupPath ?? "")}`);
+      break;
+    case "edit":
+      lines.push(`Updated provider ${String(data?.provider ?? "")}. Backup: ${String(data?.backupPath ?? "")}`);
+      lines.push(`Updated fields: ${Array.isArray(data?.updatedFields) ? (data?.updatedFields as string[]).join(", ") : ""}`);
       break;
     case "add":
       lines.push(`Added provider ${String(data?.provider ?? "")}. Backup: ${String(data?.backupPath ?? "")}`);
@@ -146,6 +172,13 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       const issues = (data?.issues as Array<Record<string, unknown>>) ?? [];
       for (const issue of issues) {
         lines.push(`${issue.code}: ${issue.message}`);
+      }
+      break;
+    }
+    case "backups-list": {
+      const backups = (data?.backups as Array<Record<string, unknown>>) ?? [];
+      for (const backup of backups) {
+        lines.push(`${backup.backupId} ${backup.reason} ${backup.createdAt}`);
       }
       break;
     }

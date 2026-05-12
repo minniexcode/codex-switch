@@ -1,16 +1,22 @@
 #!/usr/bin/env node
+import * as fs from "node:fs";
 import { addProvider } from "./app/add-provider";
+import { editProvider } from "./app/edit-provider";
 import { exportProviders } from "./app/export-providers";
 import { getCurrentProfile } from "./app/get-current-profile";
 import { getStatus } from "./app/get-status";
 import { importProviders } from "./app/import-providers";
+import { listBackupEntries } from "./app/list-backups";
 import { listProviders } from "./app/list-providers";
 import { removeProvider } from "./app/remove-provider";
-import { rollbackLatest } from "./app/rollback-latest";
+import { rollbackBackup } from "./app/rollback-backup";
 import { runDoctor } from "./app/run-doctor";
+import { setupCodex } from "./app/setup-codex";
+import { showProvider } from "./app/show-provider";
 import { switchProvider } from "./app/switch-provider";
 import { CommandContext, CommandResult, ParsedArgs } from "./app/types";
 import { cliError, normalizeError } from "./domain/errors";
+import { listConfigProfiles } from "./infra/config-repo";
 import { readProvidersFileIfExists } from "./infra/providers-repo";
 import { createCodexPaths } from "./infra/codex-paths";
 import { parseArgs, getSingleOption, hasFlag } from "./cli/args";
@@ -18,6 +24,9 @@ import { collectAddInput, createNonInteractiveAddError } from "./cli/add-interac
 import { buildHelpText, isKnownCommandName } from "./cli/help";
 import {
   canPrompt,
+  chooseSetupStrategy,
+  collectEditInput,
+  collectSetupProviderDetails,
   confirmExportOverwrite,
   confirmImport,
   confirmProviderRemoval,
@@ -28,7 +37,7 @@ import {
 import { outputFailure, outputSuccess } from "./cli/output";
 import { CliPromptRuntime, createPromptRuntime } from "./cli/prompt";
 
-const VERSION = "0.0.3";
+const VERSION = "0.0.4";
 
 /**
  * Prints the command help text to stdout.
@@ -59,7 +68,7 @@ function main(): void {
     if (parsed.helpTarget && !isKnownCommandName(parsed.helpTarget)) {
       outputFailure(
         { command: "help", options: parsed.globalOptions },
-        cliError("INVALID_IMPORT_FILE", `Unknown help topic: ${parsed.helpTarget}`, {
+        cliError("INVALID_ARGUMENT", `Unknown help topic: ${parsed.helpTarget}`, {
           availableCommands: buildHelpText(parsed.helpTarget).split("\n").slice(2),
         })
       );
@@ -102,6 +111,21 @@ export async function executeCommand(
   switch (ctx.command) {
     case "list":
       return listProviders(paths.providersPath);
+    case "show": {
+      let providerName = parsed.positionals[0] ?? null;
+      if (!providerName && canPrompt(runtime, ctx.options.json)) {
+        providerName = await promptForProviderSelection(runtime, paths.providersPath, "Choose a provider to show");
+      }
+
+      if (!providerName) {
+        throw cliError("INVALID_ARGUMENT", "Missing provider name for show command.");
+      }
+      return showProvider({
+        providersPath: paths.providersPath,
+        providerName,
+        includeSecret: ctx.options.json,
+      });
+    }
     case "current":
       return getCurrentProfile(paths.configPath);
     case "status":
@@ -114,9 +138,9 @@ export async function executeCommand(
 
       if (!providerName) {
         throw cliError("PROVIDER_NOT_FOUND", "Missing provider name for switch command.");
-      }
+        }
 
-      return switchProvider({
+        return switchProvider({
         codexDir: paths.codexDir,
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
@@ -130,11 +154,12 @@ export async function executeCommand(
     case "import": {
       const sourceFile = parsed.positionals[0];
       if (!sourceFile) {
-        throw cliError("INVALID_IMPORT_FILE", "Missing import file path.");
+        throw cliError("INVALID_ARGUMENT", "Missing import file path.");
       }
+      const merge = hasFlag(parsed.commandOptions, "--merge");
 
       if (canPrompt(runtime, ctx.options.json)) {
-        await confirmImport(runtime, sourceFile);
+        await confirmImport(runtime, sourceFile, merge);
       }
 
       return importProviders({
@@ -143,19 +168,20 @@ export async function executeCommand(
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
         sourceFile,
+        merge,
       });
     }
     case "export": {
       const targetFile = parsed.positionals[0];
       if (!targetFile) {
-        throw cliError("INVALID_IMPORT_FILE", "Missing export file path.");
+        throw cliError("INVALID_ARGUMENT", "Missing export file path.");
       }
 
       let force = hasFlag(parsed.commandOptions, "--force");
       if (!force && canPrompt(runtime, ctx.options.json) && exportTargetExists(targetFile)) {
         const confirmed = await confirmExportOverwrite(runtime, targetFile);
         if (!confirmed) {
-          throw cliError("INVALID_IMPORT_FILE", "Export cancelled.");
+          throw cliError("PROMPT_CANCELLED", "Export cancelled.");
         }
         force = true;
       }
@@ -189,8 +215,7 @@ export async function executeCommand(
             note,
             tags,
           },
-          (candidate) => Boolean(readProvidersFileIfExists(paths.providersPath).providers[candidate]),
-          paths.configPath
+          (candidate) => Boolean(readProvidersFileIfExists(paths.providersPath).providers[candidate])
         );
 
         providerName = prompted.providerName;
@@ -202,6 +227,61 @@ export async function executeCommand(
       }
 
       return addProvider({
+        codexDir: paths.codexDir,
+        backupsDir: paths.backupsDir,
+        latestBackupPath: paths.latestBackupPath,
+        providersPath: paths.providersPath,
+        providerName,
+        profile,
+        apiKey,
+        baseUrl,
+        note,
+        tags,
+      });
+    }
+    case "edit": {
+      let providerName = parsed.positionals[0] ?? null;
+      if (!providerName && canPrompt(runtime, ctx.options.json)) {
+        providerName = await promptForProviderSelection(runtime, paths.providersPath, "Choose a provider to edit");
+      }
+
+      if (!providerName) {
+        throw cliError("INVALID_ARGUMENT", "Missing provider name for edit command.");
+      }
+
+      let profile: string | undefined = getSingleOption(parsed.commandOptions, "--profile", false) ?? undefined;
+      let apiKey: string | undefined = getSingleOption(parsed.commandOptions, "--api-key", false) ?? undefined;
+      let baseUrl: string | undefined = getSingleOption(parsed.commandOptions, "--base-url", false) ?? undefined;
+      let note: string | undefined = getSingleOption(parsed.commandOptions, "--note", false) ?? undefined;
+      let tags: string[] | undefined = parsed.commandOptions.has("--tag")
+        ? parsed.commandOptions.get("--tag") ?? []
+        : undefined;
+
+      if (
+        profile === undefined &&
+        apiKey === undefined &&
+        baseUrl === undefined &&
+        note === undefined &&
+        tags === undefined &&
+        canPrompt(runtime, ctx.options.json)
+      ) {
+        const provider = readProvidersFileIfExists(paths.providersPath).providers[providerName];
+        if (!provider) {
+          throw cliError("PROVIDER_NOT_FOUND", `Provider "${providerName}" was not found.`);
+        }
+        const prompted = await collectEditInput(runtime, provider);
+        profile = prompted.profile;
+        apiKey = prompted.apiKey;
+        baseUrl = prompted.baseUrl;
+        note = prompted.note;
+        tags = prompted.tags;
+      }
+
+      if (profile === undefined && apiKey === undefined && baseUrl === undefined && note === undefined && tags === undefined) {
+        throw cliError("INVALID_ARGUMENT", "edit requires at least one field to update.");
+      }
+
+      return editProvider({
         codexDir: paths.codexDir,
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
@@ -227,7 +307,7 @@ export async function executeCommand(
       }
 
       if (!force && !canPrompt(runtime, ctx.options.json)) {
-        throw cliError("INVALID_IMPORT_FILE", "remove requires --force.");
+        throw cliError("INVALID_ARGUMENT", "remove requires --force.");
       }
 
       if (canPrompt(runtime, ctx.options.json)) {
@@ -248,13 +328,66 @@ export async function executeCommand(
         configPath: paths.configPath,
         providersPath: paths.providersPath,
       });
-    case "rollback":
-      if (canPrompt(runtime, ctx.options.json)) {
-        await confirmRollback(runtime, paths.latestBackupPath);
+    case "setup": {
+      const overwrite = hasFlag(parsed.commandOptions, "--overwrite");
+      const merge = hasFlag(parsed.commandOptions, "--merge");
+      if (overwrite && merge) {
+        throw cliError("INVALID_ARGUMENT", "setup does not allow both --merge and --overwrite.");
       }
-      return rollbackLatest(paths.latestBackupPath);
+
+      let strategy: "merge" | "overwrite" | null = overwrite ? "overwrite" : merge ? "merge" : null;
+      const providersExists = fs.existsSync(paths.providersPath);
+      if (providersExists && strategy === null) {
+        if (!canPrompt(runtime, ctx.options.json)) {
+          throw cliError("PROVIDERS_ALREADY_EXISTS", "providers.json already exists. Pass --merge or --overwrite.", {
+            file: paths.providersPath,
+          });
+        }
+
+        const selected = await chooseSetupStrategy(runtime);
+        if (selected === "cancel") {
+          throw cliError("PROMPT_CANCELLED", "Setup cancelled.");
+        }
+        strategy = selected;
+      }
+
+      const profiles = Array.from(listConfigProfiles(paths.configPath)).sort();
+      let providerDetailsByProfile: Record<
+        string,
+        { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }
+      > = {};
+
+      if (canPrompt(runtime, ctx.options.json)) {
+        providerDetailsByProfile = await collectSetupProviderDetails(runtime, profiles);
+      }
+
+      return setupCodex({
+        codexDirOption: ctx.options.codexDir,
+        codexDir: paths.codexDir,
+        configPath: paths.configPath,
+        providersPath: paths.providersPath,
+        backupsDir: paths.backupsDir,
+        latestBackupPath: paths.latestBackupPath,
+        strategy: strategy ?? "overwrite",
+        providerDetailsByProfile,
+      });
+    }
+    case "backups-list":
+      return listBackupEntries(paths.backupsDir);
+    case "rollback":
+      if (parsed.positionals.length > 1) {
+        throw cliError("INVALID_ARGUMENT", "rollback accepts at most one backup id.");
+      }
+      if (canPrompt(runtime, ctx.options.json)) {
+        await confirmRollback(runtime, paths.latestBackupPath, paths.backupsDir, parsed.positionals[0] ?? null);
+      }
+      return rollbackBackup({
+        latestBackupPath: paths.latestBackupPath,
+        backupsDir: paths.backupsDir,
+        backupId: parsed.positionals[0] ?? null,
+      });
     default:
-      throw cliError("INVALID_IMPORT_FILE", `Unknown command: ${ctx.command}`);
+      throw cliError("UNKNOWN_COMMAND", `Unknown command: ${ctx.command}`);
   }
 }
 

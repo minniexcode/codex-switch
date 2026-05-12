@@ -5,11 +5,20 @@ export type ErrorCode =
   | "PROVIDER_NOT_FOUND"
   | "PROFILE_NOT_FOUND"
   | "BACKUP_FAILED"
+  | "BACKUP_NOT_FOUND"
   | "CODEX_LOGIN_FAILED"
+  | "CODEX_NOT_INSTALLED"
+  | "CODEX_VERSION_UNSUPPORTED"
+  | "CODEX_DIR_NOT_FOUND"
+  | "CODEX_DIR_AMBIGUOUS"
   | "ROLLBACK_FAILED"
   | "LOCK_CONFLICT"
   | "LIVE_STATE_DRIFT"
-  | "INVALID_IMPORT_FILE";
+  | "INVALID_IMPORT_FILE"
+  | "INVALID_ARGUMENT"
+  | "UNKNOWN_COMMAND"
+  | "PROMPT_CANCELLED"
+  | "PROVIDERS_ALREADY_EXISTS";
 
 /**
  * Structured error payload shared by CLI rendering and domain services.
@@ -41,7 +50,7 @@ export function normalizeError(error: unknown): CliErrorShape {
   if (error && typeof error === "object" && "code" in error && "message" in error) {
     const candidate = error as Partial<CliErrorShape>;
     return {
-      code: (candidate.code as ErrorCode) ?? "INVALID_IMPORT_FILE",
+      code: (candidate.code as ErrorCode) ?? "INVALID_ARGUMENT",
       message: candidate.message ?? "Unknown error.",
       details: candidate.details,
     };
@@ -49,13 +58,13 @@ export function normalizeError(error: unknown): CliErrorShape {
 
   if (error instanceof Error) {
     return {
-      code: "INVALID_IMPORT_FILE",
+      code: "INVALID_ARGUMENT",
       message: error.message,
     };
   }
 
   return {
-    code: "INVALID_IMPORT_FILE",
+    code: "INVALID_ARGUMENT",
     message: String(error),
   };
 }

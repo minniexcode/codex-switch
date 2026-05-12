@@ -20,7 +20,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (value === "--codex-dir") {
       const next = argv[index + 1];
       if (!next) {
-        throw cliError("INVALID_IMPORT_FILE", "--codex-dir requires a path value.");
+        throw cliError("INVALID_ARGUMENT", "--codex-dir requires a path value.");
       }
       codexDir = resolveCodexDir(next);
       index += 1;
@@ -31,6 +31,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   }
 
   if (remaining[0] === "help") {
+    const helpTarget =
+      remaining[1] === "backups" && remaining[2] === "list" ? "backups" : remaining[1] ?? null;
     return {
       command: null,
       positionals: [],
@@ -40,7 +42,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       },
       commandOptions: new Map<string, string[]>(),
       helpRequested: true,
-      helpTarget: remaining[1] ?? null,
+      helpTarget,
       versionRequested: false,
     };
   }
@@ -54,12 +56,14 @@ export function parseArgs(argv: string[]): ParsedArgs {
     });
   }
 
-  const command = remaining[0] ?? null;
+  const commandToken = remaining[0] ?? null;
+  const command = commandToken === "backups" && remaining[1] === "list" ? "backups-list" : commandToken;
   const positionals: string[] = [];
   const commandOptions = new Map<string, string[]>();
   let helpRequested = false;
+  const startIndex = command === "backups-list" ? 2 : 1;
 
-  for (let index = 1; index < remaining.length; index += 1) {
+  for (let index = startIndex; index < remaining.length; index += 1) {
     const value = remaining[index];
     if (value === "--help" || value === "-h") {
       helpRequested = true;
@@ -94,7 +98,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     },
     commandOptions,
     helpRequested,
-    helpTarget: helpRequested ? command : null,
+    helpTarget: helpRequested ? (command === "backups-list" ? "backups" : command) : null,
     versionRequested: false,
   };
 }

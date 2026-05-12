@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { validateProvidersShape } from "../domain/providers";
 import { cliError, normalizeError } from "../domain/errors";
 import { ensureDir } from "../infra/fs-utils";
-import { writeProvidersFile } from "../infra/providers-repo";
+import { mergeProviders, readProvidersFileIfExists, writeProvidersFile } from "../infra/providers-repo";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 
@@ -16,6 +16,7 @@ export function importProviders(args: {
   latestBackupPath: string;
   providersPath: string;
   sourceFile: string;
+  merge?: boolean;
 }): CommandResult {
   const absoluteSource = path.resolve(args.sourceFile);
   let imported;
@@ -37,9 +38,19 @@ export function importProviders(args: {
     operation: "import",
     files: [{ absolutePath: args.providersPath, relativePath: "providers.json" }],
     mutate: () => {
-      writeProvidersFile(args.providersPath, imported);
+      const current = readProvidersFileIfExists(args.providersPath);
+      const next = args.merge ? mergeProviders(current, imported) : imported;
+      writeProvidersFile(args.providersPath, next);
+      const replacedProviders = args.merge
+        ? Object.keys(imported.providers).filter((name) => current.providers[name]).sort()
+        : [];
+
       return {
+        mode: args.merge ? "merge" : "replace",
         importedProviders: Object.keys(imported.providers).sort(),
+        importedCount: Object.keys(imported.providers).length,
+        mergedCount: Object.keys(next.providers).length,
+        replacedProviders,
       };
     },
   });

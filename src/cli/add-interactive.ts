@@ -1,6 +1,7 @@
-import { listConfigProfiles } from "../infra/config-repo";
 import { cliError } from "../domain/errors";
 import { CliPromptRuntime } from "./prompt";
+
+export const COMMON_TAG_CHOICES = ["free", "paid", "daily", "backup"] as const;
 
 type AddPromptDefaults = {
   providerName?: string | null;
@@ -26,8 +27,7 @@ type PromptedAddInput = {
 export async function collectAddInput(
   runtime: CliPromptRuntime,
   defaults: AddPromptDefaults,
-  providerExists: (providerName: string) => boolean,
-  configPath: string
+  providerExists: (providerName: string) => boolean
 ): Promise<PromptedAddInput> {
   runtime.writeLine("Interactive add mode");
   runtime.writeLine("Provide the missing required fields. Press Enter to skip optional fields.");
@@ -35,18 +35,14 @@ export async function collectAddInput(
   const providerName = defaults.providerName
     ? normalizeRequiredValue(defaults.providerName)
     : await promptProviderName(runtime, providerExists);
-  const profile = defaults.profile
-    ? normalizeRequiredValue(defaults.profile)
-    : await promptProfile(runtime, configPath);
+  const profile = defaults.profile ? normalizeRequiredValue(defaults.profile) : await promptRequiredValue(runtime, "Profile");
   const apiKey = defaults.apiKey
     ? normalizeRequiredValue(defaults.apiKey)
     : await promptConfirmedSecret(runtime, "API key", "Confirm API key");
 
   const baseUrl = defaults.baseUrl ?? normalizeOptionalValue(await runtime.inputText("Base URL (optional)"));
   const note = defaults.note ?? normalizeOptionalValue(await runtime.inputText("Note (optional)"));
-  const tags = defaults.tags.length > 0
-    ? defaults.tags
-    : parseTags(await runtime.inputText("Tags (optional, comma-separated)"));
+  const tags = defaults.tags.length > 0 ? defaults.tags : await promptTags(runtime);
 
   return {
     providerName,
@@ -63,7 +59,7 @@ export async function collectAddInput(
  */
 export function createNonInteractiveAddError(): Error {
   return cliError(
-    "INVALID_IMPORT_FILE",
+    "INVALID_ARGUMENT",
     "add requires <provider>, --profile, and --api-key when running without an interactive TTY.",
     {
       suggestion: "Run in a terminal TTY or pass all required values explicitly.",
@@ -82,28 +78,6 @@ async function promptProviderName(
       continue;
     }
     return providerName;
-  }
-}
-
-async function promptProfile(runtime: CliPromptRuntime, configPath: string): Promise<string> {
-  const profileChoices = loadProfileChoices(configPath);
-  if (profileChoices.length > 0) {
-    return runtime.selectOne("Profile", profileChoices);
-  }
-
-  return promptRequiredValue(runtime, "Profile");
-}
-
-function loadProfileChoices(configPath: string): Array<{ value: string; label: string }> {
-  try {
-    return Array.from(listConfigProfiles(configPath))
-      .sort()
-      .map((profileName) => ({
-        value: profileName,
-        label: profileName,
-      }));
-  } catch {
-    return [];
   }
 }
 
@@ -153,9 +127,37 @@ function normalizeOptionalValue(value: string): string | null {
   return normalized === "" ? null : normalized;
 }
 
-function parseTags(value: string): string[] {
-  return value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter((tag) => tag.length > 0);
+export async function promptTags(runtime: CliPromptRuntime, defaults: string[] = []): Promise<string[]> {
+  const defaultPresetTags = defaults.filter(isCommonTag);
+  const defaultCustomTags = defaults.filter((tag) => !isCommonTag(tag));
+
+  const presetTags = await runtime.selectMany(
+    "Select tags (optional)",
+    COMMON_TAG_CHOICES.map((tag) => ({ value: tag, label: tag })),
+    { defaultValues: defaultPresetTags }
+  );
+  const customTags = parseTags(
+    await runtime.inputText("Custom tags (optional, comma-separated)", {
+      defaultValue: defaultCustomTags.join(", "),
+    })
+  );
+
+  return dedupeTags([...presetTags, ...customTags]);
+}
+
+export function parseTags(value: string): string[] {
+  return dedupeTags(
+    value
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0)
+  );
+}
+
+function isCommonTag(tag: string): tag is (typeof COMMON_TAG_CHOICES)[number] {
+  return COMMON_TAG_CHOICES.includes(tag as (typeof COMMON_TAG_CHOICES)[number]);
+}
+
+function dedupeTags(tags: string[]): string[] {
+  return Array.from(new Set(tags));
 }

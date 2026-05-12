@@ -1,113 +1,173 @@
 # @minniexcode/codex-switch
 
-`@minniexcode/codex-switch` is a local-first CLI for managing and switching Codex provider/profile configuration safely.
+`codex-switch` is a local-first CLI for managing and switching Codex provider/profile configuration safely.
 
-It is built for people who use multiple Codex providers, API keys, or profiles and want a repeatable way to switch between them without manually editing files under `~/.codex/`.
+`codex-switch` 是一个本地优先的 CLI，用来安全地管理和切换 Codex 的 provider/profile 配置。
 
-## What This Repository Is For
+It is designed for users who work with multiple Codex providers, API keys, or profiles and want a repeatable, backup-first workflow instead of manually editing files under `~/.codex/`.
 
-This repository contains the CLI implementation, package metadata, and product documents for `codex-switch`.
+它面向同时维护多个 Codex provider、API key 或 profile 的用户，目标是用可重复、先备份再写入的方式替代手动修改 `~/.codex/` 下的文件。
 
-The project focuses on a simple idea:
+## Overview | 简介
 
-- keep Codex profile switching local
-- back up config before writes
-- roll back on failure
-- support both humans in a terminal and AI/automation workflows
+What it does:
 
-## What It Can Do
+- Initialize `providers.json` from an existing Codex directory
+- List, show, add, edit, and remove provider records
+- Switch the active provider/profile safely
+- Import and export provider definitions
+- Run diagnostics and detect local drift
+- List backups and rollback to a previous managed state
 
-Current MVP command set:
+它可以完成的事情：
 
-```bash
-codexs list
-codexs current
-codexs switch <provider>
-codexs status
-codexs import <file>
-codexs export <file>
-codexs add <provider>
-codexs remove <provider>
-codexs doctor
-codexs rollback
-```
+- 从现有 Codex 目录初始化 `providers.json`
+- 查看、新增、编辑、删除 provider 记录
+- 安全切换当前激活的 provider/profile
+- 导入和导出 provider 配置
+- 运行诊断并识别本地配置漂移
+- 查看备份并回滚到之前的受管状态
 
-What that means in practice:
+Current version: `0.0.4`
 
-- list locally managed providers
-- show the current active profile
-- switch to another provider safely
-- import and export provider mappings
-- add or remove provider records
-- detect config drift and common local issues
-- back up managed files before mutation and roll back when needed
+当前版本：`0.0.4`
 
-## Quick Start
-
-### For Humans
+## Install | 安装
 
 Install globally:
 
-```text
+```bash
 npm install -g @minniexcode/codex-switch
 ```
 
-Or run without installing globally:
+Or run directly:
 
-```text
+```bash
 npx @minniexcode/codex-switch --help
 ```
 
-Check the CLI:
+全局安装：
 
-```text
+```bash
+npm install -g @minniexcode/codex-switch
+```
+
+或者直接运行：
+
+```bash
+npx @minniexcode/codex-switch --help
+```
+
+CLI entry:
+
+```bash
 codexs --help
 ```
 
-Typical usage:
+命令入口：
 
-```text
+```bash
+codexs --help
+```
+
+## Quick Start | 快速开始
+
+Take over an existing Codex directory:
+
+```bash
+codexs setup
+```
+
+接管当前已有的 Codex 目录：
+
+```bash
+codexs setup
+```
+
+Inspect managed providers:
+
+```bash
 codexs list
-codexs current
+codexs show my-provider
+```
+
+查看已管理的 provider：
+
+```bash
+codexs list
+codexs show my-provider
+```
+
+Add and switch:
+
+```bash
 codexs add my-provider --profile my-provider --api-key sk-xxx
 codexs switch my-provider
+```
+
+新增并切换：
+
+```bash
+codexs add my-provider --profile my-provider --api-key sk-xxx
+codexs switch my-provider
+```
+
+Check runtime state:
+
+```bash
+codexs current
 codexs status
+codexs doctor
 ```
 
-### For LLM Agents
+检查当前运行状态：
 
-Read this first:
-
-```text
-./README.AI.md
+```bash
+codexs current
+codexs status
+codexs doctor
 ```
 
-Then install and use the project by following the agent-specific instructions in that file.
+## Common Commands | 常用命令
 
-Reference:
-
-- [AI README](./README.AI.md)
-
-Shared flags:
-
-```text
---json
---codex-dir <path>
+```bash
+codexs setup
+codexs list
+codexs show <provider>
+codexs current
+codexs status
+codexs add <provider> --profile <name> --api-key <key>
+codexs edit <provider> [--profile <name>] [--api-key <key>]
+codexs switch <provider>
+codexs remove <provider>
+codexs import <file> [--merge]
+codexs export <file>
+codexs backups list
+codexs rollback [backup-id]
+codexs doctor
 ```
 
-## Interactive Use
+Command help:
 
-The CLI supports both explicit commands and guided terminal flows.
+```bash
+codexs help switch
+codexs help setup
+```
 
-- `codexs add` prompts for missing required values in a real TTY
-- `codexs switch` can show a provider selector when no provider is passed
-- `codexs remove` supports interactive selection and confirmation
-- `import`, `export`, and `rollback` ask for confirmation in interactive mode
-- `--json` remains non-interactive for scripts and agents
+命令帮助：
 
-## Files It Manages
+```bash
+codexs help switch
+codexs help setup
+```
 
-`codex-switch` is designed around files under `~/.codex/`:
+## How It Works | 工作方式
+
+By default, `codex-switch` operates on `~/.codex/`, and you can override the target with `--codex-dir`.
+
+`codex-switch` 默认围绕 `~/.codex/` 工作，也可以通过 `--codex-dir` 指向其他目录。
+
+Managed files:
 
 ```text
 ~/.codex/
@@ -117,48 +177,55 @@ The CLI supports both explicit commands and guided terminal flows.
   backups/
 ```
 
-Storage model:
+说明：
 
-- `providers.json` is the management source of truth
-- `config.toml` and `auth.json` are runtime state
-- `backups/latest.json` tracks the latest rollback window
+- `providers.json` is the managed provider registry
+- `config.toml` and `auth.json` represent runtime state
+- mutating commands back up before writing
+- rollback is available after failed or undesired changes
 
-`providers.json` may contain API keys, so it should be treated as a local secret.
+- `providers.json` 是受管理的 provider 注册表
+- `config.toml` 和 `auth.json` 代表当前运行态
+- 所有写操作都会先备份再写入
+- 变更失败或结果不符合预期时可以回滚
 
-## Documentation
+## Automation | 自动化
 
-User-oriented project docs:
+This CLI supports both human TTY use and non-interactive automation.
 
-- [Chinese README](./README.CN.md)
+这个 CLI 同时支持人工交互和非交互自动化。
+
+Recommended global flags:
+
+```bash
+--json
+--codex-dir <path>
+--help
+--version
+```
+
+建议：
+
+- use `--json` for stable machine-readable output
+- pass all required arguments explicitly in scripts or CI
+- use `--codex-dir <path>` for sandbox or test environments
+
+- 在脚本或 CI 中使用 `--json` 获取稳定输出
+- 在非交互环境中显式传入所有必需参数
+- 在测试环境中优先配合 `--codex-dir <path>` 使用
+
+## Documentation | 文档
+
+- [Detailed CLI Usage](./docs/cli-usage.md)
+- [详细 CLI 使用文档](./docs/cli-usage.md)
+- [Changelog](./CHANGELOG.md)
+- [更新日志](./CHANGELOG.md)
 - [AI README](./README.AI.md)
+- [中文 README（历史版）](./README.CN.md)
 - [Product Overview](./docs/codex-switch-product-overview.md)
-- [Product Research](./docs/codex-switch-product-research.md)
-- [MVP PRD](./docs/PRD/codex-switch-prd.md)
-- [0.1.0 Target PRD](./docs/PRD/codex-switch-prd-v0.1.0.md)
-- [0.0.4 Design Doc](./docs/codex-switch-v0.0.4-design.md)
 - [Technical Architecture](./docs/codex-switch-technical-architecture.md)
-- [Command Design](./docs/codex-switch-command-design.md)
+- [0.0.4 Design Doc](./docs/codex-switch-v0.0.4-design.md)
 
-## Latest 3 Versions
-
-### 0.0.3
-
-- Added interactive TTY flows for high-frequency commands such as `add`, `switch`, `remove`, `import`, `export`, and `rollback`
-- Improved help output and command-specific guidance
-- Expanded CLI test coverage for interactive and argument handling behavior
-
-### 0.0.2
-
-- Added mutation orchestration with backup-first writes, rollback handling, and single-process locking
-- Improved `status` and `doctor` so they can detect runtime drift more clearly
-- Strengthened repository and domain layers for safer config operations
-
-### 0.0.1
-
-- Shipped the initial TypeScript CLI implementation
-- Added the core MVP commands and file-based provider management model
-- Added the first full set of product, architecture, and command design docs
-
-## License
+## License | 许可证
 
 MIT

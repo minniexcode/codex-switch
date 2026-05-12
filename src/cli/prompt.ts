@@ -18,6 +18,11 @@ export type CliPromptRuntime = {
     message: string,
     choices: PromptChoice<TValue>[]
   ) => Promise<TValue>;
+  selectMany: <TValue extends string>(
+    message: string,
+    choices: PromptChoice<TValue>[],
+    options?: { defaultValues?: TValue[] }
+  ) => Promise<TValue[]>;
   confirmAction: (message: string, options?: { defaultValue?: boolean }) => Promise<boolean>;
   writeLine: (message: string) => void;
 };
@@ -70,6 +75,23 @@ export function createPromptRuntime(): CliPromptRuntime {
         return answer.value as string;
       }) as Promise<never>;
     },
+    selectMany: async (message, choices, options) => {
+      return handlePromptCancellation(async () => {
+        const answer = await inquirer.prompt([
+          {
+            type: "checkbox",
+            name: "value",
+            message,
+            choices: choices.map((choice) => ({
+              value: choice.value,
+              name: choice.hint ? `${choice.label} (${choice.hint})` : choice.label,
+              checked: Boolean(options?.defaultValues?.includes(choice.value)),
+            })),
+          },
+        ]);
+        return (Array.isArray(answer.value) ? answer.value : []) as string[];
+      }) as Promise<never>;
+    },
     confirmAction: async (message, options) => {
       return handlePromptCancellation(async () => {
         const answer = await inquirer.prompt([
@@ -94,10 +116,10 @@ async function handlePromptCancellation<TValue>(run: () => Promise<TValue>): Pro
     return await run();
   } catch (error: unknown) {
     if (isPromptCancellation(error)) {
-      throw cliError("INVALID_IMPORT_FILE", "Interactive prompt was cancelled.");
+      throw cliError("PROMPT_CANCELLED", "Interactive prompt was cancelled.");
     }
 
-    throw cliError("INVALID_IMPORT_FILE", "Interactive prompt failed.", {
+    throw cliError("INVALID_ARGUMENT", "Interactive prompt failed.", {
       cause: error instanceof Error ? error.message : String(error),
     });
   }
