@@ -2,67 +2,22 @@
 
 `@minniexcode/codex-switch` is a local-first CLI for managing and switching Codex provider/profile configuration safely.
 
-Current product direction:
+It is built for people who use multiple Codex providers, API keys, or profiles and want a repeatable way to switch between them without manually editing files under `~/.codex/`.
 
-- CLI-first
-- local-first
-- safe by default
-- AI-friendly
+## What This Repository Is For
 
-The intended command name is:
+This repository contains the CLI implementation, package metadata, and product documents for `codex-switch`.
 
-```bash
-codexs
-```
+The project focuses on a simple idea:
 
-## Status
+- keep Codex profile switching local
+- back up config before writes
+- roll back on failure
+- support both humans in a terminal and AI/automation workflows
 
-The repository now contains the first end-to-end modular CLI implementation for the MVP command set defined in `docs/`.
+## What It Can Do
 
-The project is implemented as a TypeScript CLI, builds into `dist/`, and is organized into `cli`, `app`, `domain`, and `infra` layers for maintainability.
-
-## Why This Exists
-
-Managing multiple Codex providers or profiles locally usually falls into two bad options:
-
-- ad hoc scripts that work once but are hard to maintain
-- heavier account or desktop tools that solve a broader problem than local switching
-
-`@minniexcode/codex-switch` sits between those extremes. It aims to provide a stable CLI interface for:
-
-- viewing the current Codex profile
-- listing locally configured providers
-- switching providers safely
-- backing up config before mutation
-- rolling back on failure
-- importing and exporting provider mappings
-- returning structured output for automation and AI agents
-
-## Product Definition
-
-`@minniexcode/codex-switch` is intended to manage files under `~/.codex/`:
-
-```text
-~/.codex/
-  config.toml
-  auth.json
-  providers.json
-  backups/
-```
-
-Core design principles:
-
-- `providers.json` is the management-state single source of truth for provider metadata and mappings
-- `config.toml` and `auth.json` are runtime mirrors that codex-switch synchronizes safely
-- `backups/latest.json` tracks rollback state for the latest managed mutation window
-- all writes should be backed up first
-- failures should trigger rollback
-- write operations should execute under a lightweight single-process file lock
-- CLI output should stay stable and machine-readable
-
-## MVP Commands
-
-The current MVP command surface is:
+Current MVP command set:
 
 ```bash
 codexs list
@@ -77,141 +32,130 @@ codexs doctor
 codexs rollback
 ```
 
+What that means in practice:
+
+- list locally managed providers
+- show the current active profile
+- switch to another provider safely
+- import and export provider mappings
+- add or remove provider records
+- detect config drift and common local issues
+- back up managed files before mutation and roll back when needed
+
+## Quick Start
+
+### For Humans
+
+Install globally:
+
+```text
+npm install -g @minniexcode/codex-switch
+```
+
+Or run without installing globally:
+
+```text
+npx @minniexcode/codex-switch --help
+```
+
+Check the CLI:
+
+```text
+codexs --help
+```
+
+Typical usage:
+
+```text
+codexs list
+codexs current
+codexs add my-provider --profile my-provider --api-key sk-xxx
+codexs switch my-provider
+codexs status
+```
+
+### For LLM Agents
+
+Read this first:
+
+```text
+./README.AI.md
+```
+
+Then install and use the project by following the agent-specific instructions in that file.
+
+Reference:
+
+- [AI README](./README.AI.md)
+
 Shared flags:
 
-```bash
+```text
 --json
 --codex-dir <path>
 ```
 
-## CLI Experience
+## Interactive Use
 
-The CLI supports both explicit automation-friendly commands and progressive terminal flows for high-frequency human write commands.
+The CLI supports both explicit commands and guided terminal flows.
 
-- explicit flags remain the primary contract for scripts and AI agents
 - `codexs add` prompts for missing required values in a real TTY
-- `codexs switch` can let you select a provider when `<provider>` is omitted in a TTY
-- `codexs remove` selects and confirms deletions in a TTY, while automation still requires `--force`
-- `codexs import`, `codexs export`, and `codexs rollback` ask for dangerous-action confirmation in a TTY
-- `--json` stays non-interactive and should be used for machine parsing
+- `codexs switch` can show a provider selector when no provider is passed
+- `codexs remove` supports interactive selection and confirmation
+- `import`, `export`, and `rollback` ask for confirmation in interactive mode
+- `--json` remains non-interactive for scripts and agents
 
-Examples:
+## Files It Manages
 
-```bash
-codexs help
-codexs help add
-codexs add packycode --profile packycode --api-key sk-xxx
-codexs add
-codexs switch
-codexs remove freemodel
-codexs rollback
+`codex-switch` is designed around files under `~/.codex/`:
+
+```text
+~/.codex/
+  config.toml
+  auth.json
+  providers.json
+  backups/
 ```
 
-## Example Provider Model
+Storage model:
 
-Planned `providers.json` shape:
+- `providers.json` is the management source of truth
+- `config.toml` and `auth.json` are runtime state
+- `backups/latest.json` tracks the latest rollback window
 
-```json
-{
-  "providers": {
-    "packycode": {
-      "profile": "packycode",
-      "apiKey": "sk-xxx",
-      "baseUrl": "https://example.com/v1",
-      "note": "primary free model route",
-      "tags": ["free", "daily"]
-    }
-  }
-}
-```
+`providers.json` may contain API keys, so it should be treated as a local secret.
 
-`providers.json` should be treated as a local secret because it may contain API keys.
+## Documentation
 
-## Install
+User-oriented project docs:
 
-Global install:
-
-```bash
-npm install -g @minniexcode/codex-switch
-```
-
-One-off execution:
-
-```bash
-npx @minniexcode/codex-switch
-```
-
-Current CLI entry check:
-
-```bash
-codexs --help
-```
-
-## Current Repository Contents
-
-This repository contains both the product documents and the CLI implementation:
-
+- [Chinese README](./README.CN.md)
+- [AI README](./README.AI.md)
 - [Product Overview](./docs/codex-switch-product-overview.md)
 - [Product Research](./docs/codex-switch-product-research.md)
 - [PRD](./docs/codex-switch-prd.md)
 - [Technical Architecture](./docs/codex-switch-technical-architecture.md)
 - [Command Design](./docs/codex-switch-command-design.md)
 
-## Implementation Notes
+## Latest 3 Versions
 
-Current implementation characteristics:
+### 0.0.3
 
-- modular TypeScript architecture split into `app`, `domain`, `infra`, and `cli`
-- repository-style infra modules for providers, config, backups, and write locks
-- a shared mutation orchestration contract that wraps backup, rollback, and lock handling
-- safe write flows with backup manifests under `backups/`
-- rollback support for `config.toml` and optional `auth.json`
-- `status` and `doctor` expose live-state drift so future backfill/edit/sync flows can reuse the same core model
-- stable `--json` envelopes for automation
-- richer top-level and command-specific help output
-- inquirer-backed progressive TTY flows for add, switch, remove, import/export confirmations, and rollback confirmation
-- test coverage in `tests/` using a custom serial runner (`tests/run-tests.js`) because the current environment hits `node --test` worker/spawn restrictions
+- Added interactive TTY flows for high-frequency commands such as `add`, `switch`, `remove`, `import`, `export`, and `rollback`
+- Improved help output and command-specific guidance
+- Expanded CLI test coverage for interactive and argument handling behavior
 
-## Storage Model
+### 0.0.2
 
-The current storage model is intentionally split:
+- Added mutation orchestration with backup-first writes, rollback handling, and single-process locking
+- Improved `status` and `doctor` so they can detect runtime drift more clearly
+- Strengthened repository and domain layers for safer config operations
 
-- management state: `providers.json`
-- runtime state: `config.toml` and `auth.json`
-- rollback state: `backups/latest.json` and timestamped backup manifests
+### 0.0.1
 
-That keeps the MVP file-based while preserving the same boundary a future database-backed registry would use.
-
-## Concurrency And Drift
-
-Current write semantics are intentionally lightweight:
-
-- every mutating command runs inside `~/.codex/.codex-switch.lock`
-- each mutation creates a backup first and rolls back on failure
-- `status` and `doctor` detect when the active runtime profile in `config.toml` is no longer mapped in `providers.json`
-
-That drift signal is the contract for future `edit`, `sync`, and explicit backfill flows. The current version detects and reports drift, but does not silently write live runtime changes back into the management registry.
-
-## Non-Goals for MVP
-
-The first version is not trying to be:
-
-- a GUI or desktop app
-- a background daemon
-- a full account management platform
-- a proxy/router layer
-- a remote sync service
-
-## Development
-
-Local development:
-
-```bash
-npm install
-npm run build
-npm test
-node dist/cli.js --help
-```
+- Shipped the initial TypeScript CLI implementation
+- Added the core MVP commands and file-based provider management model
+- Added the first full set of product, architecture, and command design docs
 
 ## License
 
