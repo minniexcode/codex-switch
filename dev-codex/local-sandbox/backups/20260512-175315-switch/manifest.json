@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "createdAt": "2026-05-12T09:53:15.424Z",
+  "reason": "switch",
+  "rootDir": "C:\\Users\\A200477427\\Developers\\Github\\codex-switch\\dev-codex\\local-sandbox",
+  "backupDir": "C:\\Users\\A200477427\\Developers\\Github\\codex-switch\\dev-codex\\local-sandbox\\backups\\20260512-175315-switch",
+  "files": [
+    {
+      "relativePath": "config.toml",
+      "existed": true,
+      "backupFileName": "config.toml"
+    },
+    {
+      "relativePath": "auth.json",
+      "existed": true,
+      "backupFileName": "auth.json"
+    }
+  ]
+}

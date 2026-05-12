@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "createdAt": "2026-05-11T14:14:57.838Z",
+  "reason": "add",
+  "rootDir": "C:\\Users\\A200477427\\Developers\\Github\\codex-switch\\dev-codex\\runtime-codex",
+  "backupDir": "C:\\Users\\A200477427\\Developers\\Github\\codex-switch\\dev-codex\\runtime-codex\\backups\\20260511-221457-add",
+  "files": [
+    {
+      "relativePath": "providers.json",
+      "existed": true,
+      "backupFileName": "providers.json"
+    }
+  ]
+}

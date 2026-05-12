@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "freemodel": {
+      "profile": "freemodel",
+      "apiKey": "sk-freemodel"
+    },
+    "packycode": {
+      "profile": "packycode",
+      "apiKey": "sk-packycode",
+      "note": "primary",
+      "tags": [
+        "daily"
+      ]
+    },
+    "temp": {
+      "profile": "freemodel",
+      "apiKey": "sk-temp"
+    }
+  }
+}

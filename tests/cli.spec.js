@@ -100,7 +100,7 @@ function testArgParsing() {
 
   withEnv({ NODE_ENV: "development", CODEXS_CODEX_DIR: undefined }, () => {
     const devParsed = parseArgs(["list"]);
-    assert.equal(devParsed.globalOptions.codexDir, path.resolve(process.cwd(), "test-fixtures", "sample-codex"));
+    assert.equal(devParsed.globalOptions.codexDir, path.resolve(process.cwd(), "dev-codex", "local-sandbox"));
   });
 
   withEnv({ NODE_ENV: "development", CODEXS_CODEX_DIR: path.join("env", "codex") }, () => {
@@ -114,7 +114,7 @@ function testHelpText() {
   assert.match(topLevelHelp, /Read Commands:/);
   assert.match(topLevelHelp, /Change Commands:/);
   assert.match(topLevelHelp, /CODEXS_CODEX_DIR/);
-  assert.match(topLevelHelp, /test-fixtures\/sample-codex/);
+  assert.match(topLevelHelp, /dev-codex\/local-sandbox/);
   assert.match(topLevelHelp, /Interactive rules:/);
   assert.match(topLevelHelp, /Dangerous commands:/);
 

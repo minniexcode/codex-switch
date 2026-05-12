@@ -227,7 +227,7 @@ export function buildHelpText(commandName?: string | null): string {
       "",
       "Environment:",
       "  CODEXS_CODEX_DIR   Default Codex directory when --codex-dir is not passed.",
-      "  NODE_ENV=development defaults to ./test-fixtures/sample-codex when no override is set.",
+      "  NODE_ENV=development defaults to ./dev-codex/local-sandbox when no override is set.",
       "",
       "Interactive rules:",
       "  Progressive prompts only run in a real TTY and never run under --json.",

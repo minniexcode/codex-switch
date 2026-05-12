@@ -1,0 +1,7 @@
+profile = "packycode"
+
+[profiles.packycode]
+model = "gpt-5"
+
+[profiles.freemodel]
+model = "gpt-5-mini"

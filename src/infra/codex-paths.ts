@@ -2,7 +2,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 export const CODEX_DIR_ENV_NAME = "CODEXS_CODEX_DIR";
-const DEVELOPMENT_DEFAULT_CODEX_DIR = path.resolve(process.cwd(), "test-fixtures", "sample-codex");
+const DEVELOPMENT_DEFAULT_CODEX_DIR = path.resolve(process.cwd(), "dev-codex", "local-sandbox");
 
 /**
  * Absolute paths used by codex-switch inside the Codex home directory.

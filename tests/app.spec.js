@@ -25,6 +25,7 @@ function run() {
   testReadCommands();
   testProviderMutations();
   testShowEditImportMergeAndSetup();
+  testSwitchUsesPlatformCodexCommand();
   testSwitchSuccessWithLogin();
   testSwitchRollbackOnLoginFailure();
   testRollbackCommand();
@@ -32,6 +33,46 @@ function run() {
   testFailurePaths();
   testListAndDoctorErrorPaths();
   testLiveStateDriftAndLockConflict();
+}
+
+function testSwitchUsesPlatformCodexCommand() {
+  const tempRoot = makeTempRoot();
+  try {
+    const paths = createFixturePaths(path.join(tempRoot, "case-switch-platform-command"));
+    const expectedCommand = process.platform === "win32" ? (process.env.ComSpec || "cmd.exe") : "codex";
+    const expectedArgs = process.platform === "win32"
+      ? ["/d", "/s", "/c", "codex login --with-api-key"]
+      : ["login", "--with-api-key"];
+
+    setCodexSpawnImplementation((command, args) => {
+      assert.equal(command, expectedCommand);
+      assert.deepEqual(args, expectedArgs);
+      return {
+        status: 0,
+        stderr: "",
+        stdout: "",
+        error: undefined,
+      };
+    });
+
+    try {
+      const switched = switchProvider({
+        codexDir: paths.codexDir,
+        backupsDir: paths.backupsDir,
+        latestBackupPath: paths.latestBackupPath,
+        configPath: paths.configPath,
+        providersPath: paths.providersPath,
+        authPath: paths.authPath,
+        providerName: "freemodel",
+        noLogin: false,
+      });
+      assert.equal(switched.data.loginPerformed, true);
+    } finally {
+      resetCodexSpawnImplementation();
+    }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 }
 
 function testReadCommands() {
@@ -174,7 +215,7 @@ function testShowEditImportMergeAndSetup() {
     assert.equal(mergedProviders.imported.apiKey, "sk-imported");
 
     setCodexSpawnImplementation((_command, args) => {
-      if (args.includes("--version")) {
+      if (args.includes("--version") || args.some((value) => value.includes("codex --version"))) {
         return { status: 0, stderr: "", stdout: "codex 0.0.4", error: undefined };
       }
       return { status: 0, stderr: "", stdout: "", error: undefined };

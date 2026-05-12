@@ -5,6 +5,20 @@ type SpawnLike = typeof spawnSync;
 
 let spawnImplementation: SpawnLike = spawnSync;
 
+function getCodexInvocation(args: string[]): { command: string; args: string[] } {
+  if (process.platform === "win32") {
+    return {
+      command: process.env.ComSpec || "cmd.exe",
+      args: ["/d", "/s", "/c", ["codex", ...args].join(" ")],
+    };
+  }
+
+  return {
+    command: "codex",
+    args,
+  };
+}
+
 /**
  * Overrides the spawn implementation for tests.
  */
@@ -23,7 +37,8 @@ export function resetCodexSpawnImplementation(): void {
  * Runs `codex login --with-api-key` in the target Codex directory.
  */
 export function runCodexLogin(apiKey: string, workingDir: string): void {
-  const result = spawnImplementation("codex", ["login", "--with-api-key"], {
+  const invocation = getCodexInvocation(["login", "--with-api-key"]);
+  const result = spawnImplementation(invocation.command, invocation.args, {
     cwd: workingDir,
     input: `${apiKey}\n`,
     stdio: "pipe",
@@ -41,7 +56,8 @@ export function runCodexLogin(apiKey: string, workingDir: string): void {
  * Checks whether the Codex CLI is available on PATH.
  */
 export function checkCodexAvailable(): { ok: boolean; cause?: string } {
-  const result = spawnImplementation("codex", ["--version"], {
+  const invocation = getCodexInvocation(["--version"]);
+  const result = spawnImplementation(invocation.command, invocation.args, {
     stdio: "pipe",
     encoding: "utf8",
   });
@@ -60,7 +76,8 @@ export function checkCodexAvailable(): { ok: boolean; cause?: string } {
  * Reads the installed codex CLI version string.
  */
 export function readCodexVersion(): { ok: true; version: string } | { ok: false; cause: string } {
-  const result = spawnImplementation("codex", ["--version"], {
+  const invocation = getCodexInvocation(["--version"]);
+  const result = spawnImplementation(invocation.command, invocation.args, {
     stdio: "pipe",
     encoding: "utf8",
   });

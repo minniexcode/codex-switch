@@ -5,9 +5,9 @@
 - 状态：Target PRD
 - 产品名：`codex-switch`
 - CLI 命令名：`codexs`
-- 当前基线版本：`0.0.3`
+- 当前基线版本：`0.0.4`
 - 目标版本：`0.1.0`
-- 文档定位：从 `0.0.3` 走向 `0.1.0` 的目标规格与阶段性演进路线
+- 文档定位：从 `0.0.4` 走向 `0.1.0` 的目标规格与阶段性演进路线
 - 历史基线 PRD：[`codex-switch-prd.md`](./codex-switch-prd.md)
 - 对应研究稿：[`../codex-switch-product-research.md`](../codex-switch-product-research.md)
 - 对应技术架构：[`../codex-switch-technical-architecture.md`](../codex-switch-technical-architecture.md)
@@ -15,26 +15,28 @@
 
 ## 一句话定义
 
-`codex-switch` 的 `0.1.0` 目标，是从一个已经验证可行的本地 provider/profile 管理 CLI，演进为一套对人类和 AI 都稳定、可初始化、可诊断、可恢复、可持续扩展的发布级命令体系。
+`codex-switch` 的 `0.1.0` 目标，是从一个已经可用的本地 provider/profile 管理 CLI，演进为一套对人类和 AI 都稳定、可初始化、可诊断、可恢复、可结构化管理配置、可持续扩展的发布级命令体系。
 
 ## 版本语义
 
 - `0.0.x`：测试 / 验证阶段版本，用于收敛模型、命令面和失败语义
 - `0.1.0`：第一条稳定发布规格线，不要求当前立刻完成，但要求目标边界清晰
-- 当前仓库状态：`0.0.3` 已完成 MVP 核心命令面与交互式增强
+- 当前仓库状态：`0.0.4` 已具备 bootstrap、provider 查看编辑、备份枚举和指定回滚等主线能力
 
-这意味着本文件不是“下一版马上发布什么”的短期计划，而是 `0.0.3` 之后持续演进到 `0.1.0` 的目标 PRD。
+这意味着本文件不是“下一版马上发布什么”的短期计划，而是 `0.0.4` 之后持续演进到 `0.1.0` 的目标 PRD。
 
-## 当前基线：`0.0.3`
+## 当前基线：`0.0.4`
 
 当前已落地能力：
 
 - `list` / `current` / `status`
 - `switch <provider>`
-- `import <file>` / `export <file>`
-- `add <provider>` / `remove <provider>`
+- `import <file>` / `import <file> --merge` / `export <file>`
+- `add <provider>` / `edit <provider>` / `show <provider>` / `remove <provider>`
+- `setup`
 - `doctor`
-- `rollback`
+- `backups list`
+- `rollback` / `rollback <backup-id>`
 
 当前基线已经具备的工程特征：
 
@@ -47,10 +49,11 @@
 
 当前基线仍然存在的边界：
 
-- 缺少首次初始化 / bootstrap 命令
-- 只支持 latest rollback，不支持按备份条目恢复
-- provider 查看和编辑仍然偏基础
-- 错误码体系仍带有 MVP 阶段的复用痕迹
+- `config.toml` 仍以轻量字符串匹配方式处理
+- 当前只能稳定读取顶层 `profile`、识别 `[profiles.xxx]`、替换顶层 `profile`
+- provider 管理命令仍以 `providers.json` 为主，不能同步维护 linked profile sections
+- 缺少结构化展示 `config.toml` 的稳定命令面
+- 错误码体系仍带有一部分 MVP 阶段的复用痕迹
 - 尚未进入第三方 auth / extension 集成阶段
 
 ## `0.1.0` 目标
@@ -58,9 +61,10 @@
 `0.1.0` 需要同时满足以下目标：
 
 - 保持当前 CLI 和 JSON 契约稳定
-- 让首次用户可以通过 `setup` 完成从环境检测到 registry 初始化的主流程
-- 让 provider registry 的查看、编辑、导入合并能力更完整
-- 让备份与回滚从“最新一次”演进到“显式备份条目”
+- 保持 `setup`、provider registry、备份恢复主线已经可用的能力不回退
+- 把 `config.toml` 从“仅能浅层切换 current profile”推进到“可结构化读取、可受控同步 provider-linked profile sections”
+- 让 provider registry 与 linked config sections 的一致性成为稳定能力，而不是手工维护
+- 让备份与回滚继续覆盖所有关键写操作
 - 为未来 auth / extension 集成保留明确边界，而不把远期需求提前塞进稳定主线
 
 ## 长期演进守则
@@ -97,6 +101,8 @@
 
 ### 数据模型
 
+#### `providers.json`
+
 `providers.json` 继续是 managed registry 的单一事实源：
 
 ```json
@@ -119,6 +125,48 @@
 - `apiKey` 仍然按完整 managed provider 处理
 - 不引入“半初始化 provider”作为正式稳定状态
 
+#### `config.toml`
+
+到 `0.1.0` 为止，`config.toml` 的定位从纯运行态镜像调整为“部分受管的 runtime projection”：
+
+- 顶层 active `profile = "..."` 继续受管
+- 与 provider 关联的 `[profiles.<name>]` section 进入受管范围
+- 非 provider 相关的顶层键、section 和注释仍然允许存在，但不进入通用编辑器范围
+
+这里的“部分受管”有两个明确约束：
+
+- `providers.json` 仍然是 provider 身份、凭据和管理元数据的 SSOT
+- `config.toml` 不提升为与 `providers.json` 对等的事实源，而是受控投影
+
+#### `ManagedProfileConfig`
+
+`0.0.5` 到 `0.1.0` 的第一批稳定 profile 配置字段，先锁定为最小集合：
+
+```json
+{
+  "name": "packycode",
+  "model": "gpt-5",
+  "linkedProviders": ["packycode"],
+  "isActive": true
+}
+```
+
+约束：
+
+- 第一批正式受管字段只锁 `model`
+- endpoint 类字段和更大 profile schema 先不在 `0.1.0` PRD 中写死
+- 后续扩展 profile 字段时，只能做加法
+
+### TOML 处理原则
+
+为了支持结构化 config 管理，`0.1.0` 稳定主线要求：
+
+- 不再以字符串匹配作为唯一 TOML 修改策略
+- 对受管 section 的读取、创建、删除、重命名和字段更新，应采用 round-trip / AST 级结构化处理
+- 修改受管部分时，不应破坏非受管 TOML 内容、顺序、空行和注释
+
+这条要求不意味着 `codex-switch` 要变成 full TOML editor，而是要求它在“自己声明受管的部分”上能稳定修改。
+
 ### 错误码演进原则
 
 保留现有领域错误码，并把错误码体系从 MVP 复用模式收紧到语义匹配模式。
@@ -136,8 +184,6 @@
 - `LOCK_CONFLICT`
 - `LIVE_STATE_DRIFT`
 
-后续新增命令应逐步引入更精确的错误码，而不是继续把无关问题塞进 `INVALID_IMPORT_FILE`。
-
 建议新增 / 预留：
 
 - `INVALID_ARGUMENT`
@@ -150,159 +196,172 @@
 - `PROVIDERS_ALREADY_EXISTS`
 - `IMPORT_MERGE_CONFLICT`
 - `BACKUP_NOT_FOUND`
+- `CONFIG_PARSE_ERROR`
+- `PROFILE_IN_USE`
+- `MANAGED_PROFILE_FIELDS_MISSING`
 
 约束：
 
 - `CODEX_LOGIN_FAILED` 只表示登录失败
 - codex 缺失与版本过低必须使用环境类错误码
 - rollback 找不到目标备份时必须使用恢复类错误码
+- TOML 结构化解析失败必须使用 `CONFIG_PARSE_ERROR`
+- 因 profile 仍被引用而不能删除时，必须使用 `PROFILE_IN_USE`
 
-## `0.0.4` 功能里程碑
+## 已落地能力的 `0.1.0` 稳定化要求
 
-下面这些内容暂时作为 `0.0.4` 的功能里程碑。它们属于从 `0.0.3` 往 `0.1.0` 推进过程中的下一阶段，不代表已经锁定整个 `0.1.0` 的最终范围。
+### `setup`
 
-### 1. `codexs setup`
+`setup` 已是当前基线能力，在 `0.1.0` 主线中的要求是：
 
-#### 目标
+- 继续保持从环境检测到 registry 初始化的主流程
+- 继续允许 `overwrite`、`merge` 和交互式补问缺失关键字段
+- 与新的 config 管理能力保持兼容，不写出未来无法被结构化读取的受管状态
 
-提供首次初始化主流程，让用户从“本机已有 Codex 环境，但还没有 codex-switch 管理态文件”平滑进入受管状态。
+### provider registry 命令
 
-#### 目标命令
+`show`、`edit`、`import --merge`、`backups list`、`rollback <backup-id>` 已经是当前基线能力。
+
+`0.1.0` 的要求不是重新定义它们是否存在，而是：
+
+- 保持命令名和基础 JSON 契约稳定
+- 把错误语义继续收紧
+- 让与 `config.toml` 关联的行为更完整
+
+## `0.0.5` 功能里程碑：Config Management & Provider-Config Consistency
+
+`0.0.5` 是从 `0.0.4` 走向 `0.1.0` 的下一条主线，核心不是再加几个孤立命令，而是补齐 `config.toml` 的结构化管理能力。
+
+### 1. 目标
+
+`0.0.5` 需要解决以下核心问题：
+
+- 当前 TOML 处理主要依赖字符串匹配，无法稳定编辑 provider-linked profile sections
+- 当前 `add` / `edit` / `remove` 只维护 `providers.json`，可能把 `config.toml` 留在不一致状态
+- 当前缺少结构化展示 config 的命令，AI 和脚本无法稳定读取 profile section 视图
+
+### 2. 受管范围
+
+`0.0.5` 的 config 管理范围只锁到 provider-linked 部分：
+
+- 顶层 active `profile`
+- `[profiles.<name>]` 受管 section
+- 第一批正式受管字段：`model`
+
+明确不在 `0.0.5` 范围内的内容：
+
+- 整个 `config.toml` 的通用编辑器
+- 任意顶层键的自由增删改
+- endpoint 等更大 profile schema 的首版正式规格
+
+### 3. 共享与引用规则
+
+多个 provider 指向同一个 profile 在 `0.1.0` 之前继续合法。
+
+这意味着：
+
+- profile section 不默认归某一个 provider 独占
+- 只有当没有任何 provider 继续引用某个 profile 时，才允许删除对应 section
+- remove / edit 不能因为操作单个 provider 就误删共享 profile
+
+### 4. 新增命令面
+
+#### `codexs config show`
+
+目标：
+
+- 结构化展示受管 config 视图
+- 同时服务人类和 AI / 自动化读取
+
+建议输入：
 
 ```bash
-codexs setup
+codexs config show [profile] [--json] [--codex-dir <path>]
 ```
 
-#### 行为顺序
+建议 JSON `data` 至少包含：
 
-`setup` 的主流程固定为：
+- `activeProfile`
+- `profiles`
+- `linkedProviders`
+- `managedFields`
 
-1. 检查本机是否已安装 `codex`
-2. 检查 `codex` 是否满足最低支持版本门槛
-3. 发现候选 Codex 目录
-4. 当存在多个候选目录时，在 TTY 下交给用户选择，也允许自定义输入
-5. 读取目标目录下的 `config.toml`
-6. 从现有配置中发现 profile 列表
-7. 为每个准备纳入管理的 profile 构造 provider 草稿
-8. 对无法从现有状态可靠恢复的 `apiKey` 等关键字段，在交互模式下补问
-9. 检查目标目录是否已存在 `providers.json`
-10. 若已存在，在交互模式下让用户选择 `overwrite`、`merge` 或 `cancel`
-11. 写入或合并后的 `providers.json` 继续纳入备份与回滚模型
-12. 初始化成功后自动执行 `doctor`
-13. 输出当前 Codex 状态和后续建议命令
+当显式给出 `[profile]` 时，应返回单 profile 视图而不是完整列表。
 
-#### 目录发现原则
-
-- 默认优先使用明确指定的 `--codex-dir`
-- 未显式指定时，可以发现多个候选目录
-- TTY 下多个候选目录必须选择，不自动猜测
-- 非交互下多个候选目录且未显式指定时，返回歧义错误
-- 任意时刻都允许用户手动输入自定义目录
-
-#### 凭据初始化原则
-
-因为 `config.toml` 不能可靠恢复所有 provider 的 `apiKey`，所以：
-
-- `setup` 不自动伪造或猜测 API key
-- 交互模式下可以补问缺失的 `apiKey`
-- 非交互模式下，如果缺失关键字段，应中止写入并返回明确错误
-- `0.0.4` 里程碑中不引入“缺 key 的正式 provider 记录”
-
-#### Codex 版本门槛
-
-- `setup` 和 `doctor` 都应支持最低 Codex 版本检查
-- 最低版本门槛在 PRD 中定义为“必须存在的可配置门槛”
-- 具体版本号不在本文件中写死，由实现常量和发布说明控制
-
-### 2. CLI 契约收紧
-
-在 `0.0.4` 里程碑中，需要把当前命令层从“已经可用”继续收紧到“更稳定可依赖”：
-
-- 将参数错误与业务错误分离
-- 将环境问题与登录问题分离
-- 保持命令帮助、TTY 行为和 `--json` 行为一致
-- 让新增命令默认沿用当前 envelope、锁、备份和回滚模型
-
-### 3. 命令增强候选
-
-下面这些命令方向暂时也归入 `0.0.4` 里程碑候选池，用于指导下一阶段设计和实现优先级；它们仍然不是当前已完成范围。
-
-### `codexs show <provider>`
+#### `codexs config list-profiles`
 
 目标：
 
-- 展示单个 provider 的完整详情
-- 既服务人类，也服务 AI 读取结构化 provider 数据
+- 列出当前 `config.toml` 中可受管的 profile 视图
+- 明确显示 profile 与 provider 的关联关系
 
-定位：
+建议输入：
 
-- 只读命令
-- 不进入备份与回滚流程
+```bash
+codexs config list-profiles [--json] [--codex-dir <path>]
+```
 
-### `codexs edit <provider>`
+建议 JSON `data.profiles[]` 至少包含：
 
-目标：
+- `name`
+- `isActive`
+- `linkedProviders`
+- `model`
 
-- 修改单个 provider 的字段内容
+### 5. 现有写命令的升级语义
 
-默认交互模型：
+#### `codexs add <provider>`
 
-- 显式参数优先
-- 允许使用 `--profile`、`--api-key`、`--base-url`、`--note`、`--tag`
-- TTY 下只补全缺失项或确认危险写入
-- 不以外部编辑器作为默认形态
+`add` 在 `0.0.5` 中升级为 provider + linked config 双写操作：
 
-约束：
+- 继续写入 `providers.json`
+- 当目标 profile 已存在时，允许直接建立 provider 到 profile 的映射
+- 当目标 profile 不存在时，只有在显式提供最小受管字段 `model` 的前提下，才允许创建新的 `[profiles.<name>]` section
+- 若缺少创建 section 所需的最小字段，返回 `MANAGED_PROFILE_FIELDS_MISSING`
 
-- 作为写命令，默认纳入备份、锁和失败回滚
+#### `codexs edit <provider>`
 
-### `codexs backups list`
+`edit` 的 `--profile` 在 `0.0.5` 中不再只是改 registry 映射，还要维护 linked section 一致性：
 
-目标：
+- 当 provider 改绑到新 profile 时，需要同步迁移关联关系
+- 若旧 profile 仍有其他 provider 引用，则旧 section 保留
+- 若旧 profile 已无其他引用，且不再是 active profile，则旧 section 可以删除
+- 若新 profile 不存在，则只有在显式提供最小受管字段 `model` 时才允许创建
 
-- 列出历史备份条目
-- 让用户和 AI 能显式选择恢复目标
+#### `codexs remove <provider>`
 
-建议输出字段：
+`remove` 在 `0.0.5` 中升级为一致性删除：
 
-- `backupId`
-- `createdAt`
-- `reason`
-- `files`
-- `backupPath`
+- 继续删除 `providers.json` 中的 provider 记录
+- 若对应 profile 仍被其他 provider 引用，则保留该 section
+- 若对应 profile 已无任何 provider 引用，则允许删除该 section
+- 若该 profile 仍是当前 active profile，不能直接把 config 留成悬空状态，必须阻断
 
-备份 ID 规则：
+#### `codexs switch <provider>`
 
-- 默认以备份目录 basename 作为稳定 `backupId`
-- 例如 `20260511-221457-switch`
+`switch` 继续只负责切换顶层 active profile：
 
-### `codexs rollback <backup-id>`
+- 不负责改写 profile section 内部字段
+- 不承担 profile 内容修复职责
+- 但其执行前提仍是目标 profile section 必须存在且可被结构化识别
 
-目标：
+### 6. 事务与回滚要求
 
-- 从“只支持 latest rollback”演进到“支持显式备份条目恢复”
+所有可能同时触发 `providers.json` 和 `config.toml` 变更的命令，默认遵守：
 
-约束：
+- 单次锁
+- 单次备份
+- 单次失败整体回滚
 
-- `rollback` 继续保留 latest 入口
-- `rollback <backup-id>` 作为增强能力引入
-- 指定备份不存在时必须返回专门错误码，而不是复用 generic rollback failure
+不能接受的结果：
 
-### `codexs import --merge`
+- `providers.json` 已更新但 `config.toml` 未同步
+- `config.toml` 已更新但 `providers.json` 未同步
+- active profile 指向一个已不存在的 section
 
-目标：
+## `0.1.0` 远期能力域
 
-- 在不整体替换当前 registry 的前提下导入 provider 清单
-
-默认冲突策略：
-
-- 当导入文件和当前 registry 出现同名 provider 冲突时，以导入文件内容为准
-- 未冲突条目继续保留
-- 最终结果仍作为一次受管写操作进入备份与回滚流程
-
-## `0.1.0` 远期目标与能力域
-
-下面这些方向明确有价值，但当前不进入 `0.0.4` 里程碑，只作为继续走向 `0.1.0` 的远期能力域。
+下面这些方向明确有价值，但当前不进入 `0.0.5` 里程碑，只作为继续走向 `0.1.0` 的远期能力域。
 
 ### 第三方 auth / extension 集成
 
@@ -318,47 +377,42 @@ codexs setup
 - 不在当前主 PRD 中锁定具体命令名和具体交互细节
 - 不进入 `0.1.0` 稳定主线的验收标准
 
-### 交互式依赖安装
+### 更大范围的 profile schema 管理
 
-未来如果引入：
+未来如果需要扩展：
 
-- 应采用交互式多选模式
-- 类似 skills 安装体验
-- 支持一次选择多个可选依赖
-
-但当前阶段仅记录方向，不进入正式规格。
+- 可以逐步纳入 `model` 之外的 profile 字段
+- 但必须保持增量式 schema 扩展
+- 不能在未定义字段契约前把 `config.toml` 直接提升为 full config manager
 
 ## 主题里程碑
 
-从 `0.0.3` 走向 `0.1.0`，建议按能力主题推进，而不是现在就预写死每个小版本号。
+从 `0.0.4` 走向 `0.1.0`，建议按能力主题推进，而不是现在就预写死每个小版本号。
 
-### 里程碑 A：`0.0.4` / Bootstrap / Setup
-
-目标：
-
-- 完成 `setup` 规格与实现
-- 把首次初始化从“手工准备文件”提升到“命令引导完成”
-- 补齐 codex 安装和版本检查语义
-
-详细设计文档：
-
-- [`../codex-switch-v0.0.4-design.md`](../codex-switch-v0.0.4-design.md)
-
-### 里程碑 B：Provider Registry Ergonomics
+### 里程碑 A：`0.0.4` / Stable Baseline
 
 目标：
 
-- 增强 provider 的查看与编辑能力
-- 保持 `providers.json` 作为管理态事实源
-- 不默认把 runtime 文件反向回写到 registry
+- 巩固 `setup`、provider CRUD、`show`、`backups list`、指定回滚等已落地能力
+- 保持 CLI 契约、TTY 行为和 JSON envelope 稳定
+- 继续清理错误码语义复用
+
+### 里程碑 B：`0.0.5` / Config Management & Consistency
+
+目标：
+
+- 引入结构化 TOML 读取与 round-trip 写回能力
+- 增加 `config show`、`config list-profiles`
+- 让 provider 管理命令同步维护 linked profile sections
+- 明确共享 profile、孤儿 section 和 active profile 安全规则
 
 ### 里程碑 C：Backup / Recovery Evolution
 
 目标：
 
-- 引入 `backups list`
-- 引入按 `backupId` 回滚
-- 为 `import --merge` 提供完整恢复语义
+- 保持 `backups list` 与指定回滚能力稳定
+- 确保跨 `providers.json` 与 `config.toml` 的双写场景仍可完整恢复
+- 为后续更复杂的 config 变更继续复用同一事务模型
 
 ### 里程碑 D：Extensions / Auth Integration
 
@@ -377,6 +431,7 @@ codexs setup
 - 所有写命令默认走锁、备份、回滚
 - 所有新增错误码都必须语义清晰
 - 所有新增 JSON 返回都只能扩展 `data` 和 `warnings`
+- 结构化 TOML 写回不能破坏非受管部分
 
 ## `0.1.0` 目标完成标准
 
@@ -384,10 +439,28 @@ codexs setup
 
 - 用户可以通过 `setup` 完成首次初始化
 - provider registry 的查看、编辑、导入合并能力完整
+- 用户和 AI 可以通过稳定命令结构化查看受管 `config.toml`
+- `add` / `edit` / `remove` 执行后，`providers.json` 与 linked profile sections 不再出现预期内的一致性漂移
+- 共享 profile 场景不会误删仍被引用的 section
+- active profile 不会因为 provider 删除或 profile 迁移而变成悬空状态
 - 历史备份可被显式枚举和恢复
 - CLI 错误码不再存在明显语义复用问题
 - 主 CLI 契约对 AI 和脚本调用保持稳定
 
+## 建议测试场景
+
+至少需要覆盖：
+
+- `config show` 在文本和 `--json` 模式下返回稳定结构
+- `config list-profiles` 能展示 `isActive`、`linkedProviders` 和 `model`
+- `add` 在目标 profile 不存在时，只有提供最小受管字段才会创建 section
+- `edit --profile` 在共享 profile 与非共享 profile 下的迁移行为不同且符合规则
+- `remove` 删除最后一个引用时会删除孤儿 section
+- `remove` 删除共享 profile 的单个 provider 时不会误删 section
+- `remove` 触碰当前 active 且最后一个引用的 profile 时会被阻断
+- TOML round-trip 写回后，非受管内容、顺序和注释保持稳定
+- 双写失败时 `providers.json` 与 `config.toml` 能整体回滚
+
 ## 结论
 
-`0.1.0` 不是简单地把现有 MVP 重命名为稳定版，而是要在保持当前本地事务式切换模型不变的前提下，补齐初始化能力、增强 registry 操作、收紧错误契约，并为未来更大范围的 auth / extension 集成留出清晰边界。
+`0.1.0` 不是简单地把现有 `0.0.4` 重命名为稳定版，而是要在保持当前本地事务式切换模型不变的前提下，把 `config.toml` 从“仅可浅层切换”推进到“可结构化查看、可受管同步 linked sections”的下一阶段，并继续收紧错误契约，为未来更大范围的 auth / extension 集成留出清晰边界。
