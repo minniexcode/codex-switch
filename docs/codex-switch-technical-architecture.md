@@ -7,7 +7,7 @@
 - 对应产品文档：
   - [`codex-switch-product-overview.md`](./codex-switch-product-overview.md)
   - [`codex-switch-product-research.md`](./codex-switch-product-research.md)
-  - [`codex-switch-prd.md`](./codex-switch-prd.md)
+  - [`PRD/codex-switch-prd.md`](./PRD/codex-switch-prd.md)
   - [`codex-switch-command-design.md`](./codex-switch-command-design.md)
 
 ## 1. 文档目标

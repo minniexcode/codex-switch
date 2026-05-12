@@ -5,7 +5,7 @@
 - 文档类型：命令设计文档
 - 适用范围：`codex-switch` MVP
 - 关联文档：
-  - [`codex-switch-prd.md`](./codex-switch-prd.md)
+  - [`PRD/codex-switch-prd.md`](./PRD/codex-switch-prd.md)
   - [`codex-switch-technical-architecture.md`](./codex-switch-technical-architecture.md)
 
 ## 1. 文档目标

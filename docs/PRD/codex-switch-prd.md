@@ -1,15 +1,19 @@
 # codex-switch PRD
 
+> 状态说明：
+> 这份文档保留为 `0.0.x` / MVP 阶段的历史 PRD 基线。
+> 从 `0.0.3` 继续走向 `0.1.0` 的目标规格，请参考 [`codex-switch-prd-v0.1.0.md`](./codex-switch-prd-v0.1.0.md)。
+
 ## 文档信息
 
-- 状态：Draft
+- 状态：Historical Baseline
 - 产品名：`codex-switch`
 - CLI 命令名：`codexs`
 - 版本范围：MVP / CLI First
-- 文档定位：正式 PRD
-- 对应研究稿：[`codex-switch-product-research.md`](./codex-switch-product-research.md)
-- 对应技术架构：[`codex-switch-technical-architecture.md`](./codex-switch-technical-architecture.md)
-- 对应命令设计：[`codex-switch-command-design.md`](./codex-switch-command-design.md)
+- 文档定位：`0.0.x` / MVP 阶段历史 PRD
+- 对应研究稿：[`../codex-switch-product-research.md`](../codex-switch-product-research.md)
+- 对应技术架构：[`../codex-switch-technical-architecture.md`](../codex-switch-technical-architecture.md)
+- 对应命令设计：[`../codex-switch-command-design.md`](../codex-switch-command-design.md)
 
 ## 一句话定义
 

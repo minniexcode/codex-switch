@@ -9,7 +9,7 @@
 相关文档：
 
 - 研究输入稿：[`codex-switch-product-research.md`](./codex-switch-product-research.md)
-- 正式 PRD：[`codex-switch-prd.md`](./codex-switch-prd.md)
+- 正式 PRD：[`PRD/codex-switch-prd.md`](./PRD/codex-switch-prd.md)
 - 技术架构设计：[`codex-switch-technical-architecture.md`](./codex-switch-technical-architecture.md)
 - 命令设计说明：[`codex-switch-command-design.md`](./codex-switch-command-design.md)
 

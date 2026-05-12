@@ -133,7 +133,9 @@ User-oriented project docs:
 - [AI README](./README.AI.md)
 - [Product Overview](./docs/codex-switch-product-overview.md)
 - [Product Research](./docs/codex-switch-product-research.md)
-- [PRD](./docs/codex-switch-prd.md)
+- [MVP PRD](./docs/PRD/codex-switch-prd.md)
+- [0.1.0 Target PRD](./docs/PRD/codex-switch-prd-v0.1.0.md)
+- [0.0.4 Design Doc](./docs/codex-switch-v0.0.4-design.md)
 - [Technical Architecture](./docs/codex-switch-technical-architecture.md)
 - [Command Design](./docs/codex-switch-command-design.md)
 
