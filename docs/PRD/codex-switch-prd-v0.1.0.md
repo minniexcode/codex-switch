@@ -1,80 +1,131 @@
-# codex-switch `0.0.5` PRD
+# codex-switch `0.0.6` PRD
 
 ## 文档信息
 
 - 状态：Active PRD
 - 产品名：`codex-switch`
 - CLI 命令名：`codexs`
-- 当前基线版本：`0.0.4`
-- 目标版本：`0.0.5`
-- 文档定位：定义 `0.0.4 -> 0.0.5` 的直接需求范围
+- 当前基线版本：`0.0.5`
+- 目标版本：`0.0.6`
+- 文档定位：定义 `0.0.5 -> 0.0.6` 的直接需求范围
 - 历史基线 PRD：[`codex-switch-prd.md`](./codex-switch-prd.md)
 - 后续演进 PRD：[`codex-switch-prd-v0.0.5-to-v0.1.0.md`](./codex-switch-prd-v0.0.5-to-v0.1.0.md)
 - 对应研究稿：[`../codex-switch-product-research.md`](../codex-switch-product-research.md)
 - 对应技术架构：[`../codex-switch-technical-architecture.md`](../codex-switch-technical-architecture.md)
 - 对应命令设计：[`../codex-switch-command-design.md`](../codex-switch-command-design.md)
 
+说明：
+
+- 当前文件路径仍沿用历史命名 `codex-switch-prd-v0.1.0.md`
+- 本文档内容语义以当前 active PRD 为准，本次版本更新不处理文件重命名
+
 ## 一句话定义
 
-`0.0.5` 的目标不是继续堆命令，而是把 `config.toml` 从“只能浅层切换 active profile”升级为“可以结构化读取、受控维护 provider-linked profiles，并与 `providers.json` 保持一致”。
+`0.0.6` 的目标不是继续扩张命令面，而是先修复 `0.0.5` 的功能稳定性问题，冻结当前 CLI 公共契约，并把实现从“单入口持续膨胀的命令调度器”收敛为适合继续扩展的模块化分层架构。
 
-## 当前基线：`0.0.4`
+## 当前基线：`0.0.5`
 
-当前已落地能力：
+当前已具备的命令面：
 
-- `list` / `current` / `status`
-- `switch <provider>`
-- `import <file>` / `import <file> --merge` / `export <file>`
-- `add <provider>` / `edit <provider>` / `show <provider>` / `remove <provider>`
+- `config-show`
+- `config-list-profiles`
+- `list`
+- `show`
+- `current`
+- `status`
 - `setup`
+- `edit`
+- `add`
+- `switch`
+- `remove`
+- `import`
+- `export`
+- `backups`
 - `doctor`
-- `backups list`
-- `rollback` / `rollback <backup-id>`
+- `rollback`
 
 当前基线已具备的工程特征：
 
-- 本地文件模型围绕 `~/.codex/`
-- `providers.json` 作为 management SSOT
-- `config.toml` 与 `auth.json` 作为 runtime state
-- 写命令统一走备份、锁和失败回滚
-- `--json` 输出固定 envelope
+- `providers.json` 继续作为管理态单一事实源
+- `config.toml` 具备结构化读取与受管 section 写入能力
+- 写命令统一走锁、备份、失败回滚
+- `--json` 继续使用统一 envelope
+- CLI 帮助页已经具备稳定命令分组和文案基础
 
-当前主要缺口：
+当前主要问题：
 
-- `config.toml` 仍以轻量字符串匹配方式处理
-- provider 管理命令不能稳定同步 linked profile sections
-- 缺少结构化展示 config 的稳定命令面
-- 历史 profile、共享 profile、缺失 section 的一致性规则还不完整
+- `0.0.5` 需要继续收敛边界行为和失败语义，提升已有功能的稳定性
+- `src/cli.ts` 已经承担过多命令分发、交互编排和参数补全逻辑
+- 当前四层结构仍然成立，但 CLI 入口和应用编排层需要进一步细化职责
+- 未来第三方 auth / 本地代理 / 外部依赖接入已具备现实需求，但当前扩展边界还不够明确
 
-## `0.0.5` 目标
+## `0.0.6` 目标
 
-`0.0.5` 需要完成四件事：
+`0.0.6` 需要完成三件事：
 
-- 引入结构化 TOML 读取与非破坏性修改能力
-- 增加稳定的 config 查看命令，供人类、AI 和脚本消费
-- 让 provider 写命令同步维护 linked profile sections
-- 补齐历史状态、一致性信号和安全删除规则
+- 修复 `0.0.5` 命令行为中的稳定性问题，巩固已有能力
+- 重整 CLI 与应用层分层，解决 `cli.ts` 持续膨胀问题
+- 为未来第三方 auth / 本地 proxy / 外部 SDK 集成建立清晰边界，但本版不交付这些集成功能
 
 ## 范围
 
 ### In Scope
 
-- 顶层 active `profile`
-- `[profiles.<name>]` 受管 section
-- 第一批正式受管字段：`model`
-- `config show`
-- `config list-profiles`
-- `add` / `edit` / `remove` / `setup` / `import --merge` 的 provider-config 一致性
-- `doctor` / `status` 的一致性信号
+- 现有命令面的稳定性修复与一致性收敛
+- 顶层 help 文案、命令分组、示例和危险提示的一致性
+- `--json` 契约、TTY 交互规则、非交互失败语义的一致性
+- `setup` / `add` / `edit` / `remove` / `import` / `export` / `switch` / `rollback` 的事务与恢复稳定性
+- `status` / `doctor` / `config-show` / `config-list-profiles` 的读取稳定性
+- CLI 入口再分层
+- 应用编排与运行时集成边界收敛
+- 为未来第三方 integration 预留明确架构边界
 
 ### Out of Scope
 
-- 整个 `config.toml` 的通用编辑器
-- 任意顶层键的自由增删改
-- 更大 profile schema 的首版正式规格
-- 第三方 auth / extension 集成
+- 新增大型命令族
+- 真实 Copilot auth 登录接入
+- 本地代理服务启动、停止、守护和生命周期管理
+- 第三方 SDK 安装器或依赖下载体验
+- GUI / TUI / daemon 化
+- 把 `config.toml` 升级为通用配置编辑器
 
-## 数据与契约
+## 稳定公共契约
+
+### CLI 命令面
+
+`0.0.6` 默认锁定当前 help 所表达的命令面与分组，不以“新增命令数量”作为版本目标。
+
+Usage 级别的公共入口保持：
+
+```text
+codexs <command> [options]
+codexs help <command>
+```
+
+当前命令分组继续保留：
+
+- Read Commands
+- Change Commands
+- Diagnostics And Recovery
+
+当前命令名继续保留：
+
+- `config-show`
+- `config-list-profiles`
+- `list`
+- `show`
+- `current`
+- `status`
+- `setup`
+- `edit`
+- `add`
+- `switch`
+- `remove`
+- `import`
+- `export`
+- `backups`
+- `doctor`
+- `rollback`
 
 ### JSON Envelope
 
@@ -95,6 +146,18 @@
 - 顶层 shape 不变
 - 新字段只追加到 `data` / `warnings`
 - 错误信息继续进入 `error`
+- 架构重构不得破坏已有自动化消费方式
+
+### 交互规则
+
+交互能力继续只是 TTY 中的人类增强层，不改变自动化契约：
+
+- `--json` 一律禁用交互
+- 非 TTY 一律不进入交互
+- 危险写命令继续要求显式确认或显式参数
+- 用户取消 prompt 时不得产生文件写入
+
+## 数据与状态边界
 
 ### `providers.json`
 
@@ -106,192 +169,77 @@
 
 ### `config.toml`
 
-到 `0.0.5` 为止，`config.toml` 的受管范围限定为：
+到 `0.0.6` 为止，`config.toml` 的定位继续保持：
 
 - 顶层 active `profile`
 - 与 provider 关联的 `[profiles.<name>]`
-- section 内最小正式字段：`model`、`model_provider`
+- 第一批受管字段：`model`、`model_provider`
+- 非受管内容允许存在，但不进入通用编辑器范围
 
-约束：
+### `auth.json`
 
-- `providers.json` 仍是 provider 身份、凭据和管理元数据的 SSOT
-- `config.toml` 只承载运行态投影，不升级为对等事实源
-- `base_url` 不属于 `[profiles.*]`；它通过 `model_provider -> [model_providers.*].base_url` 解析
-- 非受管 TOML 内容允许存在，但不进入通用编辑范围
+`auth.json` 继续是认证态运行时文件：
 
-### Managed Profile View
+- 可以被 `switch`、`rollback`、备份系统纳入事务边界
+- 不是 provider registry 的事实源
+- 不在 `0.0.6` 中扩展为第三方 auth 统一数据库
 
-读取命令应围绕稳定视图返回，而不是直接暴露内部持久化细节。最小视图建议包含：
+## 架构目标边界
 
-```json
-{
-  "name": "packycode",
-  "model": "gpt-5",
-  "linkedProviders": ["packycode"],
-  "isActive": true,
-  "managed": true
-}
-```
+### 现状问题
 
-## Config Management 规则
+当前 `cli / app / domain / infra` 四层结构仍然是可用基线，但 `cli.ts` 已同时承担：
 
-### 受管与非受管
+- 命令分发
+- 参数归一化
+- 交互分支判断
+- 渐进式补问
+- 输出路径拼装
 
-- managed profile：被至少一个 provider 引用，允许被写命令同步维护
-- unmanaged profile：存在于 `config.toml`，但当前没有任何 provider 引用，默认只读展示
-- orphaned managed reference：`providers.json` 引用了 profile，但 `config.toml` 缺失对应 section，属于不一致状态
+这会让后续每增加一个命令或 integration，都继续把复杂度堆回 CLI 入口。
 
-### 共享 profile
+### `0.0.6` 架构调整目标
 
-多个 provider 指向同一个 profile 在 `0.0.5` 继续合法：
+`0.0.6` 不要求彻底推翻现有分层，但要求把职责边界进一步显式化，至少收敛为下面几类模块能力：
 
-- profile section 不归单个 provider 独占
-- 只有当没有任何 provider 引用时，才允许删除对应 section
-- `remove` / `edit` 不能因单个 provider 操作误删共享 profile
+- `Command Surface`
+  - 负责命令定义、help 文案、命令 key、参数规格、子命令分发
+- `Interaction Layer`
+  - 负责 TTY prompt、危险确认、渐进式补问、交互取消语义
+- `Application Use Cases`
+  - 负责单命令业务编排、跨仓储事务边界、结果契约组装
+- `Domain Policies`
+  - 负责 provider/profile/config consistency 规则、错误码、纯规则判断
+- `Storage Repositories`
+  - 负责 `providers.json`、`config.toml`、backups 的文件访问和持久化
+- `Runtime Integrations`
+  - 负责 `codex` CLI 调用，以及未来第三方 auth adapter、本地 proxy runtime、外部 SDK 封装
 
-### TOML 处理原则
+### 架构约束
 
-- 不再以字符串匹配作为唯一修改策略
-- 对受管 section 的读取、创建、删除、字段更新必须可验证
-- 修改受管部分时，不应破坏非受管内容、顺序、空行和注释
+`0.0.6` 需要明确以下约束：
 
-## 新增命令
+- 不把第三方 SDK 调用直接塞进 CLI 入口
+- 不把 prompt 逻辑继续散落到每个命令分支内部
+- 不让 `app` 层直接依赖终端输出细节
+- 不让运行时集成逻辑反向污染领域规则
+- 不因未来接入 Copilot 或其他 provider，就改变本地事务与回滚的安全语义
 
-### `codexs config show`
+## `0.0.6` 稳定性要求
 
-用途：
+### 命令行为一致性
 
-- 展示结构化 config 视图
-- 同时服务人类和 AI / 自动化读取
+现有命令在 `0.0.6` 需要重点收敛：
 
-输入：
+- help 文案与真实命令行为一致
+- 默认文本输出与 `--json` 输出语义一致
+- TTY 与非交互模式下的失败路径可预测
+- 危险命令的确认规则一致
+- 同一类错误优先映射到同一类错误码
 
-```bash
-codexs config show [profile] [--json] [--codex-dir <path>]
-```
+### 写命令安全语义
 
-最小返回要求：
-
-- `activeProfile`
-- `profiles`
-- `includedProfiles`
-
-`profiles[]` 中每项至少包含：
-
-- `name`
-- `managed`
-- `isActive`
-- `linkedProviders`
-- `managedFields`
-- `source`
-
-### `codexs config list-profiles`
-
-用途：
-
-- 列出当前 `config.toml` 中的 profile 视图
-- 明确显示 profile 与 provider 的关联关系
-
-输入：
-
-```bash
-codexs config list-profiles [--json] [--codex-dir <path>]
-```
-
-`data.profiles[]` 至少包含：
-
-- `name`
-- `managed`
-- `isActive`
-- `linkedProviders`
-- `model`
-
-## 现有写命令升级
-
-### `codexs add <provider>`
-
-新增或锁定：
-
-- `--model <name>`
-- `--create-profile`
-
-规则：
-
-- 当目标 profile 已存在时，允许直接建立映射
-- 当目标 profile 不存在时，只有显式传入 `--create-profile --model <name>` 且存在同名 `model_providers` runtime section 时才允许创建 section
-- 缺少最小受管字段时，返回 `MANAGED_PROFILE_FIELDS_MISSING`
-
-### `codexs edit <provider>`
-
-新增或锁定：
-
-- `--profile <name>`
-- `--model <name>`
-- `--create-profile`
-
-规则：
-
-- `edit --profile <missing>` 且未传 `--create-profile` 时失败
-- `edit --profile <missing> --create-profile` 但未传 `--model` 时失败
-- `edit --profile <missing> --create-profile` 若缺少同名 `model_providers` runtime section 或其 `base_url`，也必须失败
-- 旧 profile 若仍被其他 provider 引用，则保留
-- 旧 profile 若已无引用且不是 active profile，则可以删除
-- 不隐式 rename 或 copy 旧 section 到新 profile
-
-### `codexs remove <provider>`
-
-新增或锁定：
-
-- `--switch-to <profile>`
-
-规则：
-
-- 删除 provider 记录后，若 profile 仍被其他 provider 引用，则保留 section
-- 若 profile 已无任何引用，则允许删除 section
-- 若该 profile 仍是当前 active 且最后一个引用，必须先 `switch` 或显式传 `--switch-to`
-- 不允许把 active profile 留成悬空状态
-
-### `codexs switch <provider>`
-
-- 继续只负责切换顶层 active profile
-- 不负责修复 profile section 内容
-- 执行前提仍是目标 profile section 必须存在且可识别
-
-## `setup` 升级
-
-`setup` 在 `0.0.5` 需要与新一致性模型兼容：
-
-- 支持扫描多个候选 Codex 目录
-- 多候选下，TTY 允许选择或手动输入目录
-- 非交互模式下，多候选且未显式传 `--codex-dir` 时返回 `CODEX_DIR_AMBIGUOUS`
-- 未发现任何候选目录时，TTY 可手动输入；非交互返回 `CODEX_DIR_NOT_FOUND`
-- 对从现有 `config.toml` 发现的 profile，允许 adopt 为受管 profile
-- 不制造新的 registry-config 不一致
-
-## Write Result Contract
-
-下列写命令成功时，建议在 JSON `data` 中稳定返回结果字段：
-
-- `add`
-- `edit`
-- `remove`
-- `setup`
-- `import --merge`
-
-建议字段：
-
-- `provider`
-- `profile`
-- `createdProfileSections`
-- `deletedProfileSections`
-- `keptSharedProfiles`
-- `switchedActiveProfile`
-- `adoptedProfiles`
-- `repairedProfiles`
-
-## 事务与回滚
-
-所有可能同时修改 `providers.json` 和 `config.toml` 的命令，默认遵守：
+所有会修改 `providers.json`、`config.toml`、`auth.json` 的命令继续默认遵守：
 
 - 单次锁
 - 单次备份
@@ -301,45 +249,69 @@ codexs config list-profiles [--json] [--codex-dir <path>]
 
 - `providers.json` 已更新但 `config.toml` 未同步
 - `config.toml` 已更新但 `providers.json` 未同步
-- active profile 指向已不存在的 section
+- `auth.json` 或 active profile 因失败留在半切换状态
 
-## 迁移与诊断
+### 读取稳定性
 
-需要识别的历史状态：
+读取命令在 `0.0.6` 至少需要满足：
 
-- `providers.json` 可用，但 `config.toml` 中只有手工维护 profile
-- `providers.json` 引用了 profile，但对应 section 不存在
-- `config.toml` 存在历史 profile，但没有任何 provider 引用
-- 当前 active profile 指向 unmanaged profile
+- 不因历史 workspace 或边缘状态轻易崩溃
+- `status` 与 `doctor` 的诊断信号保持一致语义
+- `config-show` 与 `config-list-profiles` 输出结构稳定
+- 对缺失文件、解析失败和不一致状态给出可预测错误或警告
 
-迁移原则：
+## Future-Ready Integration 边界
 
-- 不要求用户先手工清空历史状态
-- `setup`、`import --merge`、`doctor`、`status` 必须能识别这些状态
-- 可安全 adopt 的 unmanaged profile，允许纳入受管
-- 对悬空引用或缺失 section，默认不静默修复，必须告知用户下一步建议
+### 为什么 `0.0.6` 要预留这条线
 
-`doctor` / `status` 至少需要覆盖：
+未来存在明确扩展需求：
 
-- orphaned profile reference
-- unmanaged active profile
-- shared profile reference count
-- orphaned profile section
-- destructive remove blocked
+- 通过第三方 auth 获取认证态
+- 借助本地代理使特定上游可在 Codex 中使用
+- 接入外部 SDK，例如 GitHub Copilot 相关能力
+
+如果继续沿用当前“命令直接长在 `cli.ts` 上”的方式，后续集成会快速把架构拖回高耦合状态。
+
+### `0.0.6` 的预留目标
+
+本版只要求建立边界，不要求交付真实功能：
+
+- 允许未来把第三方 auth 封装为独立 integration 模块
+- 允许未来把本地 proxy runtime 封装为独立运行时组件
+- 允许未来把外部依赖探测、可用性检查、错误语义收敛到 runtime integration 层
+- 不在本版锁定具体命令名、交互细节或 SDK 选型细节
+
+### Copilot 作为代表性场景
+
+GitHub Copilot 相关 auth / SDK / 本地代理能力，在 `0.0.6` 里的定位是：
+
+- 作为未来架构设计的代表性输入
+- 用于验证 `Runtime Integrations` 分层是否足够清晰
+- 不作为 `0.0.6` 必须实现的命令需求
+
+## 对实现的要求
+
+从 `0.0.5` 到 `0.0.6` 的改造，默认遵守：
+
+- 不破坏现有命令名
+- 不破坏统一 JSON envelope
+- 不破坏备份、回滚、锁模型
+- 不引入只能靠交互完成的核心流程
+- 不把未来第三方集成耦合进当前 provider/config 领域规则
+- 允许内部文件和模块重组，但外部 CLI 契约保持稳定
 
 ## 验收标准
 
-达到以下条件时，`0.0.5` 可以认为完成：
+达到以下条件时，`0.0.6` 可以认为完成：
 
-- `config show` 在文本和 `--json` 模式下返回稳定结构
-- `config list-profiles` 能稳定展示 `managed`、`isActive`、`linkedProviders` 和 `model`
-- `add` / `edit` / `remove` 会同步维护 linked profile sections
-- 共享 profile 场景不会误删仍被引用的 section
-- active profile 不会因删除 provider 或迁移 profile 而悬空
-- 历史 `0.0.4` 状态可被识别，并通过 adopt / repair 路径收敛
-- 结构化 TOML 修改后，非受管内容、顺序和注释保持稳定
-- 双写失败时 `providers.json` 与 `config.toml` 能整体回滚
+- 当前 help 文案与命令行为、参数、危险提示基本一致
+- 现有命令在 TTY / 非交互 / `--json` 模式下行为稳定
+- 读取命令对历史状态和异常状态的处理更稳，不产生明显回归
+- 写命令继续满足锁、备份、失败回滚语义
+- `cli.ts` 不再承担持续膨胀的主调度与交互编排复杂度
+- 应用编排、交互层、运行时集成边界比 `0.0.5` 更清晰
+- 为未来第三方 auth / 本地 proxy / SDK 接入预留了清楚但非侵入式的扩展边界
 
 ## 结论
 
-`0.0.5` 是 `codex-switch` 从 provider registry 工具走向 config-aware CLI 的第一步。它的重点不是扩张命令面，而是建立稳定的 config 管理、一致性事务和可诊断能力，为后续 `0.0.5 -> 0.1.0` 演进打基础。
+`0.0.6` 是一个修复型版本，但它不是“只修 bug 不动结构”的保守补丁版。它的真正目标，是在不破坏当前 CLI 公共契约的前提下，把 `0.0.5` 已经长出来的命令面和事务能力稳住，并把代码结构调整到足以支撑下一阶段 integration-ready 演进的状态。

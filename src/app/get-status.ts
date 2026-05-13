@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import { buildManagedProfileViews, collectConfigConsistencyIssues } from "../domain/config";
 import { getStorageRoles, inspectLiveStateDrift } from "../domain/runtime-state";
-import { readStructuredConfig } from "../infra/config-repo";
-import { readProvidersFile } from "../infra/providers-repo";
+import { readStructuredConfig } from "../storage/config-repo";
+import { readProvidersFile } from "../storage/providers-repo";
 import { CommandResult } from "./types";
 
 /**

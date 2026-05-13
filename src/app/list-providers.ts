@@ -1,5 +1,5 @@
 import { CommandResult } from "./types";
-import { readProvidersFile } from "../infra/providers-repo";
+import { readProvidersFile } from "../storage/providers-repo";
 
 /**
  * Returns the sorted list of configured providers for display.

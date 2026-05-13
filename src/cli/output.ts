@@ -1,6 +1,7 @@
 import { CliErrorShape } from "../domain/errors";
-import { printErrorDetails } from "../infra/fs-utils";
-import { CommandContext, CommandResult } from "../app/types";
+import { printErrorDetails } from "../storage/fs-utils";
+import { CommandResult } from "../app/types";
+import { CommandExecutionContext } from "../commands/types";
 
 export type JsonEnvelope = {
   ok: boolean;
@@ -19,7 +20,7 @@ export type RenderedOutput = {
 /**
  * Renders a successful command result for either JSON or human-readable output.
  */
-export function renderSuccess(ctx: CommandContext, result: CommandResult): RenderedOutput {
+export function renderSuccess(ctx: CommandExecutionContext, result: CommandResult): RenderedOutput {
   const warnings = result.warnings ?? [];
   if (ctx.options.json) {
     const payload: JsonEnvelope = {
@@ -47,7 +48,7 @@ export function renderSuccess(ctx: CommandContext, result: CommandResult): Rende
 /**
  * Renders a failed command result for either JSON or human-readable output.
  */
-export function renderFailure(ctx: CommandContext, error: CliErrorShape): RenderedOutput {
+export function renderFailure(ctx: CommandExecutionContext, error: CliErrorShape): RenderedOutput {
   if (ctx.options.json) {
     const payload: JsonEnvelope = {
       ok: false,
@@ -74,7 +75,7 @@ export function renderFailure(ctx: CommandContext, error: CliErrorShape): Render
 /**
  * Writes successful command output to stdout.
  */
-export function outputSuccess(ctx: CommandContext, result: CommandResult): void {
+export function outputSuccess(ctx: CommandExecutionContext, result: CommandResult): void {
   const rendered = renderSuccess(ctx, result);
   for (const line of rendered.stdout) {
     printText(line);
@@ -84,7 +85,7 @@ export function outputSuccess(ctx: CommandContext, result: CommandResult): void 
 /**
  * Writes failure output to stderr and exits with the rendered status code.
  */
-export function outputFailure(ctx: CommandContext, error: CliErrorShape): void {
+export function outputFailure(ctx: CommandExecutionContext, error: CliErrorShape): void {
   const rendered = renderFailure(ctx, error);
   for (const line of rendered.stderr) {
     printText(line, true);

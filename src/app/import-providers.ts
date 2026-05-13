@@ -3,9 +3,9 @@ import * as path from "node:path";
 import { buildManagedProfileViews, validateManagedProfileCreation } from "../domain/config";
 import { validateProvidersShape } from "../domain/providers";
 import { cliError, normalizeError } from "../domain/errors";
-import { applyConfigMutation, createConfigMutationPlan, readStructuredConfig } from "../infra/config-repo";
-import { ensureDir } from "../infra/fs-utils";
-import { mergeProviders, readProvidersFileIfExists, writeProvidersFile } from "../infra/providers-repo";
+import { applyConfigMutation, createConfigMutationPlan, readStructuredConfig } from "../storage/config-repo";
+import { ensureDir } from "../storage/fs-utils";
+import { mergeProviders, readProvidersFileIfExists, writeProvidersFile } from "../storage/providers-repo";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 

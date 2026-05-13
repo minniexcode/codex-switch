@@ -1,7 +1,7 @@
 import { BackupManifest, FileBackupEntry } from "../domain/backup";
 import { cliError, normalizeError } from "../domain/errors";
-import { createBackup, restoreManifest, saveLatestManifest } from "../infra/backup-repo";
-import { withCodexLock } from "../infra/lock-repo";
+import { createBackup, restoreManifest, saveLatestManifest } from "../storage/backup-repo";
+import { withCodexLock } from "../storage/lock-repo";
 
 type ManagedFile = {
   absolutePath: string;

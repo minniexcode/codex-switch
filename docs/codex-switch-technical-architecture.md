@@ -130,6 +130,13 @@ Infrastructure 层
 
 这意味着未来即使引入 GUI / MCP / HTTP 适配层，核心同步目标仍然是 runtime files，而不是把 runtime files 本身当成长期管理数据库。
 
+`0.0.6` 的实现边界还需要区分“逻辑主层”和“兼容层”：
+
+- 逻辑主层已经迁移到 `src/commands/`、`src/interaction/`、`src/storage/`、`src/runtime/`
+- `src/cli/` 和 `src/infra/` 当前主要承担兼容 re-export 与入口收敛职责
+- 这意味着 `0.0.6` 的完成标准是“边界和契约已经统一”，而不是“所有旧路径文件都物理删除”
+- 后续版本可以在兼容窗口结束后继续删除旧 facade，但这不属于 `0.0.6` 的必须交付范围
+
 ### 3.3 模块依赖图
 
 当前代码依赖关系可以抽象为：
@@ -194,10 +201,14 @@ argv
 ```text
 src/
   cli.ts
+  commands/
+  interaction/
   app/
   cli/
   domain/
+  runtime/
   infra/
+  storage/
 
 tests/
   app.spec.js
@@ -220,7 +231,65 @@ scripts/
 
 它不直接做文件读写，不直接写业务逻辑，也不直接实现备份或校验规则。
 
-### 4.2 `src/cli/`
+### 4.2 `src/commands/`
+
+这一层是 `0.0.6` 新增的命令表面层，负责把“公开 CLI 形态”收敛为单一 registry。
+
+它承担的职责是：
+
+- 定义每个命令的公开 token 形态，例如 `config show`、`config list-profiles`、`backups list`
+- 统一保存 `summary`、`usage`、`details`、`examples`
+- 绑定 command handler，供 dispatch 直接执行
+- 让 help、解析和 dispatch 共享同一份事实源
+
+它不负责：
+
+- 具体文件读写
+- prompt 交互细节
+- human output 渲染
+
+### 4.3 `src/interaction/`
+
+这一层是 `0.0.6` 中显式抽出的交互层，负责所有 CLI 级 prompt 组合逻辑。
+
+它承担的职责是：
+
+- 判断哪些路径允许交互
+- 组合 provider 选择、确认、rollback 预览等交互动作
+- 组织 add/edit/setup 中的渐进式输入收集
+
+它不负责：
+
+- 业务状态变更
+- 文件系统写入
+- 运行时探测
+
+`setup` 是这一层边界最强的命令之一。在 `0.0.6` 中，它的 adopt profile 选择和 provider 详情输入仍然是交互式 contract，因此非交互路径会显式失败，而不是隐式进入空输入分支。
+
+### 4.4 `src/storage/`
+
+这一层是 `0.0.6` 的文件和状态访问层，负责把以前分散在 `infra/` 的能力收口成稳定存储边界。
+
+它承担的职责是：
+
+- `config.toml` / `providers.json` / backup manifest / lock file 的读写
+- Codex home 目录路径展开
+- 原子写入、备份、回滚、锁定
+
+`src/infra/` 在当前版本主要保留兼容 re-export，以便逐步迁移，不再作为新的业务入口继续扩张。
+
+### 4.5 `src/runtime/`
+
+这一层是 `0.0.6` 新增的运行时边界，负责本地 Codex CLI 的外部依赖探测和登录调用。
+
+它承担的职责是：
+
+- Codex 可用性检查
+- Codex 版本检查
+- Codex login 调用
+- 未来可扩展为第三方 runtime adapter 的能力边界
+
+### 4.6 `src/cli/`
 
 #### `src/cli/args.ts`
 
@@ -272,7 +341,7 @@ scripts/
 
 这两个纯渲染入口的作用是让 CLI 层本身也能被测试，而不依赖真实子进程。
 
-### 4.3 `src/app/`
+### 4.7 `src/app/`
 
 这一层是应用服务 / 用例编排层。每个文件基本对应一个命令或一个用例：
 
@@ -301,7 +370,7 @@ scripts/
 - `stdout` / `stderr` 怎么写
 - argv 怎么解析
 
-### 4.4 `src/domain/`
+### 4.8 `src/domain/`
 
 #### `errors.ts`
 

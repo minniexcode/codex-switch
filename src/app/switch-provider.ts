@@ -1,9 +1,9 @@
 import { cliError } from "../domain/errors";
-import { applyConfigMutation, createConfigMutationPlan, ensureProfileExists } from "../infra/config-repo";
-import { runCodexLogin } from "../infra/codex-cli";
-import { readProvidersFile } from "../infra/providers-repo";
+import { applyConfigMutation, createConfigMutationPlan, ensureProfileExists } from "../storage/config-repo";
+import { readProvidersFile } from "../storage/providers-repo";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
+import { runCodexLogin } from "../runtime/codex-cli";
 
 /**
  * Switches the active Codex profile and optionally refreshes the CLI login session.

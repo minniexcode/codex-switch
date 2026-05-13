@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { cliError } from "../domain/errors";
-import { ensureDir } from "../infra/fs-utils";
-import { readProvidersFile, writeProvidersFile } from "../infra/providers-repo";
+import { ensureDir } from "../storage/fs-utils";
+import { readProvidersFile, writeProvidersFile } from "../storage/providers-repo";
 import { CommandResult } from "./types";
 
 /**

@@ -1,4 +1,4 @@
-import { listBackups } from "../infra/backup-repo";
+import { listBackups } from "../storage/backup-repo";
 import { CommandResult } from "./types";
 
 /**

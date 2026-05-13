@@ -1,6 +1,6 @@
 import { buildManagedProfileViews } from "../domain/config";
-import { readStructuredConfig } from "../infra/config-repo";
-import { readProvidersFileIfExists } from "../infra/providers-repo";
+import { readStructuredConfig } from "../storage/config-repo";
+import { readProvidersFileIfExists } from "../storage/providers-repo";
 import { CommandResult } from "./types";
 
 /**

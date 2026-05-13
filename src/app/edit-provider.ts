@@ -8,9 +8,9 @@ import {
   readStructuredConfig,
   requireManagedProfileRuntime,
   requireModelProviderRuntimeSection,
-} from "../infra/config-repo";
-import { ensureDir } from "../infra/fs-utils";
-import { readProvidersFile, writeProvidersFile } from "../infra/providers-repo";
+} from "../storage/config-repo";
+import { ensureDir } from "../storage/fs-utils";
+import { readProvidersFile, writeProvidersFile } from "../storage/providers-repo";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 

@@ -17,7 +17,7 @@ What it does:
 - Run diagnostics and detect local drift
 - List backups and roll back to a previous managed state
 
-Current version: `0.0.5`
+Current version: `0.0.6`
 
 ## Install
 
@@ -119,6 +119,9 @@ Notes:
 ## Automation
 
 This CLI supports both human TTY use and non-interactive automation.
+
+Current exception:
+- `setup` in `0.0.6` is intentionally TTY-only for adopt initialization. It requires interactive profile selection and provider detail collection, and non-interactive/`--json` runs fail fast with a structured error.
 
 Recommended global flags:
 

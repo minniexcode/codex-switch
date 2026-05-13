@@ -1,5 +1,5 @@
 import { cliError, normalizeError } from "../domain/errors";
-import { loadLatestManifest, loadManifestById, restoreManifest } from "../infra/backup-repo";
+import { loadLatestManifest, loadManifestById, restoreManifest } from "../storage/backup-repo";
 import { CommandResult } from "./types";
 
 /**

@@ -1,11 +1,11 @@
 import * as fs from "node:fs";
 import { collectConfigConsistencyIssues, ConfigConsistencyIssue, ParsedConfigDocument } from "../domain/config";
 import { getStorageRoles, inspectLiveStateDrift } from "../domain/runtime-state";
-import { checkCodexAvailable } from "../infra/codex-cli";
-import { readStructuredConfig } from "../infra/config-repo";
-import { readProvidersFile } from "../infra/providers-repo";
+import { readStructuredConfig } from "../storage/config-repo";
+import { readProvidersFile } from "../storage/providers-repo";
 import { normalizeError } from "../domain/errors";
 import { CommandResult } from "./types";
+import { probeCodexRuntime } from "../runtime/codex-probe";
 
 /**
  * Performs consistency checks across config.toml, providers.json, and the local Codex CLI.
@@ -67,11 +67,22 @@ export function runDoctor(args: {
 
   const drift = inspectLiveStateDrift(currentProfile, providers);
 
-  const codexCheck = checkCodexAvailable();
+  const codexCheck = probeCodexRuntime();
   if (!codexCheck.ok) {
+    const message =
+      codexCheck.reason === "missing"
+        ? "codex CLI is not available on PATH."
+        : codexCheck.reason === "unsupported"
+          ? "codex CLI version is below the supported minimum."
+          : "codex CLI probe failed.";
     issues.push({
-      code: "CODEX_LOGIN_FAILED",
-      message: "codex CLI is not available.",
+      code:
+        codexCheck.reason === "unsupported"
+          ? "CODEX_VERSION_UNSUPPORTED"
+          : codexCheck.reason === "missing"
+            ? "CODEX_NOT_INSTALLED"
+            : "CODEX_LOGIN_FAILED",
+      message,
       cause: codexCheck.cause,
     });
   }

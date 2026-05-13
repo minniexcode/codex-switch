@@ -1,7 +1,7 @@
 import { cliError } from "../domain/errors";
 import { planProfileLifecycleOutcome } from "../domain/config";
-import { applyConfigMutation, createConfigMutationPlan, readStructuredConfig } from "../infra/config-repo";
-import { readProvidersFile, writeProvidersFile } from "../infra/providers-repo";
+import { applyConfigMutation, createConfigMutationPlan, readStructuredConfig } from "../storage/config-repo";
+import { readProvidersFile, writeProvidersFile } from "../storage/providers-repo";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 

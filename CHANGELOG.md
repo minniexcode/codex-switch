@@ -2,6 +2,40 @@
 
 All notable changes to `@minniexcode/codex-switch` will be documented in this file.
 
+## 0.0.6 - 2026-05-13
+
+This release focuses on stabilizing the existing CLI contract and moving the codebase to clearer internal boundaries for future integrations.
+
+本次版本重点不是继续扩命令，而是稳定现有 CLI 契约，并把内部结构调整为更清晰的分层边界，以承接后续 integration 能力。
+
+### Added
+
+- Added `src/commands/` as the shared command-surface layer for registry, parsing, help, and dispatch.
+- Added explicit `src/interaction/`, `src/runtime/`, and `src/storage/` boundaries to separate prompts, external runtime probing, and filesystem-backed state access.
+- Added plain Node test coverage for command-surface parsing/dispatch, interaction gating, and runtime probing behavior.
+
+- 新增 `src/commands/` 作为共享的命令表面层，统一 registry、参数解析、help 和 dispatch。
+- 新增显式的 `src/interaction/`、`src/runtime/`、`src/storage/` 边界，用于拆分交互、外部运行时探测和文件状态访问。
+- 新增 plain Node 测试，覆盖 command surface、interaction gating 和 runtime probing 行为。
+
+### Changed
+
+- Slimmed `src/cli.ts` down to bootstrap, version/help handling, and final render/error exit behavior.
+- Moved CLI-owned types out of `src/app/types.ts` so application services no longer own argument-parsing contracts.
+- Updated runtime diagnostics to use a dedicated Codex runtime probe instead of probing the CLI directly from the previous mixed infra layer.
+- Updated package and CLI version to `0.0.6`.
+
+- 将 `src/cli.ts` 缩减为 bootstrap、version/help 和最终渲染/退出职责。
+- 将 CLI 自有类型从 `src/app/types.ts` 移出，使应用层不再持有参数解析契约。
+- 将运行时诊断切换为专门的 Codex runtime probe，而不是继续从混合 `infra` 层直接探测 CLI。
+- 将包版本和 CLI 版本更新为 `0.0.6`。
+
+### Verification
+
+- `npm run build`
+- `npx tsc --noEmit`
+- `npm test`
+
 ## 0.0.4 - 2026-05-12
 
 This release expands the CLI from the initial MVP into a more complete provider-management workflow. The main focus is setup, provider inspection and editing, backup visibility, selective rollback, and clearer automation behavior.

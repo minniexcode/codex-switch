@@ -1,5 +1,5 @@
 import { maskSecret } from "../domain/providers";
-import { readProviderRecord } from "../infra/providers-repo";
+import { readProviderRecord } from "../storage/providers-repo";
 import { CommandResult } from "./types";
 
 /**
