@@ -39,7 +39,7 @@ dev-codex/local-sandbox/
 
 It is used in two different ways:
 
-- read-only subprocess tests point at it directly
+- read-only dispatcher tests point at it directly
 - mutation tests copy it into a temporary directory before running writes
 
 Do not point destructive automation directly at `dev-codex/local-sandbox` unless you intentionally want to update the fixture.

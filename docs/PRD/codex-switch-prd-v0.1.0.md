@@ -218,7 +218,7 @@ codexs config list-profiles [--json] [--codex-dir <path>]
 规则：
 
 - 当目标 profile 已存在时，允许直接建立映射
-- 当目标 profile 不存在时，只有显式传入 `--create-profile --model <name>` 才允许创建 section
+- 当目标 profile 不存在时，只有显式传入 `--create-profile --model <name>` 且存在同名 `model_providers` runtime section 时才允许创建 section
 - 缺少最小受管字段时，返回 `MANAGED_PROFILE_FIELDS_MISSING`
 
 ### `codexs edit <provider>`
@@ -233,6 +233,7 @@ codexs config list-profiles [--json] [--codex-dir <path>]
 
 - `edit --profile <missing>` 且未传 `--create-profile` 时失败
 - `edit --profile <missing> --create-profile` 但未传 `--model` 时失败
+- `edit --profile <missing> --create-profile` 若缺少同名 `model_providers` runtime section 或其 `base_url`，也必须失败
 - 旧 profile 若仍被其他 provider 引用，则保留
 - 旧 profile 若已无引用且不是 active profile，则可以删除
 - 不隐式 rename 或 copy 旧 section 到新 profile

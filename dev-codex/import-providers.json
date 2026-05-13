@@ -1,8 +1,0 @@
-{
-  "providers": {
-    "imported": {
-      "profile": "freemodel",
-      "apiKey": "sk-imported"
-    }
-  }
-}

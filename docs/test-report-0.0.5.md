@@ -90,7 +90,7 @@ Fixture:
 
 - `dev-codex/local-sandbox`
 
-Validated with the built CLI as a real subprocess:
+Validated with the built CLI command dispatcher against the real development fixture:
 
 - `list --json`
 - `current --json`
@@ -123,7 +123,7 @@ Validated flows:
 - `add` creates a provider in `providers.json`
 - `edit` updates note and tags
 - `remove --force` deletes a non-active provider
-- `add --create-profile` creates a managed profile section in `config.toml`
+- `add --create-profile` creates a managed profile section in `config.toml` when a same-named `[model_providers.*]` runtime section already exists
 - destructive removal of the active provider fails with `PROFILE_IN_USE`
 - `import --merge` replaces overlapping providers and keeps merged state valid
 - `export` writes a valid providers file

@@ -45,8 +45,8 @@ vite.svg
 tmp/
 temp/
 
-# repository-specific generated fixtures
-test-fixtures/runtime-codex/
-test-fixtures/runtime-codex-2/
-test-fixtures/case-*/
-test-fixtures/providers-export.json
+# tests
+tests
+dev-codex
+
+

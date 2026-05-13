@@ -291,7 +291,9 @@ patch 规则直接锁定：
 
 - 顶层 `profile = "..."`
 - `[profiles.<name>]`
+- `[model_providers.<name>]`
 - `model = "..."`
+- `model_provider = "..."`
 - `base_url = "..."`
 
 其余字段允许原样存在，但：
@@ -772,7 +774,7 @@ argv
   -> app/edit-provider
   -> load provider + structured config
   -> resolve new profile target
-  -> create missing profile only when --create-profile --model --base-url is present
+  -> create missing profile only when --create-profile --model is present and matching model_provider runtime section already exists
   -> update provider mapping
   -> keep or delete old section based on shared/active rules
   -> single mutation transaction
@@ -829,7 +831,8 @@ argv
 
 - `doctor` 识别问题并给出问题码
 - `status` 给出浅层信号，不做静默修复
-- `setup` / `import --merge` 在交互模式下承接 adopt / repair
+- `setup` 在交互模式下承接 adopt
+- `import --merge` 保持显式失败，不为缺失 `model_providers` runtime section 做交互 repair
 - 非交互模式遇到不可自动收敛状态时失败，并返回明确原因
 
 ### 15.3 `doctor` 与 `status` 的责任差异
@@ -866,8 +869,8 @@ argv
 - `setup` 多候选目录 + TTY 选择
 - `setup` 无候选目录 + TTY 手动输入
 - `setup` 多候选目录 + 非交互失败 `CODEX_DIR_AMBIGUOUS`
-- `add --create-profile --model --base-url`
-- `edit --profile <missing> --create-profile --model --base-url`
+- `add --create-profile --model` with existing same-named `[model_providers.*]`
+- `edit --profile <missing> --create-profile --model` with existing same-named `[model_providers.*]`
 - `remove --switch-to`
 
 ### 16.3 Application 测试
