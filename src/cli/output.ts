@@ -145,7 +145,7 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       const profiles = (data?.profiles as Array<Record<string, unknown>>) ?? [];
       for (const profile of profiles) {
         lines.push(
-          `${String(profile.name)} managed=${String(profile.managed)} active=${String(profile.isActive)} source=${String(profile.source)} model=${String(profile.model ?? "")} baseUrl=${String(profile.baseUrl ?? "")}`
+          `${String(profile.name)} managed=${String(profile.managed)} active=${String(profile.isActive)} source=${String(profile.source)} model=${String(profile.model ?? "")} modelProvider=${String(profile.modelProvider ?? "")} baseUrl=${String(profile.baseUrl ?? "")}`
         );
       }
       break;

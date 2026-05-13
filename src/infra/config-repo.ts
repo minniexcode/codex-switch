@@ -4,8 +4,10 @@ import * as path from "node:path";
 import {
   ConfigMutationPlan,
   ManagedProfileFields,
+  ManagedProfileView,
   ParsedConfigDocument,
   applyPatchOperations,
+  buildManagedProfileViews,
   parseStructuredConfig,
   parseTopLevelProfile,
   planConfigMutation,
@@ -13,6 +15,7 @@ import {
 import { cliError, normalizeError } from "../domain/errors";
 import { CODEX_DIR_ENV_NAME, resolveCodexDir } from "./codex-paths";
 import { readRequiredFile, writeTextFileAtomic } from "./fs-utils";
+import { ProvidersFile } from "../domain/providers";
 
 /**
  * Reads config.toml and throws a typed error when the file is missing.
@@ -69,6 +72,69 @@ export function ensureProfileExists(configPath: string, profile: string, provide
     });
   }
   return document;
+}
+
+/**
+ * Resolves one profile view and enforces the managed model_provider contract.
+ */
+export function requireManagedProfileRuntime(
+  document: ParsedConfigDocument,
+  providers: ProvidersFile | null,
+  profile: string
+): ManagedProfileView {
+  const view = buildManagedProfileViews(document, providers).find((entry) => entry.name === profile);
+  if (!view) {
+    throw cliError("PROFILE_NOT_FOUND", `Profile "${profile}" does not exist in config.toml.`, {
+      profile,
+    });
+  }
+  if (!view.modelProvider) {
+    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Managed profile "${profile}" requires model_provider.`, {
+      profile,
+      missingFields: ["model_provider"],
+    });
+  }
+  if (view.modelProvider !== profile) {
+    throw cliError("INVALID_ARGUMENT", `Managed profile "${profile}" must use the same model_provider name.`, {
+      profile,
+      modelProvider: view.modelProvider,
+    });
+  }
+  const modelProviderSection = document.modelProviders.find((entry) => entry.name === view.modelProvider);
+  if (!modelProviderSection) {
+    throw cliError("PROFILE_NOT_FOUND", `Model provider "${view.modelProvider}" does not exist in config.toml.`, {
+      profile,
+      modelProvider: view.modelProvider,
+    });
+  }
+  if (!modelProviderSection.baseUrl) {
+    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${view.modelProvider}" requires base_url.`, {
+      profile,
+      modelProvider: view.modelProvider,
+      missingFields: ["base_url"],
+    });
+  }
+  return view;
+}
+
+/**
+ * Verifies that a same-named model_provider runtime section exists and has base_url.
+ */
+export function requireModelProviderRuntimeSection(document: ParsedConfigDocument, profile: string): void {
+  const modelProviderSection = document.modelProviders.find((entry) => entry.name === profile);
+  if (!modelProviderSection) {
+    throw cliError("PROFILE_NOT_FOUND", `Model provider "${profile}" does not exist in config.toml.`, {
+      profile,
+      modelProvider: profile,
+    });
+  }
+  if (!modelProviderSection.baseUrl) {
+    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${profile}" requires base_url.`, {
+      profile,
+      modelProvider: profile,
+      missingFields: ["base_url"],
+    });
+  }
 }
 
 /**

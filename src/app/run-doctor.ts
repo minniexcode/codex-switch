@@ -98,6 +98,14 @@ function renderConfigIssueMessage(issue: ConfigConsistencyIssue): string {
       return `Profile "${issue.profile}" is shared by multiple providers.`;
     case "ORPHANED_PROFILE_SECTION":
       return `Profile section "${issue.profile}" is not linked to any provider.`;
+    case "MODEL_PROVIDER_MISSING":
+      return `Profile "${issue.profile}" is missing model_provider.`;
+    case "MODEL_PROVIDER_NAME_MISMATCH":
+      return `Profile "${issue.profile}" must use matching model_provider name "${issue.profile}", found "${issue.modelProvider}".`;
+    case "MODEL_PROVIDER_SECTION_MISSING":
+      return `Model provider section "${issue.modelProvider}" for profile "${issue.profile}" is missing from config.toml.`;
+    case "MODEL_PROVIDER_BASE_URL_MISSING":
+      return `Model provider section "${issue.modelProvider}" for profile "${issue.profile}" is missing base_url.`;
     case "DESTRUCTIVE_REMOVE_BLOCKED":
       return `Provider "${issue.provider}" cannot be removed while "${issue.activeProfile}" remains active.`;
   }

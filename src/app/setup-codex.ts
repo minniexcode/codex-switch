@@ -52,7 +52,7 @@ export function setupCodex(args: {
   const document = readStructuredConfig(args.configPath);
   const profileViews = buildManagedProfileViews(document, null);
   const adoptableProfiles = profileViews
-    .filter((view) => view.source === "unmanaged" && view.model && view.baseUrl)
+    .filter((view) => view.source === "unmanaged" && view.model && view.modelProvider === view.name && view.baseUrl)
     .map((view) => view.name)
     .sort();
   if (profileViews.length === 0) {
@@ -63,7 +63,7 @@ export function setupCodex(args: {
 
   const invalidAdoptProfiles = args.adoptProfiles.filter((profile) => !adoptableProfiles.includes(profile));
   if (invalidAdoptProfiles.length > 0) {
-    throw cliError("INVALID_ARGUMENT", "setup only adopts unmanaged profiles that already contain model and base_url.", {
+    throw cliError("INVALID_ARGUMENT", "setup only adopts unmanaged profiles that already contain model, model_provider, and a matching model_providers base_url.", {
       invalidProfiles: invalidAdoptProfiles.sort(),
       adoptableProfiles,
     });

@@ -1,11 +1,15 @@
 const { run: runDomainTests } = require("./domain.spec");
 const { run: runAppTests } = require("./app.spec");
 const { run: runCliTests } = require("./cli.spec");
+const { run: runDevSandboxTests } = require("./dev-sandbox.spec");
+const { run: runE2ETests } = require("./e2e.spec");
 
 const suites = [
   ["domain", runDomainTests],
   ["app", runAppTests],
   ["cli", runCliTests],
+  ["dev-sandbox", runDevSandboxTests],
+  ["e2e", runE2ETests],
 ];
 
 let failures = 0;

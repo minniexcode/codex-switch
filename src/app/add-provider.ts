@@ -1,7 +1,13 @@
 import { validateManagedProfileCreation } from "../domain/config";
 import { cleanProviderRecord } from "../domain/providers";
 import { cliError } from "../domain/errors";
-import { applyConfigMutation, createConfigMutationPlan, readStructuredConfig } from "../infra/config-repo";
+import {
+  applyConfigMutation,
+  createConfigMutationPlan,
+  readStructuredConfig,
+  requireManagedProfileRuntime,
+  requireModelProviderRuntimeSection,
+} from "../infra/config-repo";
 import { ensureDir } from "../infra/fs-utils";
 import { readProvidersFileIfExists, writeProvidersFile } from "../infra/providers-repo";
 import { runMutation } from "./run-mutation";
@@ -42,10 +48,16 @@ export function addProvider(args: {
     ? {
         [args.profile]: validateManagedProfileCreation(args.profile, {
           model: args.model ?? undefined,
-          baseUrl: args.baseUrl ?? undefined,
+          modelProvider: args.profile,
         }),
       }
     : undefined;
+  if (!existingProfile && args.createProfile) {
+    requireModelProviderRuntimeSection(document, args.profile);
+  }
+  if (existingProfile) {
+    requireManagedProfileRuntime(document, providers, args.profile);
+  }
 
   const next = {
     providers: {

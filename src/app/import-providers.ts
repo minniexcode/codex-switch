@@ -20,7 +20,6 @@ export function importProviders(args: {
   configPath: string;
   sourceFile: string;
   merge?: boolean;
-  repairProfiles?: Record<string, { model?: string; baseUrl?: string }>;
 }): CommandResult {
   const absoluteSource = path.resolve(args.sourceFile);
   let imported;
@@ -57,18 +56,30 @@ export function importProviders(args: {
         .sort();
       const missingViews = nextViews.filter((view) => view.source === "orphaned-reference");
       const repairedProfiles: string[] = [];
-      const upsertProfiles = missingViews.reduce<Record<string, { model: string; baseUrl: string }>>((accumulator, view) => {
-        const repair = args.repairProfiles?.[view.name];
-        if (!repair) {
+      const upsertProfiles = missingViews.reduce<Record<string, { model: string; modelProvider: string }>>((accumulator, view) => {
+        const sourceView = currentViews.find((entry) => entry.name === view.name) ?? null;
+        if (!sourceView?.model) {
           throw cliError(
             "MANAGED_PROFILE_FIELDS_MISSING",
-            "Import would create provider references to missing config profiles that need model and base_url.",
+            "Import would create provider references to missing config profiles that need model and matching model_provider sections.",
             {
               profilesNeedingRepair: missingViews.map((entry) => entry.name).sort(),
             }
           );
         }
-        accumulator[view.name] = validateManagedProfileCreation(view.name, repair);
+        if (sourceView.modelProvider !== view.name || !sourceView.baseUrl) {
+          throw cliError(
+            "MANAGED_PROFILE_FIELDS_MISSING",
+            "Import would create provider references to missing config profiles without matching model_provider runtime sections.",
+            {
+              profilesNeedingRepair: missingViews.map((entry) => entry.name).sort(),
+            }
+          );
+        }
+        accumulator[view.name] = validateManagedProfileCreation(view.name, {
+          model: sourceView.model,
+          modelProvider: view.name,
+        });
         repairedProfiles.push(view.name);
         return accumulator;
       }, {});

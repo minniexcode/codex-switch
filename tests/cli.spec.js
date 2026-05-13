@@ -39,7 +39,7 @@ async function run() {
   await testSetupAmbiguousCodexDir();
   await testSetupInteractiveAdoptSelection();
   await testManualCodexDirNormalization();
-  await testInteractiveImportRepairPrompts();
+  await testInteractiveImportRejectsMissingManagedProfileRepair();
 }
 
 function createMockRuntime(overrides = {}) {
@@ -995,7 +995,7 @@ async function testManualCodexDirNormalization() {
   }
 }
 
-async function testInteractiveImportRepairPrompts() {
+async function testInteractiveImportRejectsMissingManagedProfileRepair() {
   const tempRoot = makeTempRoot();
   try {
     const paths = createFixturePaths(path.join(tempRoot, "case-cli-import-repair-prompts"));
@@ -1013,30 +1013,19 @@ async function testInteractiveImportRepairPrompts() {
       "utf8"
     );
 
-    const prompts = [];
     const parsed = parseArgs(["import", importFile, "--merge", "--codex-dir", paths.codexDir]);
-    const result = await executeCommand(
-      { command: parsed.command, options: parsed.globalOptions },
-      parsed,
-      createMockRuntime({
-        isInteractive: () => true,
-        confirmAction: async () => true,
-        inputText: async (message) => {
-          prompts.push(message);
-          if (message.includes("Model")) {
-            return "gpt-4.1";
-          }
-          if (message.includes("Base URL")) {
-            return "https://missing.example.com/v1";
-          }
-          return "";
-        },
-      })
+    await assert.rejects(
+      () =>
+        executeCommand(
+          { command: parsed.command, options: parsed.globalOptions },
+          parsed,
+          createMockRuntime({
+            isInteractive: () => true,
+            confirmAction: async () => true,
+          })
+        ),
+      (error) => error.code === "MANAGED_PROFILE_FIELDS_MISSING"
     );
-
-    assert.deepEqual(result.data.repairedProfiles, ["missing-profile"]);
-    assert.ok(prompts.some((message) => message.includes('Model for missing profile "missing-profile"')));
-    assert.ok(prompts.some((message) => message.includes('Base URL for missing profile "missing-profile"')));
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

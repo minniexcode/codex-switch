@@ -1,7 +1,14 @@
 import { cliError } from "../domain/errors";
 import { planProfileLifecycleOutcome, validateManagedProfileCreation } from "../domain/config";
 import { cleanProviderRecord } from "../domain/providers";
-import { applyConfigMutation, createConfigMutationPlan, readCurrentProfile, readStructuredConfig } from "../infra/config-repo";
+import {
+  applyConfigMutation,
+  createConfigMutationPlan,
+  readCurrentProfile,
+  readStructuredConfig,
+  requireManagedProfileRuntime,
+  requireModelProviderRuntimeSection,
+} from "../infra/config-repo";
 import { ensureDir } from "../infra/fs-utils";
 import { readProvidersFile, writeProvidersFile } from "../infra/providers-repo";
 import { runMutation } from "./run-mutation";
@@ -66,7 +73,7 @@ export function editProvider(args: {
   const newProfile = nextRecord.profile;
   const targetSection = document.profiles.find((profile) => profile.name === newProfile) ?? null;
   const targetProfileExists = Boolean(targetSection);
-  let upsertProfiles: Record<string, { model?: string; baseUrl?: string }> | undefined;
+  let upsertProfiles: Record<string, { model?: string; modelProvider?: string }> | undefined;
   if (!targetProfileExists) {
     if (!args.createProfile) {
       throw cliError("PROFILE_NOT_FOUND", `Profile "${newProfile}" does not exist in config.toml.`, {
@@ -77,21 +84,21 @@ export function editProvider(args: {
     upsertProfiles = {
       [newProfile]: validateManagedProfileCreation(newProfile, {
         model: args.model ?? undefined,
-        baseUrl: args.baseUrl ?? undefined,
+        modelProvider: newProfile,
       }),
     };
-  } else if (args.model !== undefined || args.baseUrl !== undefined) {
+    requireModelProviderRuntimeSection(document, newProfile);
+  } else {
+    requireManagedProfileRuntime(document, providers, newProfile);
+  }
+  if (targetProfileExists && args.model !== undefined) {
     upsertProfiles = {
       [newProfile]: {
         ...(args.model !== undefined && args.model !== null ? { model: args.model } : {}),
-        ...(args.baseUrl !== undefined && args.baseUrl !== null ? { baseUrl: args.baseUrl } : {}),
       },
     };
     if (args.model !== undefined && (targetSection?.model !== args.model) && !updatedFields.includes("model")) {
       updatedFields.push("model");
-    }
-    if (args.baseUrl !== undefined && targetSection?.baseUrl !== args.baseUrl && !updatedFields.includes("baseUrl")) {
-      updatedFields.push("baseUrl");
     }
   }
 

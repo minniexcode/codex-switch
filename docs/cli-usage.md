@@ -226,6 +226,7 @@ codexs setup --merge --codex-dir ./.tmp-codex
 行为说明：
 
 - 读取 `config.toml` 中已有 profile
+- 仅 adopt 已具备 `model`、`model_provider` 且能解析到匹配 `model_providers.*.base_url` 的 profile
 - 收集每个 profile 对应的 provider 记录
 - 在受管备份流程下写入 `providers.json`
 - 成功后会自动运行一次 `doctor`
@@ -262,7 +263,7 @@ codexs add
 - `provider`：provider 名称，也是后续 `switch/show/edit/remove` 的标识
 - `--profile`：写入到 `config.toml` 的 profile 名称
 - `--api-key`：provider API key
-- `--base-url`：可选的 API base URL
+- `--base-url`：可选的 provider 元数据，不会写回 `[profiles.*]`
 - `--note`：备注
 - `--tag`：标签，可重复传多次
 

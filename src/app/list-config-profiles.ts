@@ -15,6 +15,7 @@ export function listConfigProfilesView(args: { configPath: string; providersPath
     isActive: profile.isActive,
     linkedProviders: profile.linkedProviders,
     model: profile.model,
+    modelProvider: profile.modelProvider,
     baseUrl: profile.baseUrl,
     source: profile.source,
   }));

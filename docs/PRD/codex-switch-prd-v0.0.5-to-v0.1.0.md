@@ -107,14 +107,15 @@
 
 ```json
 {
-  "model": "gpt-5"
+  "model": "gpt-5",
+  "modelProvider": "packycode"
 }
 ```
 
 约束：
 
-- 第一批正式受管字段只锁 `model`
-- `baseUrl` 等 endpoint 类字段继续只保留在 `providers.json`
+- 第一批正式受管字段锁 `model` 与 `model_provider`
+- `baseUrl` 作为读取视图字段，可由 `model_provider -> model_providers.<name>.base_url` 解析
 - 后续扩展 profile 字段时，只能做加法
 
 #### `ManagedProfileView`
@@ -198,7 +199,7 @@
 - 不能只更新 `providers.json` 而放任 linked profile sections 漂移
 - 当导入结果引用了缺失 profile 时，必须进入与 `add` / `edit` 一致的受管规则
 - 非交互模式下，如果导入内容不能满足受管 profile 创建条件，应明确失败
-- 交互模式下可以进入 adopt / repair 辅助流，但最终写入结果仍必须满足一致性约束
+- 交互模式下可以进入 adopt 辅助流，但不会为缺失 `model_providers` runtime section 做隐式 repair
 
 ## `0.1.0` 远期能力域
 

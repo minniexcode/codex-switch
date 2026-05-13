@@ -42,16 +42,23 @@ function testConfigPatchingEdgeCases() {
       "",
       "[profiles.packycode]",
       'model = "gpt-5"',
-      'base_url = "https://relay.example.com/v1"',
+      'model_provider = "packycode"',
       "",
       "[profiles.manual]",
       'model = "gpt-4.1-mini"',
+      'model_provider = "manual"',
+      "",
+      "[model_providers.packycode]",
+      'base_url = "https://relay.example.com/v1"',
+      "",
+      "[model_providers.manual]",
       'base_url = "https://manual.example.com/v1"',
       "",
     ].join("\n")
   );
   assert.equal(structured.activeProfile, "packycode");
-  assert.equal(structured.profiles[0].baseUrl, "https://relay.example.com/v1");
+  assert.equal(structured.profiles[0].modelProvider, "packycode");
+  assert.equal(structured.modelProviders[0].baseUrl, "https://relay.example.com/v1");
 
   const replaced = replaceTopLevelProfile(content, "freemodel");
   assert.match(replaced, /profile = "freemodel"/);
@@ -60,11 +67,11 @@ function testConfigPatchingEdgeCases() {
     upsertProfiles: {
       packycode: {
         model: "gpt-5.1",
-        baseUrl: "https://relay-next.example.com/v1",
+        modelProvider: "packycode",
       },
       created: {
         model: "gpt-4.1",
-        baseUrl: "https://created.example.com/v1",
+        modelProvider: "created",
       },
     },
     deleteProfiles: ["manual"],
@@ -72,8 +79,9 @@ function testConfigPatchingEdgeCases() {
   const mutated = applyPatchOperations(structured.rawText, mutation.operations);
   assert.match(mutated, /# keep me/);
   assert.match(mutated, /profile = "manual"/);
-  assert.match(mutated, /base_url = "https:\/\/relay-next\.example\.com\/v1"/);
+  assert.match(mutated, /model_provider = "packycode"/);
   assert.match(mutated, /\[profiles\.created\]/);
+  assert.match(mutated, /model_provider = "created"/);
   assert.equal(mutated.includes("[profiles.manual]"), false);
 
   const views = buildManagedProfileViews(structured, {
@@ -190,7 +198,7 @@ function testConfigPatchingEdgeCases() {
     [
       "[profiles.commenty]",
       'model = "gpt-5" # keep model comment',
-      'base_url = "https://old.example.com/v1" # keep url comment',
+      'model_provider = "commenty" # keep provider comment',
       "",
     ].join("\n")
   );
@@ -198,13 +206,13 @@ function testConfigPatchingEdgeCases() {
     upsertProfiles: {
       commenty: {
         model: "gpt-5.1",
-        baseUrl: "https://new.example.com/v1",
+        modelProvider: "commenty-next",
       },
     },
   });
   const commentedPatched = applyPatchOperations(commentedStructured.rawText, commentedMutation.operations);
   assert.match(commentedPatched, /model = "gpt-5\.1" # keep model comment/);
-  assert.match(commentedPatched, /base_url = "https:\/\/new\.example\.com\/v1" # keep url comment/);
+  assert.match(commentedPatched, /model_provider = "commenty-next" # keep provider comment/);
 
   const missingFieldsStructured = parseStructuredConfig(
     [
@@ -219,7 +227,7 @@ function testConfigPatchingEdgeCases() {
     upsertProfiles: {
       partial: {
         model: "gpt-5-mini",
-        baseUrl: "https://partial.example.com/v1",
+        modelProvider: "partial",
       },
     },
   });
@@ -228,14 +236,14 @@ function testConfigPatchingEdgeCases() {
   const missingFieldsPatched = applyPatchOperations(missingFieldsStructured.rawText, missingFieldsMutation.operations);
   assert.match(
     missingFieldsPatched,
-    /\[profiles\.partial\]\ntemperature = "0\.2"\nmodel = "gpt-5-mini"\nbase_url = "https:\/\/partial\.example\.com\/v1"\n\n# trailing comment/
+    /\[profiles\.partial\]\ntemperature = "0\.2"\nmodel = "gpt-5-mini"\nmodel_provider = "partial"\n\n# trailing comment/
   );
 
   const partialUpdateStructured = parseStructuredConfig(
     [
       "[profiles.existing]",
       'temperature = "0.2"',
-      'base_url = "https://existing.example.com/v1"',
+      'model_provider = "existing"',
       "",
     ].join("\n")
   );
@@ -249,7 +257,7 @@ function testConfigPatchingEdgeCases() {
   const partialUpdatePatched = applyPatchOperations(partialUpdateStructured.rawText, partialUpdateMutation.operations);
   assert.match(partialUpdatePatched, /temperature = "0\.2"/);
   assert.match(partialUpdatePatched, /model = "gpt-4\.1-mini"/);
-  assert.match(partialUpdatePatched, /base_url = "https:\/\/existing\.example\.com\/v1"/);
+  assert.match(partialUpdatePatched, /model_provider = "existing"/);
 }
 
 module.exports = { run };

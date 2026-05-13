@@ -33,7 +33,6 @@ import {
   chooseSetupProfiles,
   chooseSetupStrategy,
   collectEditInput,
-  collectImportRepairDetails,
   collectSetupProviderDetails,
   confirmExportOverwrite,
   confirmImport,
@@ -177,21 +176,16 @@ export async function executeCommand(
         throw cliError("INVALID_ARGUMENT", "Missing import file path.");
       }
       const merge = hasFlag(parsed.commandOptions, "--merge");
-      let repairProfiles: Record<string, { model?: string; baseUrl?: string }> | undefined;
-
       if (canPrompt(runtime, ctx.options.json)) {
         await confirmImport(runtime, sourceFile, merge);
         const document = readStructuredConfig(paths.configPath);
         const imported = validateProvidersShape(JSON.parse(fs.readFileSync(sourceFile, "utf8")));
         const current = readProvidersFileIfExists(paths.providersPath);
         const next = merge ? mergeProviders(current, imported) : imported;
-        const missingProfiles = buildManagedProfileViews(document, next)
+        buildManagedProfileViews(document, next)
           .filter((view) => view.source === "orphaned-reference")
           .map((view) => view.name)
           .sort();
-        if (missingProfiles.length > 0) {
-          repairProfiles = await collectImportRepairDetails(runtime, missingProfiles);
-        }
       }
 
       return importProviders({
@@ -202,7 +196,6 @@ export async function executeCommand(
         configPath: paths.configPath,
         sourceFile,
         merge,
-        repairProfiles,
       });
     }
     case "export": {
@@ -430,7 +423,7 @@ export async function executeCommand(
 
       const document = readStructuredConfig(setupPaths.configPath);
       const adoptableProfiles = buildManagedProfileViews(document, null)
-        .filter((view) => view.source === "unmanaged" && view.model && view.baseUrl)
+        .filter((view) => view.source === "unmanaged" && view.model && view.modelProvider === view.name && view.baseUrl)
         .map((view) => ({
           name: view.name,
           model: view.model as string,

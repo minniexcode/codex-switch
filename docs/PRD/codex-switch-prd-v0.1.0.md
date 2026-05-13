@@ -110,12 +110,13 @@
 
 - 顶层 active `profile`
 - 与 provider 关联的 `[profiles.<name>]`
-- section 内最小正式字段：`model`
+- section 内最小正式字段：`model`、`model_provider`
 
 约束：
 
 - `providers.json` 仍是 provider 身份、凭据和管理元数据的 SSOT
 - `config.toml` 只承载运行态投影，不升级为对等事实源
+- `base_url` 不属于 `[profiles.*]`；它通过 `model_provider -> [model_providers.*].base_url` 解析
 - 非受管 TOML 内容允许存在，但不进入通用编辑范围
 
 ### Managed Profile View

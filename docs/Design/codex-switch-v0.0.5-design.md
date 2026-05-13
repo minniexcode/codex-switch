@@ -121,29 +121,31 @@
 ```ts
 type ManagedProfileFields = {
   model: string;
-  baseUrl: string;
+  modelProvider: string;
 };
 ```
 
 规则：
 
-- `model` 和 `base_url` 是当前唯一正式受管字段
-- 写命令创建 profile section 时，必须同时具备 `model` 和 `base_url`
+- `model` 和 `model_provider` 是当前唯一正式受管 profile 字段
+- 写命令创建 profile section 时，必须同时具备 `model` 和 `model_provider`
 - 未提供任一必需字段时，不允许创建新的受管 section
 - `apiKey` 继续只保存在 `providers.json`
 - `note`、`tags` 等 provider 管理字段不进入 `config.toml`
+- `[model_providers.<name>].base_url` 继续由 Codex runtime config 承载，`codex-switch` 首版只读校验，不负责创建
 
 字段归属直接锁定如下：
 
-- `[profiles.<name>]`：`model`、`base_url`
-- `providers.json`：`profile`、`apiKey`、可选 `note`、`tags`
+- `[profiles.<name>]`：`model`、`model_provider`
+- `[model_providers.<name>]`：`base_url`
+- `providers.json`：`profile`、`apiKey`、可选 `baseUrl`、`note`、`tags`
 - `auth.json`：当前激活 provider 对应的运行态认证内容
 
 设计原因：
 
-- 你的使用场景是“中转站”，`model` 和 `base_url` 共同定义真正的上游路由
-- 如果 `base_url` 只放在 `providers.json`，而 `config.toml` 的 profile section 不受控，切换后就可能出现 profile 名变了但请求仍落到旧 endpoint 的分裂状态
-- 因此 `0.0.5` 必须把 `base_url` 与 `model` 一起视为 profile runtime projection 的正式字段
+- 你的使用场景是“中转站”，真正的 runtime 路由由 `profiles.<name>.model_provider -> model_providers.<name>.base_url` 共同定义
+- 如果只维护 provider 名称映射，而不校验 `model_provider` 与 `model_providers` 的一致性，切换后就可能出现 profile 名变了但 runtime endpoint 仍落到错误上游的分裂状态
+- 因此 `0.0.5` 需要把 `model_provider` 视为 profile runtime projection 的正式字段，并把 `base_url` 作为解析视图与一致性校验的一部分
 
 ### 5.2 `ManagedProfileView`
 
@@ -158,6 +160,7 @@ type ManagedProfileView = {
   isActive: boolean;
   linkedProviders: string[];
   model: string | null;
+  modelProvider: string | null;
   baseUrl: string | null;
   managedFields: string[];
   source: "managed" | "unmanaged" | "orphaned-reference";
@@ -171,8 +174,9 @@ type ManagedProfileView = {
 - `isActive`：是否为顶层 active profile
 - `linkedProviders`：引用该 profile 的 provider 名列表
 - `model`：可识别的受管 `model` 值；不存在或不受管时为 `null`
-- `baseUrl`：可识别的受管 `base_url` 值；不存在或不受管时为 `null`
-- `managedFields`：当前识别到并纳入正式受管的字段名数组；`0.0.5` 只可能为 `[]`、`["model"]`、`["base_url"]` 或 `["model", "base_url"]`
+- `modelProvider`：可识别的受管 `model_provider` 值；不存在或不受管时为 `null`
+- `baseUrl`：通过 `model_provider -> model_providers.<name>.base_url` 解析出的 runtime endpoint；缺失时为 `null`
+- `managedFields`：当前识别到并纳入正式受管的字段名数组；`0.0.5` 只可能为 `[]`、`["model"]`、`["model_provider"]` 或 `["model", "model_provider"]`
 - `source`：
   - `managed`：section 存在且被 provider 引用
   - `unmanaged`：section 存在但没有 provider 引用
@@ -411,8 +415,9 @@ JSON 最小字段：
       "isActive": true,
       "linkedProviders": ["packycode"],
       "model": "gpt-5",
+      "modelProvider": "packycode",
       "baseUrl": "https://relay.example.com/v1",
-      "managedFields": ["model", "base_url"],
+      "managedFields": ["model", "model_provider"],
       "source": "managed"
     }
   ]
@@ -453,6 +458,7 @@ codexs config list-profiles [--json] [--codex-dir <path>]
 - `isActive`
 - `linkedProviders`
 - `model`
+- `modelProvider`
 - `baseUrl`
 - `source`
 
@@ -468,8 +474,9 @@ codexs config list-profiles [--json] [--codex-dir <path>]
 规则锁定如下：
 
 - 当目标 profile 已存在时，只建立 provider -> profile 映射
-- 当目标 profile 缺失时，只有同时传入 `--create-profile --model <name> --base-url <url>` 才允许创建 section
-- 只传 `--create-profile` 但缺少 `--model` 或 `--base-url`，返回 `MANAGED_PROFILE_FIELDS_MISSING`
+- 当目标 profile 缺失时，只有同时传入 `--create-profile --model <name>` 且 `config.toml` 中已存在同名 `[model_providers.<profile>]` section 时才允许创建 section
+- 只传 `--create-profile` 但缺少 `--model`，返回 `MANAGED_PROFILE_FIELDS_MISSING`
+- 若缺少同名 `model_providers` section 或其 `base_url`，返回 `PROFILE_NOT_FOUND` 或 `MANAGED_PROFILE_FIELDS_MISSING`
 - 不允许写出 provider 指向缺失 profile 的新状态
 
 ### 10.2 `edit <provider>`
@@ -477,10 +484,10 @@ codexs config list-profiles [--json] [--codex-dir <path>]
 规则锁定如下：
 
 - 改绑到已有 profile：更新 provider 映射并重新计算 active / shared 关系
-- 改绑到缺失 profile：只有 `--create-profile --model <name> --base-url <url>` 才允许
+- 改绑到缺失 profile：只有 `--create-profile --model <name>` 且存在同名 `model_providers` runtime section 时才允许
 - 旧 section 不做隐式 rename
 - 旧 section 不做隐式 copy
-- 旧 section 不做隐式 `model` / `base_url` 迁移
+- 旧 section 不做隐式 `model` / `model_provider` 迁移
 
 删除旧 section 的规则：
 
@@ -603,7 +610,7 @@ codexs config list-profiles [--json] [--codex-dir <path>]
 `MANAGED_PROFILE_FIELDS_MISSING`：
 
 - 需要创建新的受管 profile section，但缺少最小字段
-- `0.0.5` 至少用于缺少 `model` 或 `base_url`
+- `0.0.5` 至少用于缺少 `model` 或 `model_provider`
 
 ### 12.3 明确不进入 `0.0.5` 的错误语义
 
@@ -723,7 +730,7 @@ codexs config list-profiles [--json] [--codex-dir <path>]
 - 新命令帮助文案
 - `config show` / `config list-profiles` 的文本渲染
 - `setup` 多候选目录选择交互
-- adopt / repair 辅助交互的最小提示
+- adopt 辅助交互的最小提示
 
 ## 14. 关键流程时序
 
@@ -748,7 +755,7 @@ argv
   -> executeCommand("add")
   -> app/add-provider
   -> read providers.json + structured config
-  -> validate create-profile + model/base_url preconditions
+  -> validate create-profile + model/model_provider preconditions
   -> domain/config.planProfileLifecycleOutcome
   -> infra/config-repo.planConfigMutation
   -> app/run-mutation

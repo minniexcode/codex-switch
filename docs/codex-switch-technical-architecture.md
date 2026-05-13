@@ -463,7 +463,7 @@ scripts/
   - 用于 `codex login --with-api-key`
 - `baseUrl`
   - 选填
-  - 当前版本只存储，不回写 `config.toml`
+  - 当前版本只存储在 `providers.json`；`config show` 中展示的 runtime `baseUrl` 由 `model_provider -> model_providers.*.base_url` 解析
 - `note`
   - 选填
   - 面向人类和 AI 的说明字段

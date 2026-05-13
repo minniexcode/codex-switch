@@ -223,24 +223,6 @@ export async function collectSetupProviderDetails(
   return result;
 }
 
-export async function collectImportRepairDetails(
-  runtime: CliPromptRuntime,
-  profiles: string[]
-): Promise<Record<string, { model?: string; baseUrl?: string }>> {
-  const repairs: Record<string, { model?: string; baseUrl?: string }> = {};
-
-  for (const profile of profiles) {
-    const model = (await runtime.inputText(`Model for missing profile "${profile}"`)).trim();
-    const baseUrl = (await runtime.inputText(`Base URL for missing profile "${profile}"`)).trim();
-    repairs[profile] = {
-      model: model || undefined,
-      baseUrl: baseUrl || undefined,
-    };
-  }
-
-  return repairs;
-}
-
 export async function collectEditInput(
   runtime: CliPromptRuntime,
   current: { profile: string; apiKey: string; baseUrl?: string; note?: string; tags?: string[] }

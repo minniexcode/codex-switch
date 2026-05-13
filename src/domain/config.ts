@@ -4,7 +4,7 @@ import { ProvidersFile } from "./providers";
 
 export type ManagedProfileFields = {
   model: string;
-  baseUrl: string;
+  modelProvider: string;
 };
 
 export type ManagedProfileView = {
@@ -13,6 +13,7 @@ export type ManagedProfileView = {
   isActive: boolean;
   linkedProviders: string[];
   model: string | null;
+  modelProvider: string | null;
   baseUrl: string | null;
   managedFields: string[];
   source: "managed" | "unmanaged" | "orphaned-reference";
@@ -23,6 +24,10 @@ export type ConfigConsistencyIssue =
   | { code: "UNMANAGED_ACTIVE_PROFILE"; profile: string }
   | { code: "SHARED_PROFILE_REFERENCE"; profile: string; providers: string[] }
   | { code: "ORPHANED_PROFILE_SECTION"; profile: string }
+  | { code: "MODEL_PROVIDER_MISSING"; profile: string }
+  | { code: "MODEL_PROVIDER_NAME_MISMATCH"; profile: string; modelProvider: string }
+  | { code: "MODEL_PROVIDER_SECTION_MISSING"; profile: string; modelProvider: string }
+  | { code: "MODEL_PROVIDER_BASE_URL_MISSING"; profile: string; modelProvider: string }
   | { code: "DESTRUCTIVE_REMOVE_BLOCKED"; profile: string; provider: string; activeProfile: string; linkedProviders: string[] };
 
 export type ValueRange = {
@@ -37,8 +42,16 @@ export type ProfileSectionRef = {
   sectionEnd: number;
   managedFieldInsertIndex: number;
   modelValueRange: ValueRange | null;
-  baseUrlValueRange: ValueRange | null;
+  modelProviderValueRange: ValueRange | null;
   model: string | null;
+  modelProvider: string | null;
+};
+
+export type ModelProviderSectionRef = {
+  name: string;
+  sectionStart: number;
+  sectionEnd: number;
+  baseUrlValueRange: ValueRange | null;
   baseUrl: string | null;
 };
 
@@ -48,6 +61,7 @@ export type ParsedConfigDocument = {
   activeProfile: string | null;
   activeProfileRange: ValueRange | null;
   profiles: ProfileSectionRef[];
+  modelProviders: ModelProviderSectionRef[];
 };
 
 export type ConfigPatchOperation =
@@ -99,7 +113,9 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
   let activeProfile: string | null = null;
   let activeProfileRange: ValueRange | null = null;
   const profiles: ProfileSectionRef[] = [];
+  const modelProviders: ModelProviderSectionRef[] = [];
   let currentProfile: ProfileSectionRef | null = null;
+  let currentModelProvider: ModelProviderSectionRef | null = null;
   let inRoot = true;
 
   for (const line of lines) {
@@ -109,6 +125,10 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
       if (currentProfile) {
         currentProfile.sectionEnd = line.start;
       }
+      if (currentModelProvider) {
+        currentModelProvider.sectionEnd = line.start;
+        currentModelProvider = null;
+      }
       currentProfile = {
         name: headerMatch[1],
         headerStart: line.start,
@@ -116,11 +136,32 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
         sectionEnd: configContent.length,
         managedFieldInsertIndex: configContent.length,
         modelValueRange: null,
-        baseUrlValueRange: null,
+        modelProviderValueRange: null,
         model: null,
-        baseUrl: null,
+        modelProvider: null,
       };
       profiles.push(currentProfile);
+      inRoot = false;
+      continue;
+    }
+
+    const modelProviderHeaderMatch = trimmed.match(/^\[model_providers\.([^\]]+)\]$/);
+    if (modelProviderHeaderMatch) {
+      if (currentProfile) {
+        currentProfile.sectionEnd = line.start;
+        currentProfile = null;
+      }
+      if (currentModelProvider) {
+        currentModelProvider.sectionEnd = line.start;
+      }
+      currentModelProvider = {
+        name: modelProviderHeaderMatch[1],
+        sectionStart: line.start,
+        sectionEnd: configContent.length,
+        baseUrlValueRange: null,
+        baseUrl: null,
+      };
+      modelProviders.push(currentModelProvider);
       inRoot = false;
       continue;
     }
@@ -129,6 +170,10 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
       if (currentProfile) {
         currentProfile.sectionEnd = line.start;
         currentProfile = null;
+      }
+      if (currentModelProvider) {
+        currentModelProvider.sectionEnd = line.start;
+        currentModelProvider = null;
       }
       inRoot = false;
       continue;
@@ -154,10 +199,21 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
           end: line.start + modelMatch.valueEnd,
         };
       }
+      const modelProviderMatch = matchKeyValueLine(line.content, "model_provider");
+      if (modelProviderMatch) {
+        currentProfile.modelProvider = modelProviderMatch.value;
+        currentProfile.modelProviderValueRange = {
+          start: line.start + modelProviderMatch.valueStart,
+          end: line.start + modelProviderMatch.valueEnd,
+        };
+      }
+    }
+
+    if (currentModelProvider) {
       const baseUrlMatch = matchKeyValueLine(line.content, "base_url");
       if (baseUrlMatch) {
-        currentProfile.baseUrl = baseUrlMatch.value;
-        currentProfile.baseUrlValueRange = {
+        currentModelProvider.baseUrl = baseUrlMatch.value;
+        currentModelProvider.baseUrlValueRange = {
           start: line.start + baseUrlMatch.valueStart,
           end: line.start + baseUrlMatch.valueEnd,
         };
@@ -174,6 +230,7 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
       ...profile,
       managedFieldInsertIndex: findManagedFieldInsertIndex(configContent, profile.sectionStart, profile.sectionEnd),
     })),
+    modelProviders,
   };
 }
 
@@ -185,11 +242,13 @@ export function buildManagedProfileViews(
   providers: ProvidersFile | null
 ): ManagedProfileView[] {
   const linkMap = buildProfileLinkMap(providers);
+  const modelProviderMap = new Map(document.modelProviders.map((provider) => [provider.name, provider]));
   const views: ManagedProfileView[] = [];
   const seen = new Set<string>();
 
   for (const section of document.profiles) {
     const linkInfo = linkMap.get(section.name) ?? { linkedProviders: [], managed: false };
+    const modelProviderSection = section.modelProvider ? modelProviderMap.get(section.modelProvider) ?? null : null;
     seen.add(section.name);
     views.push({
       name: section.name,
@@ -197,8 +256,9 @@ export function buildManagedProfileViews(
       isActive: document.activeProfile === section.name,
       linkedProviders: [...linkInfo.linkedProviders].sort(),
       model: section.model,
-      baseUrl: section.baseUrl,
-      managedFields: collectManagedFields(section.model, section.baseUrl),
+      modelProvider: section.modelProvider,
+      baseUrl: modelProviderSection?.baseUrl ?? null,
+      managedFields: collectManagedFields(section.model, section.modelProvider),
       source: linkInfo.managed ? "managed" : "unmanaged",
     });
   }
@@ -213,6 +273,7 @@ export function buildManagedProfileViews(
       isActive: document.activeProfile === profile,
       linkedProviders: [...linkInfo.linkedProviders].sort(),
       model: null,
+      modelProvider: null,
       baseUrl: null,
       managedFields: [],
       source: "orphaned-reference",
@@ -251,6 +312,36 @@ export function collectConfigConsistencyIssues(
         providers: [...view.linkedProviders],
       });
     }
+    if (view.source !== "orphaned-reference") {
+      if (!view.modelProvider) {
+        issues.push({
+          code: "MODEL_PROVIDER_MISSING",
+          profile: view.name,
+        });
+      } else {
+        if (view.modelProvider !== view.name) {
+          issues.push({
+            code: "MODEL_PROVIDER_NAME_MISMATCH",
+            profile: view.name,
+            modelProvider: view.modelProvider,
+          });
+        }
+        const modelProviderSection = document.modelProviders.find((entry) => entry.name === view.modelProvider);
+        if (!modelProviderSection) {
+          issues.push({
+            code: "MODEL_PROVIDER_SECTION_MISSING",
+            profile: view.name,
+            modelProvider: view.modelProvider,
+          });
+        } else if (!modelProviderSection.baseUrl) {
+          issues.push({
+            code: "MODEL_PROVIDER_BASE_URL_MISSING",
+            profile: view.name,
+            modelProvider: view.modelProvider,
+          });
+        }
+      }
+    }
   }
 
   if (document.activeProfile) {
@@ -279,20 +370,20 @@ export function validateManagedProfileCreation(
   fields: Partial<ManagedProfileFields>
 ): ManagedProfileFields {
   const model = fields.model?.trim() ?? "";
-  const baseUrl = fields.baseUrl?.trim() ?? "";
-  if (!model || !baseUrl) {
-    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Managed profile "${profile}" requires both model and base_url.`, {
+  const modelProvider = fields.modelProvider?.trim() ?? "";
+  if (!model || !modelProvider) {
+    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Managed profile "${profile}" requires both model and model_provider.`, {
       profile,
       missingFields: [
         !model ? "model" : null,
-        !baseUrl ? "base_url" : null,
+        !modelProvider ? "model_provider" : null,
       ].filter((value): value is string => Boolean(value)),
     });
   }
 
   return {
     model,
-    baseUrl,
+    modelProvider,
   };
 }
 
@@ -420,7 +511,7 @@ export function planConfigMutation(
         text:
           `${prefix}[profiles.${profileName}]${document.lineEnding}` +
           `model = ${JSON.stringify(requiredFields.model)}${document.lineEnding}` +
-          `base_url = ${JSON.stringify(requiredFields.baseUrl)}${document.lineEnding}`,
+          `model_provider = ${JSON.stringify(requiredFields.modelProvider)}${document.lineEnding}`,
       });
       createdProfileSections.push(profileName);
       continue;
@@ -470,7 +561,7 @@ function planSectionFieldMutation(
 ): boolean {
   let updated = false;
   const modelText = fields.model !== undefined ? JSON.stringify(fields.model) : null;
-  const baseUrlText = fields.baseUrl !== undefined ? JSON.stringify(fields.baseUrl) : null;
+  const modelProviderText = fields.modelProvider !== undefined ? JSON.stringify(fields.modelProvider) : null;
   const inserts: string[] = [];
 
   if (modelText !== null && section.modelValueRange) {
@@ -488,18 +579,18 @@ function planSectionFieldMutation(
     updated = true;
   }
 
-  if (baseUrlText !== null && section.baseUrlValueRange) {
-    if (section.baseUrl !== fields.baseUrl) {
+  if (modelProviderText !== null && section.modelProviderValueRange) {
+    if (section.modelProvider !== fields.modelProvider) {
       operations.push({
         kind: "replace-range",
-        start: section.baseUrlValueRange.start,
-        end: section.baseUrlValueRange.end,
-        text: baseUrlText,
+        start: section.modelProviderValueRange.start,
+        end: section.modelProviderValueRange.end,
+        text: modelProviderText,
       });
       updated = true;
     }
-  } else if (baseUrlText !== null && !section.baseUrlValueRange) {
-    inserts.push(`base_url = ${baseUrlText}${document.lineEnding}`);
+  } else if (modelProviderText !== null && !section.modelProviderValueRange) {
+    inserts.push(`model_provider = ${modelProviderText}${document.lineEnding}`);
     updated = true;
   }
 
@@ -579,13 +670,13 @@ function findManagedFieldInsertIndex(rawText: string, sectionStart: number, sect
   return sectionStart + lines[lastMeaningfulIndex].end;
 }
 
-function collectManagedFields(model: string | null, baseUrl: string | null): string[] {
+function collectManagedFields(model: string | null, modelProvider: string | null): string[] {
   const fields: string[] = [];
   if (model !== null) {
     fields.push("model");
   }
-  if (baseUrl !== null) {
-    fields.push("base_url");
+  if (modelProvider !== null) {
+    fields.push("model_provider");
   }
   return fields;
 }

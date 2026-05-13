@@ -191,7 +191,7 @@ MVP 固定使用以下结构：
   - 用于执行 `codex login --with-api-key`
 - `baseUrl`
   - 选填
-  - v1 允许存储，但不要求回写到 `config.toml`
+  - v1 允许存储在 `providers.json`，但不要求回写到 `config.toml`
 - `note`
   - 选填
   - 面向人类和 AI 的说明字段

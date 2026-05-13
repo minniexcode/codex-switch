@@ -166,6 +166,11 @@ function testManagedProfileLifecycle() {
   const tempRoot = makeTempRoot();
   try {
     const paths = createFixturePaths(path.join(tempRoot, "case-managed-profile-lifecycle"));
+    fs.appendFileSync(
+      paths.configPath,
+      ['[model_providers.created-profile]', 'base_url = "https://created.example.com/v1"', ""].join("\n"),
+      "utf8"
+    );
 
     const added = addProvider({
       codexDir: paths.codexDir,
@@ -184,7 +189,7 @@ function testManagedProfileLifecycle() {
     assert.deepEqual(added.data.createdProfileSections, ["created-profile"]);
     let configContent = fs.readFileSync(paths.configPath, "utf8");
     assert.match(configContent, /\[profiles\.created-profile\]/);
-    assert.match(configContent, /base_url = "https:\/\/created\.example\.com\/v1"/);
+    assert.match(configContent, /model_provider = "created-profile"/);
 
     const removed = removeProvider({
       codexDir: paths.codexDir,
@@ -326,7 +331,7 @@ function testEditUpdatesManagedConfigSection() {
     });
     assert.deepEqual(edited.data.updatedFields, ["baseUrl"]);
     configContent = fs.readFileSync(paths.configPath, "utf8");
-    assert.match(configContent, /base_url = "https:\/\/relay-next\.example\.com\/v1"/);
+    assert.doesNotMatch(configContent, /relay-next\.example\.com\/v1/);
     const providers = JSON.parse(fs.readFileSync(paths.providersPath, "utf8"));
     assert.equal(providers.providers.packycode.baseUrl, "https://relay-next.example.com/v1");
   } finally {
@@ -368,10 +373,13 @@ function testSetupExplicitAdoptRules() {
         "",
         "[profiles.packycode]",
         'model = "gpt-5"',
-        'base_url = "https://relay.example.com/v1"',
+        'model_provider = "packycode"',
         "",
         "[profiles.partial]",
         'model = "gpt-4.1-mini"',
+        "",
+        "[model_providers.packycode]",
+        'base_url = "https://relay.example.com/v1"',
         "",
       ].join("\n"),
       "utf8"
@@ -442,23 +450,19 @@ function testImportMergeAdoptAndRepairFlows() {
       }),
       "utf8"
     );
-    const repaired = importProviders({
-      codexDir: repairPaths.codexDir,
-      backupsDir: repairPaths.backupsDir,
-      latestBackupPath: repairPaths.latestBackupPath,
-      providersPath: repairPaths.providersPath,
-      configPath: repairPaths.configPath,
-      sourceFile: repairFile,
-      merge: true,
-      repairProfiles: {
-        "missing-profile": {
-          model: "gpt-4.1",
-          baseUrl: "https://missing.example.com/v1",
-        },
-      },
-    });
-    assert.deepEqual(repaired.data.repairedProfiles, ["missing-profile"]);
-    assert.match(fs.readFileSync(repairPaths.configPath, "utf8"), /\[profiles\.missing-profile\]/);
+    assert.throws(
+      () =>
+        importProviders({
+          codexDir: repairPaths.codexDir,
+          backupsDir: repairPaths.backupsDir,
+          latestBackupPath: repairPaths.latestBackupPath,
+          providersPath: repairPaths.providersPath,
+          configPath: repairPaths.configPath,
+          sourceFile: repairFile,
+          merge: true,
+        }),
+      (error) => error.code === "MANAGED_PROFILE_FIELDS_MISSING"
+    );
 
     const missingRepairPaths = createFixturePaths(path.join(tempRoot, "case-import-repair-missing"));
     assert.throws(
@@ -743,9 +747,17 @@ function testLiveStateDriftAndLockConflict() {
         "",
         "[profiles.packycode]",
         'model = "gpt-5"',
+        'model_provider = "packycode"',
         "",
         "[profiles.manual-only]",
         'model = "gpt-5-mini"',
+        'model_provider = "manual-only"',
+        "",
+        "[model_providers.packycode]",
+        'base_url = "https://relay.example.com/v1"',
+        "",
+        "[model_providers.manual-only]",
+        'base_url = "https://free.example.com/v1"',
       ].join("\n"),
       "utf8"
     );
