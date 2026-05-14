@@ -102,6 +102,7 @@ export function editProvider(args: {
     }
   }
 
+  // Compute profile link ownership after the edit so lifecycle planning can decide whether sections stay, move, or delete.
   const remainingLinksByProfile = new Map<string, string[]>();
   for (const [name, provider] of Object.entries(providers.providers)) {
     if (name === args.providerName) {
@@ -140,6 +141,7 @@ export function editProvider(args: {
         deleteProfiles: lifecycle.deletedProfileSections,
         setActiveProfile: lifecycle.nextActiveProfile,
       });
+      // Write providers first so the registry and config move together inside the managed backup boundary.
       writeProvidersFile(args.providersPath, {
         providers: {
           ...providers.providers,

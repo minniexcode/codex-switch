@@ -117,6 +117,7 @@ export async function handleRegisteredCommand(
         const imported = validateProvidersShape(JSON.parse(fs.readFileSync(sourceFile, "utf8")));
         const current = readProvidersFileIfExists(paths.providersPath);
         const next = merge ? mergeProviders(current, imported) : imported;
+        // Precompute orphaned references during confirmation so the interactive path fails before mutation.
         buildManagedProfileViews(document, next)
           .filter((view) => view.source === "orphaned-reference")
           .map((view) => view.name)
@@ -238,6 +239,7 @@ export async function handleRegisteredCommand(
         if (!provider) {
           throw cliError("PROVIDER_NOT_FOUND", `Provider "${providerName}" was not found.`);
         }
+        // Prompted edit starts from the stored record so blank answers can safely preserve current values.
         const prompted = await collectEditInput(runtime, provider);
         profile = prompted.profile;
         apiKey = prompted.apiKey;
@@ -314,6 +316,7 @@ export async function handleRegisteredCommand(
               candidates,
             });
           }
+          // Ambiguous auto-discovery must be resolved before path-dependent flags are interpreted.
           codexDir = await chooseCodexDir(runtime, candidates);
         } else if (candidates.length === 0) {
           if (!canPrompt(runtime, ctx.options.json)) {
@@ -354,6 +357,7 @@ export async function handleRegisteredCommand(
           name: view.name,
           model: view.model as string,
           baseUrl: view.baseUrl as string,
+          apiKey: document.modelProviders.find((provider) => provider.name === view.name)?.apiKey ?? null,
         }))
         .sort((left, right) => left.name.localeCompare(right.name));
       const selectedProfiles = Array.from(listConfigProfiles(setupPaths.configPath)).sort();
@@ -362,7 +366,19 @@ export async function handleRegisteredCommand(
 
       if (canPrompt(runtime, ctx.options.json)) {
         adoptProfiles = await chooseSetupProfiles(runtime, adoptableProfiles);
-        providerDetailsByProfile = await collectSetupProviderDetails(runtime, adoptProfiles);
+        // Defaults are derived from config.toml so interactive setup only asks for missing provider metadata.
+        providerDetailsByProfile = await collectSetupProviderDetails(
+          runtime,
+          adoptProfiles,
+          adoptableProfiles.reduce<Record<string, { providerName?: string; apiKey?: string; baseUrl?: string }>>((accumulator, profile) => {
+            accumulator[profile.name] = {
+              providerName: profile.name,
+              apiKey: profile.apiKey ?? undefined,
+              baseUrl: profile.baseUrl,
+            };
+            return accumulator;
+          }, {})
+        );
       } else {
         throw cliError(
           "INVALID_ARGUMENT",

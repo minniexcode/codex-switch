@@ -1,3 +1,6 @@
+/**
+ * Compatibility facade that re-exports interactive command helpers.
+ */
 export {
   canPrompt,
   chooseCodexDir,

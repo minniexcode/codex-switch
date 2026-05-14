@@ -272,7 +272,7 @@ codexs add
 - 如果缺少 `provider`、`profile`、`apiKey`，会在 TTY 中补问
 - profile 选择会优先复用现有 `config.toml` profile
 - API key 的隐藏输入会做二次确认
-- tag 支持预设多选和自定义逗号分隔输入
+- tag 仅支持预设选项多选
 
 非交互模式：
 

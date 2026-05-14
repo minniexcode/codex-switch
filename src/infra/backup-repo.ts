@@ -1,3 +1,6 @@
+/**
+ * Compatibility facade that re-exports backup repository helpers from storage.
+ */
 export {
   createBackup,
   listBackups,

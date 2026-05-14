@@ -1,3 +1,6 @@
+/**
+ * Compatibility facade that re-exports shared filesystem helpers from storage.
+ */
 export {
   ensureDir,
   formatDetail,

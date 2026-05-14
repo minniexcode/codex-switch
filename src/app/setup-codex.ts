@@ -51,6 +51,7 @@ export function setupCodex(args: {
 
   const document = readStructuredConfig(args.configPath);
   const profileViews = buildManagedProfileViews(document, null);
+  // Setup can only adopt unmanaged profiles that already contain enough runtime data to become managed.
   const adoptableProfiles = profileViews
     .filter((view) => view.source === "unmanaged" && view.model && view.modelProvider === view.name && view.baseUrl)
     .map((view) => view.name)
@@ -110,6 +111,7 @@ export function setupCodex(args: {
       { absolutePath: args.configPath, relativePath: "config.toml" },
     ],
     mutate: () => {
+      // setup currently preserves config structure and only asserts that the file remains writable inside the mutation flow.
       const configPlan = createConfigMutationPlan(document, {});
       writeProvidersFile(args.providersPath, finalProviders);
       applyConfigMutation(args.configPath, document, configPlan);
@@ -128,6 +130,7 @@ export function setupCodex(args: {
     },
   });
 
+  // Re-run doctor on the final state so setup returns immediate post-migration diagnostics.
   const doctor = runDoctor({
     codexDir: args.codexDir,
     configPath: args.configPath,

@@ -1,3 +1,6 @@
+/**
+ * Compatibility facade that re-exports provider repository helpers from storage.
+ */
 export {
   mergeProviders,
   readProviderRecord,

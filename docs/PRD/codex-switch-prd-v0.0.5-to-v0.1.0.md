@@ -16,17 +16,18 @@
 
 说明：
 
-- 当前 active PRD 文件名沿用历史命名，但正文语义已更新为 `0.0.6`
+- 当前 active PRD 文件名沿用历史命名，但正文语义已更新为 `0.0.7`
 - 本文档以“版本演进路线”而不是“文件名字面值”作为解释基准
 
 ## 一句话定义
 
-`codex-switch` 的 `0.1.0` 目标，是从一个已经具备 provider 管理、config consistency 和本地事务能力的 CLI，演进为一套对人类、AI 和后续集成层都稳定的发布级命令体系，并能够承载第三方 auth、本地代理和外部依赖接入这类扩展能力。
+`codex-switch` 的 `0.1.0` 目标，是从一个已经具备 provider 管理、config consistency 和本地事务能力的 CLI，演进为一套对人类、AI 和后续集成层都稳定的发布级命令体系；其中 `0.0.7` 必须先完成 provider 配置模型纠偏，统一 `providers.json`、`config.toml` 与 `auth.json` 的职责边界。
 
 ## 版本语义
 
 - `0.0.x`：测试 / 验证阶段版本，用于收敛命令面、错误契约、事务安全与模块边界
 - `0.0.6`：稳定性修复 + 模块化重构里程碑，为后续 integration-ready 能力打基础
+- `0.0.7`：Provider Configuration Correction，修复 provider secret 的配置落点，移除 `config.toml api_key` 假设，统一 `env_key` 驱动的运行态认证镜像
 - `0.1.0`：第一条稳定发布规格线，要求公共契约、恢复能力和扩展边界清晰
 
 ## `0.1.0` 总体目标
@@ -36,6 +37,7 @@
 - 保持 CLI 与 JSON 契约稳定
 - 保持 `setup`、provider registry、备份恢复主线能力不回退
 - 让 provider registry 与 linked config sections 的一致性成为默认能力
+- 让 `providers.json`、`config.toml`、`auth.json` 的职责边界清晰且可诊断
 - 让备份、回滚和诊断继续覆盖所有关键写操作
 - 让模块边界足以承载未来第三方 auth / proxy / SDK 集成
 - 在不破坏主 CLI 契约的前提下扩展运行时能力边界
@@ -48,6 +50,7 @@
 - 不复用语义不匹配的错误码
 - 所有写命令默认纳入备份与回滚模型
 - 所有交互都只是 TTY 增强层，不改变自动化显式契约
+- 不再把 provider secret 写入 `config.toml`
 
 ## 稳定公共契约
 
@@ -85,9 +88,10 @@
     "packycode": {
       "profile": "packycode",
       "apiKey": "sk-xxx",
+      "envKey": "PACKYCODE_API_KEY",
       "baseUrl": "https://example.com/v1",
-      "note": "primary free model route",
-      "tags": ["free", "daily"]
+      "note": "primary route",
+      "tags": ["paid"]
     }
   }
 }
@@ -97,7 +101,14 @@
 
 - `profile` 仍然必填
 - `apiKey` 仍按完整 managed provider 处理
+- `envKey` 仍然必填
 - 不引入“半初始化 provider”作为正式稳定状态
+
+`envKey` 的产品语义是：
+
+- 与 `config.toml` 中 `[model_providers.<name>].env_key` 对应
+- 作为当前 provider 写入 `auth.json` 时的目标键名
+- 例如 `envKey = "PACKYCODE_API_KEY"` 时，切换后 `auth.json` 中应写入同名字段
 
 #### `config.toml`
 
@@ -105,7 +116,15 @@
 
 - 顶层 active `profile = "..."` 继续受管
 - 与 provider 关联的 `[profiles.<name>]` section 进入受管范围
+- `[model_providers.<name>].base_url` 继续作为 runtime route 字段
+- `[model_providers.<name>].env_key` 是当前唯一支持的 provider 认证配置字段
 - 非 provider 相关的顶层键、section 和注释仍允许存在，但不进入通用编辑器范围
+
+明确限制：
+
+- `[model_providers.<name>].api_key` 不再是合法受管配置字段
+- `codex-switch` 不再从 `config.toml` 读取或写入 provider secret
+- 本版本不支持其他认证模式的受管配置界面
 
 #### `ManagedProfileFields`
 
@@ -122,7 +141,31 @@
 
 - 第一批正式受管字段锁 `model` 与 `model_provider`
 - `baseUrl` 作为读取视图字段，可由 `model_provider -> model_providers.<name>.base_url` 解析
+- `envKey` 不属于 `[profiles.*]` 的受管字段，而属于 runtime provider section 与 managed registry 的一致性边界
 - 后续扩展 profile 字段时，只能做加法
+
+#### `auth.json`
+
+`auth.json` 是受管运行态认证镜像文件：
+
+- 不是 provider registry 的事实源
+- 当前激活 provider 的 `apiKey` 与 `envKey` 决定其内容
+- 运行态 secret 只投影到 `auth.json`，不再投影到 `config.toml`
+
+当前稳定写入形态：
+
+```json
+{
+  "auth_mode": "apikey",
+  "PACKYCODE_API_KEY": "sk-xxx"
+}
+```
+
+约束：
+
+- `auth_mode` 当前稳定为 `apikey`
+- secret 键名不是固定 `OPENAI_API_KEY`
+- secret 键名由当前 provider 的 `envKey` 决定
 
 ## `0.1.0` 模块化目标
 
@@ -144,10 +187,15 @@
 `Runtime Integrations` 是 `0.1.0` 目标线中必须预留清楚的能力域，负责：
 
 - `codex` CLI 调用与可用性检查
-- 第三方 auth adapter
+- 本地认证镜像写入与诊断
 - 本地 proxy runtime
 - 外部 SDK / 二进制依赖可用性探测
 - integration 级错误语义收敛
+
+说明：
+
+- 当前主线只支持 `env_key` 模型
+- 第三方 auth adapter 仍属于未来扩展方向，不是 `0.0.7` 的受管能力
 
 ## 已落地能力的 `0.1.0` 稳定化要求
 
@@ -160,14 +208,48 @@
 - 与 config 管理能力和未来 runtime integration 边界保持兼容
 - 对历史遗留不一致状态给出 adopt / repair 建议，而不是静默忽略
 
+`0.0.7` 起，`setup` 的 adopt 规则明确收敛为：
+
+- 只 adopt 已具备 `model`、`model_provider`、匹配 `model_providers.<name>.base_url`、匹配 `model_providers.<name>.env_key` 的 profile
+- adopt 时从 runtime section 读取 `env_key`
+- adopt 时不再从 `config.toml` 读取 `api_key`
+- adopt 时只对 `apiKey` 进行交互补问或显式输入补全
+- 非交互模式下，如果无法获得 `apiKey`，必须明确失败
+
+修复目标：
+
+- `setup` 不得再因为缺失 `config.toml api_key` 而把合法 provider 判为 incomplete
+
 ### provider registry 命令
 
 `show`、`edit`、`import --merge`、`backups list`、`rollback <backup-id>` 的 `0.1.0` 要求是：
 
 - 保持命令名和基础 JSON 契约稳定
 - 把错误语义继续收紧
-- 让与 `config.toml` 关联的行为更完整
-- 不因引入第三方集成而改变现有 provider/config 的领域边界
+- 让与 `config.toml` 和 `auth.json` 关联的行为更完整
+- 不因引入未来第三方集成而改变现有 provider/config 的领域边界
+
+当前 provider registry 的稳定字段口径是：
+
+- `profile`
+- `apiKey`
+- `envKey`
+- `baseUrl`
+- `note`
+- `tags`
+
+### `switch`
+
+`switch` 在 `0.1.0` 主线中的要求是：
+
+- 更新 `config.toml` 顶层 active profile
+- 根据目标 provider 的 `envKey` 和 `apiKey` 重写 `auth.json`
+- 将 `config.toml` 与 `auth.json` 置于同一事务边界
+
+明确限制：
+
+- `switch` 不再依赖 `config.toml api_key`
+- `switch` 的成功条件之一，是 `auth.json` 中的键名和值与当前 provider 的 `envKey` / `apiKey` 一致
 
 ### `import --merge`
 
@@ -177,7 +259,7 @@
 - 不能只更新 `providers.json` 而放任 linked profile sections 漂移
 - 当导入结果引用了缺失 profile 时，必须进入与 `add` / `edit` 一致的受管规则
 - 非交互模式下，如果导入内容不能满足受管 profile 创建条件，应明确失败
-- 交互模式下可以进入 adopt 辅助流，但不会为缺失 `model_providers` runtime section 做隐式 repair
+- 交互模式下可以进入 adopt 辅助流，但不会为缺失 `model_providers` runtime section 或缺失 `env_key` 做隐式 repair
 
 ## `0.1.0` 主线能力域
 
@@ -191,6 +273,7 @@
 - 稳定 `config-show`、`config-list-profiles`
 - 让 provider 管理命令可靠同步 linked profile sections
 - 明确共享 profile、孤儿 section 和 active profile 安全规则
+- 诊断 `providers.json.envKey`、runtime `env_key` 与 `auth.json` 镜像键名之间的一致性
 
 ### Backup / Recovery Evolution
 
@@ -198,7 +281,10 @@
 
 - 保持 `backups` 与指定回滚能力稳定
 - 确保跨 `providers.json`、`config.toml`、`auth.json` 的多文件写入仍可完整恢复
-- 为更复杂的 runtime 变更继续复用同一事务模型
+- 明确三者的职责边界：
+  - `providers.json` = 管理态事实源
+  - `config.toml` = provider/profile 路由事实源
+  - `auth.json` = 运行态认证镜像
 
 ### Error Contract Hardening
 
@@ -212,9 +298,9 @@
 
 目标：
 
-- 支持把第三方认证来源封装为独立 integration 能力
+- 保留未来把第三方认证来源封装为独立 integration 能力的空间
 - 不把第三方 auth 状态直接混入 provider registry 事实源
-- 对 token 获取、刷新、失效和依赖缺失提供稳定诊断语义
+- 但当前主线不承诺 `env_key` 之外的其他认证模型
 
 ### Local Proxy Runtime
 
@@ -236,8 +322,7 @@
 
 GitHub Copilot 在演进 PRD 中的定位是代表性用例，而不是唯一目标：
 
-- 可作为第三方 auth adapter 的首个高价值案例
-- 可作为本地 proxy runtime 需求的首个真实驱动
+- 可作为未来本地 proxy runtime 需求的首个真实驱动
 - 可用来验证 `Runtime Integrations` 分层是否足够清楚
 
 当前不提前锁定：
@@ -246,6 +331,11 @@ GitHub Copilot 在演进 PRD 中的定位是代表性用例，而不是唯一目
 - 具体交互流程
 - `@github/copilot-sdk` 的封装形态
 - 本地代理协议和生命周期细节
+
+说明：
+
+- Copilot 不再作为当前 auth 模型设计的直接驱动
+- 当前主线只支持 `env_key` 模式
 
 ## 主题里程碑
 
@@ -267,28 +357,38 @@ GitHub Copilot 在演进 PRD 中的定位是代表性用例，而不是唯一目
 - 修复 `0.0.5` 已落地命令的稳定性问题
 - 统一 help、交互、错误语义和恢复模型
 - 解决 `cli.ts` 过重问题，明确 command / interaction / application / integration 边界
-- 为第三方 auth / proxy / SDK 集成建立 integration-ready 架构基础
+- 为后续 integration-ready 架构建立清晰基础
 
-### 里程碑 C：Backup / Recovery Evolution
+### 里程碑 C：`0.0.7` / Provider Configuration Correction
+
+目标：
+
+- 去掉 `config.toml api_key` 假设
+- 在 `providers.json` 中正式引入 `envKey`
+- 将 runtime auth mirror 统一改为 `auth.json`
+- 将 `setup`、`switch`、`doctor`、fixture、文档、测试统一到 `env_key` 模型
+- 修正 provider secret 的采集、投影与恢复语义
+
+### 里程碑 D：Backup / Recovery Evolution
 
 目标：
 
 - 保持历史备份、显式回滚和多文件恢复稳定
 - 让更复杂的 runtime 变更继续复用同一事务模型
 
-### 里程碑 D：Error Contract Hardening
+### 里程碑 E：Error Contract Hardening
 
 目标：
 
 - 收紧错误码语义
 - 区分环境错误、参数错误、配置解析错误和恢复错误
-- 对第三方 integration 的失败提供清晰可预测的错误契约
+- 对外部 integration 的失败提供清晰可预测的错误契约
 
-### 里程碑 E：Integrations & Runtime Expansion
+### 里程碑 F：Integrations & Runtime Expansion
 
 目标：
 
-- 逐步引入第三方 auth adapter
+- 逐步引入第三方 integration
 - 逐步引入本地 proxy runtime
 - 逐步引入外部依赖可用性管理
 - 在不破坏主 CLI 契约的前提下扩展能力边界
@@ -303,6 +403,7 @@ GitHub Copilot 在演进 PRD 中的定位是代表性用例，而不是唯一目
 - 所有新增错误码都必须语义清晰
 - 所有新增 JSON 返回都只能扩展 `data` 和 `warnings`
 - 结构化 TOML 写回不能破坏非受管部分
+- provider secret 不再写入 `config.toml`
 - 第三方 integration 不得直接破坏 provider registry 作为 SSOT 的边界
 - 多候选目录发现和依赖可用性检查必须在交互与非交互模式下给出一致且可预测的行为
 
@@ -314,13 +415,15 @@ GitHub Copilot 在演进 PRD 中的定位是代表性用例，而不是唯一目
 - `setup` 在多候选 Codex 目录场景下可交互选择或手动输入，在非交互场景下返回明确歧义错误
 - provider registry 的查看、编辑、导入合并能力完整
 - 用户和 AI 可以通过稳定命令结构化查看受管 `config.toml`
+- 受管 provider 均具备 `profile`、`apiKey`、`envKey`
 - `add` / `edit` / `remove` 执行后，`providers.json` 与 linked profile sections 不再出现预期内的一致性漂移
+- `switch` 能按当前 provider 的 `envKey` 将 `apiKey` 正确写入 `auth.json`
 - 共享 profile 场景不会误删仍被引用的 section
 - active profile 不会因为 provider 删除或 profile 迁移而变成悬空状态
-- 历史 `0.0.4` / `0.0.5` / `0.0.6` 状态可以被识别，并通过 adopt / repair 路径逐步收敛
+- 历史 `0.0.4` / `0.0.5` / `0.0.6` / `0.0.7` 状态可以被识别，并通过 adopt / repair 路径逐步收敛
 - 历史备份可被显式枚举和恢复
 - CLI 错误码不再存在明显语义复用问题
-- 第三方 auth / proxy / 外部依赖能力可以通过独立 integration 边界接入，而不破坏主 CLI 契约
+- 当前主线的 `env_key` provider 模型已稳定，后续 integration 可在此基础上扩展
 
 ## 建议测试场景
 
@@ -329,12 +432,15 @@ GitHub Copilot 在演进 PRD 中的定位是代表性用例，而不是唯一目
 - `config-show` 与 `config-list-profiles` 的稳定输出
 - 共享 profile 场景下的 `add` / `edit` / `remove` 行为
 - `setup` 在多目录候选下的交互和非交互分支
+- `setup` 对缺失 `env_key` 的 profile 明确失败
+- `setup` 在无 `config.toml api_key` 时仍可正常 adopt 合法 provider
 - `import --merge` 在缺失 profile / adopt / repair 下的一致性行为
 - 结构化 TOML 修改后，非受管内容、顺序和注释保持稳定
-- 双写失败时 `providers.json`、`config.toml` 与 `auth.json` 能整体回滚
-- 历史 workspace、共享 profile、孤儿 profile section、缺失 linked section 都能被 `doctor` / `status` 正确识别
-- 外部 CLI / SDK / auth integration 缺失或不可用时，错误语义清晰且不污染核心 provider/config 状态
+- `switch` 根据不同 provider 的 `envKey` 写入不同的 `auth.json` 键名
+- 双写或三写失败时 `providers.json`、`config.toml` 与 `auth.json` 能整体回滚
+- 历史 workspace、共享 profile、孤儿 profile section、缺失 linked section、`envKey` 不一致都能被 `doctor` / `status` 正确识别
+- 外部 CLI / SDK / integration 缺失或不可用时，错误语义清晰且不污染核心 provider/config 状态
 
 ## 结论
 
-`0.1.0` 不是简单把 `0.0.x` 重命名为稳定版，而是在保持当前本地事务式切换模型不变的前提下，进一步收敛 config 管理、错误契约、恢复能力和模块化扩展边界，并把第三方 auth、本地代理和外部依赖接入正式纳入主线能力域。
+`0.1.0` 不是简单把 `0.0.x` 重命名为稳定版，而是在先完成 `0.0.7` 的 provider 配置模型纠偏之后，进一步收敛 config 管理、错误契约、恢复能力和模块化扩展边界，并把后续 integration 能力建立在清晰的 `providers.json`、`config.toml`、`auth.json` 分层之上。

@@ -16,6 +16,9 @@ export function canPrompt(runtime: CliPromptRuntime, jsonMode: boolean): boolean
   return !jsonMode && runtime.isInteractive();
 }
 
+/**
+ * Prompts the user to choose one configured provider when a command omitted its target.
+ */
 export async function promptForProviderSelection(
   runtime: CliPromptRuntime,
   providersPath: string,
@@ -37,6 +40,9 @@ export async function promptForProviderSelection(
   return runtime.selectOne(message, choices);
 }
 
+/**
+ * Confirms destructive provider removal and turns a declined prompt into a typed cancellation.
+ */
 export async function confirmProviderRemoval(
   runtime: CliPromptRuntime,
   providerName: string
@@ -49,6 +55,9 @@ export async function confirmProviderRemoval(
   }
 }
 
+/**
+ * Confirms provider import semantics, including whether the file will merge or replace the registry.
+ */
 export async function confirmImport(runtime: CliPromptRuntime, sourceFile: string, merge = false): Promise<void> {
   const confirmed = await runtime.confirmAction(
     merge
@@ -61,6 +70,9 @@ export async function confirmImport(runtime: CliPromptRuntime, sourceFile: strin
   }
 }
 
+/**
+ * Confirms whether an existing export target may be overwritten.
+ */
 export async function confirmExportOverwrite(
   runtime: CliPromptRuntime,
   targetFile: string
@@ -70,10 +82,16 @@ export async function confirmExportOverwrite(
   });
 }
 
+/**
+ * Resolves whether the export target already exists after normalizing to an absolute path.
+ */
 export function exportTargetExists(targetFile: string): boolean {
   return fs.existsSync(path.resolve(targetFile));
 }
 
+/**
+ * Builds a rollback preview for the latest managed backup.
+ */
 export function getRollbackSummary(latestBackupPath: string): {
   manifest: BackupManifest;
   previewLines: string[];
@@ -82,6 +100,9 @@ export function getRollbackSummary(latestBackupPath: string): {
   return buildRollbackSummary(manifest);
 }
 
+/**
+ * Builds a rollback preview for one explicit backup id.
+ */
 export function getRollbackSummaryById(backupsDir: string, backupId: string): {
   manifest: BackupManifest;
   previewLines: string[];
@@ -90,6 +111,9 @@ export function getRollbackSummaryById(backupsDir: string, backupId: string): {
   return buildRollbackSummary(manifest);
 }
 
+/**
+ * Converts a backup manifest into the human preview shown before rollback confirmation.
+ */
 function buildRollbackSummary(manifest: BackupManifest): {
   manifest: BackupManifest;
   previewLines: string[];
@@ -107,6 +131,9 @@ function buildRollbackSummary(manifest: BackupManifest): {
   return { manifest, previewLines };
 }
 
+/**
+ * Prints the rollback preview and requires explicit confirmation before restore proceeds.
+ */
 export async function confirmRollback(
   runtime: CliPromptRuntime,
   latestBackupPath: string,
@@ -132,6 +159,9 @@ export async function confirmRollback(
   }
 }
 
+/**
+ * Prompts for setup merge strategy when providers.json already exists.
+ */
 export async function chooseSetupStrategy(runtime: CliPromptRuntime): Promise<"merge" | "overwrite" | "cancel"> {
   return runtime.selectOne("providers.json already exists. Choose a setup strategy.", [
     { value: "merge", label: "merge", hint: "keep existing providers and override by imported names" },
@@ -140,6 +170,9 @@ export async function chooseSetupStrategy(runtime: CliPromptRuntime): Promise<"m
   ]);
 }
 
+/**
+ * Resolves the Codex directory from discovered candidates or a manually entered path.
+ */
 export async function chooseCodexDir(
   runtime: CliPromptRuntime,
   candidates: string[]
@@ -178,6 +211,9 @@ export async function chooseCodexDir(
   return resolveCodexDir(manual);
 }
 
+/**
+ * Lets setup adopt a subset of unmanaged config profiles into providers.json.
+ */
 export async function chooseSetupProfiles(
   runtime: CliPromptRuntime,
   profiles: Array<{ name: string; model: string; baseUrl: string }>
@@ -196,26 +232,36 @@ export async function chooseSetupProfiles(
   );
 }
 
+/**
+ * Collects provider metadata for each adopted config profile during setup.
+ */
 export async function collectSetupProviderDetails(
   runtime: CliPromptRuntime,
-  profiles: string[]
+  profiles: string[],
+  defaultsByProfile: Record<string, { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }> = {}
 ): Promise<Record<string, { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }>> {
   const result: Record<string, { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }> = {};
 
   for (const profile of profiles) {
+    const defaults = defaultsByProfile[profile] ?? {};
     const providerName = (await runtime.inputText(`Provider name for profile "${profile}"`, {
-      defaultValue: profile,
+      defaultValue: defaults.providerName ?? profile,
     })).trim();
-    const apiKey = (await runtime.inputSecret(`API key for profile "${profile}"`)).trim();
-    const baseUrl = (await runtime.inputText(`Base URL for profile "${profile}" (optional)`)).trim();
-    const note = (await runtime.inputText(`Note for profile "${profile}" (optional)`)).trim();
+    const apiKey = (await runtime.inputSecret(`API key for profile "${profile}"`)).trim() || defaults.apiKey?.trim() || "";
+    const baseUrl = (await runtime.inputText(`Base URL for profile "${profile}" (optional)`, {
+      defaultValue: defaults.baseUrl ?? "",
+    })).trim();
+    const note = (await runtime.inputText(`Note for profile "${profile}" (optional)`, {
+      defaultValue: defaults.note ?? "",
+    })).trim();
     const tags = await promptTags(runtime);
 
     result[profile] = {
-      providerName: providerName || profile,
+      providerName: providerName || defaults.providerName || profile,
       apiKey,
-      baseUrl: baseUrl || undefined,
-      note: note || undefined,
+      baseUrl: baseUrl || defaults.baseUrl || undefined,
+      note: note || defaults.note || undefined,
+      // Empty selections are omitted so downstream setup validation can distinguish unset from explicit data.
       tags: tags.length > 0 ? tags : undefined,
     };
   }
@@ -223,6 +269,9 @@ export async function collectSetupProviderDetails(
   return result;
 }
 
+/**
+ * Collects editable provider fields, preserving current values when prompts are left blank.
+ */
 export async function collectEditInput(
   runtime: CliPromptRuntime,
   current: { profile: string; apiKey: string; baseUrl?: string; note?: string; tags?: string[] }

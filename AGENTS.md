@@ -18,6 +18,8 @@ Use Node.js `>=18`.
 
 Follow the existing TypeScript style: 2-space indentation, semicolons, double-quoted imports, and `strict`-mode-compatible code. Use `camelCase` for functions and variables, `PascalCase` for types, and kebab-case filenames such as `switch-provider.ts` or `providers-repo.ts`. Keep modules small and layered: CLI parsing in `cli`, business actions in `app`, pure structures in `domain`, and file/process access in `infra`. There is no dedicated formatter configured, so match surrounding code exactly.
 
+Implementation files under `src/` must include English JSDoc comments for exported functions, complex private helpers, and exported types that carry non-obvious contract meaning. Add concise intent comments only where control flow, mutation ordering, rollback safety, config precedence, or parsing assumptions are not self-evident, and avoid comments that merely restate obvious code. Pure re-export or barrel files should carry a short module-level comment instead of redundant per-symbol comments.
+
 ## Testing Guidelines
 
 Tests are plain Node-based specs, not Jest/Vitest. Add coverage by extending `tests/*.spec.js` and wiring new suites through `tests/run-tests.js` when needed. Prefer focused fixture-driven tests using `dev-codex/local-sandbox/` or a new isolated fixture directory. Name tests after the feature area they cover, for example `switch-provider` behavior in `app.spec.js` or argument parsing in `cli.spec.js`.

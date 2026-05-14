@@ -48,6 +48,7 @@ export function runDoctor(args: {
     try {
       providers = readProvidersFile(args.providersPath);
       if (document) {
+        // Preserve domain issue codes while translating them into user-facing diagnostic messages.
         for (const issue of collectConfigConsistencyIssues(document, providers)) {
           issues.push({
             ...issue,
@@ -65,6 +66,7 @@ export function runDoctor(args: {
     }
   }
 
+  // Drift inspection still runs when files are missing so status output can explain partial state.
   const drift = inspectLiveStateDrift(currentProfile, providers);
 
   const codexCheck = probeCodexRuntime();
@@ -99,6 +101,9 @@ export function runDoctor(args: {
   };
 }
 
+/**
+ * Maps structured config consistency issues onto stable human-readable diagnostic text.
+ */
 function renderConfigIssueMessage(issue: ConfigConsistencyIssue): string {
   switch (issue.code) {
     case "ORPHANED_PROFILE_REFERENCE":

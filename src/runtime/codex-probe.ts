@@ -1,6 +1,9 @@
 import { checkCodexAvailable, checkCodexVersion, readCodexVersion } from "./codex-cli";
 import { RuntimeAvailability, RuntimeDependencyProbe } from "./types";
 
+/**
+ * Default dependency probe implementation for the local codex CLI runtime.
+ */
 export const codexRuntimeProbe: RuntimeDependencyProbe = {
   probe(options) {
     if (options?.minVersion) {
@@ -10,6 +13,9 @@ export const codexRuntimeProbe: RuntimeDependencyProbe = {
   },
 };
 
+/**
+ * Checks whether the codex CLI is installed and, optionally, satisfies a minimum version.
+ */
 export function probeCodexRuntime(minVersion?: string): RuntimeAvailability {
   const availability = checkCodexAvailable();
   if (!availability.ok) {
@@ -32,6 +38,7 @@ export function probeCodexRuntime(minVersion?: string): RuntimeAvailability {
   }
 
   if (minVersion) {
+    // Reuse the dedicated semver check so doctor and setup report the same unsupported-version behavior.
     const versionCheck = checkCodexVersion(minVersion);
     if (!versionCheck.ok) {
       return {

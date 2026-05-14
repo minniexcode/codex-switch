@@ -53,6 +53,8 @@ export type ModelProviderSectionRef = {
   sectionEnd: number;
   baseUrlValueRange: ValueRange | null;
   baseUrl: string | null;
+  apiKeyValueRange: ValueRange | null;
+  apiKey: string | null;
 };
 
 export type ParsedConfigDocument = {
@@ -160,6 +162,8 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
         sectionEnd: configContent.length,
         baseUrlValueRange: null,
         baseUrl: null,
+        apiKeyValueRange: null,
+        apiKey: null,
       };
       modelProviders.push(currentModelProvider);
       inRoot = false;
@@ -216,6 +220,14 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
         currentModelProvider.baseUrlValueRange = {
           start: line.start + baseUrlMatch.valueStart,
           end: line.start + baseUrlMatch.valueEnd,
+        };
+      }
+      const apiKeyMatch = matchKeyValueLine(line.content, "api_key");
+      if (apiKeyMatch) {
+        currentModelProvider.apiKey = apiKeyMatch.value;
+        currentModelProvider.apiKeyValueRange = {
+          start: line.start + apiKeyMatch.valueStart,
+          end: line.start + apiKeyMatch.valueEnd,
         };
       }
     }

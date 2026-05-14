@@ -1,3 +1,6 @@
+/**
+ * Compatibility facade that re-exports codex CLI runtime helpers.
+ */
 export {
   checkCodexAvailable,
   checkCodexVersion,

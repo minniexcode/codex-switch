@@ -129,35 +129,13 @@ function normalizeOptionalValue(value: string): string | null {
 
 export async function promptTags(runtime: CliPromptRuntime, defaults: string[] = []): Promise<string[]> {
   const defaultPresetTags = defaults.filter(isCommonTag);
-  const defaultCustomTags = defaults.filter((tag) => !isCommonTag(tag));
-
-  const presetTags = await runtime.selectMany(
+  return runtime.selectMany(
     "Select tags (optional)",
     COMMON_TAG_CHOICES.map((tag) => ({ value: tag, label: tag })),
     { defaultValues: defaultPresetTags }
-  );
-  const customTags = parseTags(
-    await runtime.inputText("Custom tags (optional, comma-separated)", {
-      defaultValue: defaultCustomTags.join(", "),
-    })
-  );
-
-  return dedupeTags([...presetTags, ...customTags]);
-}
-
-export function parseTags(value: string): string[] {
-  return dedupeTags(
-    value
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length > 0)
   );
 }
 
 function isCommonTag(tag: string): tag is (typeof COMMON_TAG_CHOICES)[number] {
   return COMMON_TAG_CHOICES.includes(tag as (typeof COMMON_TAG_CHOICES)[number]);
-}
-
-function dedupeTags(tags: string[]): string[] {
-  return Array.from(new Set(tags));
 }

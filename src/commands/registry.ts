@@ -1,6 +1,9 @@
 import { handleRegisteredCommand } from "./handlers";
 import { CommandDefinition, CommandId } from "./types";
 
+/**
+ * Canonical command registry used by parsing, help rendering, and dispatch.
+ */
 export const COMMANDS: CommandDefinition[] = [
   {
     id: "config-show",
@@ -104,7 +107,7 @@ export const COMMANDS: CommandDefinition[] = [
     details: [
       "Passed flags replace only the selected fields and keep the rest unchanged.",
       "TTY mode can first select a provider, then prompt for fields when no editable options were provided.",
-      "Interactive tags use preset multi-select plus optional custom comma-separated input.",
+      "Interactive tags use preset multi-select only.",
       "When rebinding to a missing profile, --create-profile requires both --model and --base-url.",
       "Backs up providers.json and config.toml before writing.",
     ],
@@ -125,7 +128,7 @@ export const COMMANDS: CommandDefinition[] = [
       "Prompts only for missing required values when stdin/stdout are TTYs and --json is not set.",
       "Interactive add collects provider name, profile, and apiKey progressively as plain text inputs.",
       "Confirm API key when prompted interactively because the hidden prompt asks twice before writing.",
-      "Interactive tags use preset multi-select plus optional custom comma-separated input.",
+      "Interactive tags use preset multi-select only.",
       "Automation and non-TTY environments must pass all required values explicitly.",
       "Creating a missing profile section requires --create-profile together with --model and --base-url.",
     ],
@@ -235,14 +238,23 @@ const HELP_TOPIC_SET = new Set([
   ...new Set(COMMANDS.filter((command) => command.tokens.length > 1).map((command) => command.tokens[0])),
 ]);
 
+/**
+ * Returns a defensive copy of the public command registry.
+ */
 export function getCommandDefinitions(): CommandDefinition[] {
   return COMMANDS.slice();
 }
 
+/**
+ * Returns stable internal command ids in registry order.
+ */
 export function getKnownCommandIds(): CommandId[] {
   return COMMANDS.map((command) => command.id);
 }
 
+/**
+ * Resolves one command definition by its canonical internal id.
+ */
 export function findCommandDefinition(commandId: CommandId | "help" | "version"): CommandDefinition | null {
   if (commandId === "help" || commandId === "version") {
     return null;
@@ -250,14 +262,21 @@ export function findCommandDefinition(commandId: CommandId | "help" | "version")
   return COMMANDS.find((command) => command.id === commandId) ?? null;
 }
 
+/**
+ * Resolves a command definition from its tokenized CLI spelling.
+ */
 export function findCommandDefinitionByTokens(tokens: string[]): CommandDefinition | null {
   return COMMANDS.find((command) => command.tokens.join(" ") === tokens.join(" ")) ?? null;
 }
 
+/**
+ * Matches argv against the longest registered token sequence first.
+ */
 export function resolveCommandFromArgv(argv: string[]): {
   definition: CommandDefinition | null;
   consumedTokens: number;
 } {
+  // Nested commands such as "config show" must win over their shorter root tokens.
   for (const command of COMMANDS
     .slice()
     .sort((left, right) => right.tokens.length - left.tokens.length)) {
@@ -276,18 +295,30 @@ export function resolveCommandFromArgv(argv: string[]): {
   };
 }
 
+/**
+ * Reports whether a name is reserved by either a command id or its public token form.
+ */
 export function isKnownCommandName(commandName: string): boolean {
   return COMMAND_NAME_SET.has(commandName);
 }
 
+/**
+ * Reports whether a help topic is recognized by the help renderer.
+ */
 export function isKnownHelpTopic(topic: string): boolean {
   return HELP_TOPIC_SET.has(topic);
 }
 
+/**
+ * Returns public command names exactly as they appear in help and examples.
+ */
 export function getPublicCommandNames(): string[] {
   return COMMANDS.map((command) => command.tokens.join(" "));
 }
 
+/**
+ * Returns nested command spellings for one root token such as "config" or "backups".
+ */
 export function getNestedCommandTokens(rootToken: string): string[] {
   return COMMANDS
     .filter((command) => command.tokens.length > 1 && command.tokens[0] === rootToken)
