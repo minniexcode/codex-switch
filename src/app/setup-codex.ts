@@ -22,7 +22,7 @@ const MIN_CODEX_VERSION = "0.0.1";
 /**
  * Migrates unmanaged Codex config profiles into a managed providers.json registry.
  */
-export function migrateCodex(args: {
+export async function migrateCodex(args: {
   codexDirOption?: string | null;
   codexDir: string;
   configPath: string;
@@ -33,7 +33,7 @@ export function migrateCodex(args: {
   strategy: "merge" | "overwrite";
   adoptProfiles: string[];
   providerDetailsByProfile: Record<string, { providerName?: string; apiKey?: string; envKey?: string; baseUrl?: string; note?: string; tags?: string[] }>;
-}): CommandResult {
+}): Promise<CommandResult> {
   const available = checkCodexAvailable();
   if (!available.ok) {
     throw cliError("CODEX_NOT_INSTALLED", "codex CLI is not available.", {
@@ -142,7 +142,7 @@ export function migrateCodex(args: {
   });
 
   // Re-run doctor on the final state so migrate returns immediate post-migration diagnostics.
-  const doctor = runDoctor({
+  const doctor = await runDoctor({
     codexDir: args.codexDir,
     configPath: args.configPath,
     providersPath: args.providersPath,

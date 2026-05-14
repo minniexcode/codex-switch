@@ -1,5 +1,6 @@
+import * as crypto from "node:crypto";
 import { buildManagedProfileEnvKey, validateManagedProfileCreation } from "../domain/config";
-import { cleanProviderRecord } from "../domain/providers";
+import { buildCopilotBridgeBaseUrl, cleanProviderRecord, ProviderRuntime } from "../domain/providers";
 import { cliError } from "../domain/errors";
 import {
   applyConfigMutation,
@@ -12,6 +13,7 @@ import {
 import { ensureDir } from "../storage/fs-utils";
 import { readProvidersFileIfExists, writeProvidersFile } from "../storage/providers-repo";
 import { readAuthFileIfExists, writeAuthFile } from "../storage/auth-repo";
+import { installCopilotSdk, probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 
@@ -33,11 +35,49 @@ export function addProvider(args: {
   note?: string | null;
   tags: string[];
   createProfile?: boolean;
+  copilot?: boolean;
+  bridgeHost?: string | null;
+  bridgePort?: number | null;
+  bridgeApiKey?: string | null;
+  installCopilotSdk?: boolean;
+  interactive?: boolean;
 }): CommandResult {
   ensureDir(args.codexDir);
   const providers = readProvidersFileIfExists(args.providersPath);
   if (providers.providers[args.providerName]) {
     throw cliError("INVALID_IMPORT_FILE", `Provider "${args.providerName}" already exists.`);
+  }
+  const bridgeHost = args.bridgeHost ?? "127.0.0.1";
+  const bridgePort = args.bridgePort ?? 4141;
+  const runtime: ProviderRuntime | undefined = args.copilot
+    ? {
+        kind: "copilot-sdk-bridge",
+        upstream: "github-copilot",
+        bridgeHost,
+        bridgePort,
+        bridgePath: "/v1",
+        premiumRequests: true,
+        authSource: "official-sdk",
+        sdkInstallMode: "lazy",
+      }
+    : undefined;
+  if (args.copilot) {
+    const installStatus = probeCopilotSdkInstall();
+    if (!installStatus.installed) {
+      if (!args.installCopilotSdk) {
+        throw cliError(
+          args.interactive ? "COPILOT_SDK_MISSING" : "COPILOT_SDK_INSTALL_REQUIRES_TTY",
+          args.interactive
+            ? "The optional Copilot SDK runtime is not installed. Re-run with --install-copilot-sdk or confirm installation interactively."
+            : "The optional Copilot SDK runtime is not installed. Pass --install-copilot-sdk when running non-interactively.",
+          {
+            installDir: installStatus.installDir,
+            packageName: installStatus.packageName,
+          }
+        );
+      }
+      installCopilotSdk();
+    }
   }
   const document = readStructuredConfig(args.configPath);
   const existingProfile = document.profiles.find((profile) => profile.name === args.profile);
@@ -59,7 +99,7 @@ export function addProvider(args: {
   const upsertModelProviders = !existingModelProvider && args.createProfile
     ? {
         [args.profile]: {
-          baseUrl: args.baseUrl ?? undefined,
+          baseUrl: args.copilot ? buildCopilotBridgeBaseUrl(runtime as ProviderRuntime) : args.baseUrl ?? undefined,
           envKey: buildManagedProfileEnvKey(args.profile),
         },
       }
@@ -68,17 +108,20 @@ export function addProvider(args: {
     requireManagedProfileRuntime(document, providers, args.profile);
   }
   const envKey = existingModelProvider?.envKey ?? buildManagedProfileEnvKey(args.profile);
+  const apiKey = args.copilot ? args.bridgeApiKey ?? crypto.randomBytes(24).toString("hex") : args.apiKey;
+  const baseUrl = args.copilot ? buildCopilotBridgeBaseUrl(runtime as ProviderRuntime) : args.baseUrl ?? undefined;
 
   const next = {
     providers: {
       ...providers.providers,
       [args.providerName]: cleanProviderRecord({
         profile: args.profile,
-        apiKey: args.apiKey,
+        apiKey,
         envKey,
-        baseUrl: args.baseUrl ?? undefined,
+        baseUrl,
         note: args.note ?? undefined,
         tags: args.tags,
+        runtime,
       }),
     },
   };
@@ -110,6 +153,7 @@ export function addProvider(args: {
           provider: args.providerName,
           profile: args.profile,
           envKey,
+          runtimeKind: runtime?.kind ?? null,
           createdProfileSections: configPlan.createdProfileSections,
           createdModelProviderSections: configPlan.createdModelProviderSections,
           deletedProfileSections: configPlan.deletedProfileSections,

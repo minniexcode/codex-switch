@@ -7,17 +7,20 @@ import { normalizeError } from "../domain/errors";
 import { CommandResult } from "./types";
 import { probeCodexRuntime } from "../runtime/codex-probe";
 import { readManagedAuthState } from "../storage/auth-repo";
-import { findProvidersByProfile } from "../domain/providers";
+import { findProvidersByProfile, isCopilotBridgeProvider } from "../domain/providers";
+import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import { probeCopilotBridgeRuntime } from "../runtime/copilot-bridge";
+import { readCopilotAuthState } from "../runtime/copilot-adapter";
 
 /**
  * Performs consistency checks across config.toml, providers.json, and the local Codex CLI.
  */
-export function runDoctor(args: {
+export async function runDoctor(args: {
   codexDir: string;
   configPath: string;
   providersPath: string;
   authPath: string;
-}): CommandResult {
+}): Promise<CommandResult> {
   const issues: Array<Record<string, unknown>> = [];
   let currentProfile: string | null = null;
   let providers = null;
@@ -105,6 +108,38 @@ export function runDoctor(args: {
           message: `auth.json secret value does not match active provider "${matches[0]}".`,
           provider: matches[0],
         });
+      }
+      if (isCopilotBridgeProvider(activeProvider)) {
+        const installStatus = probeCopilotSdkInstall();
+        if (!installStatus.installed) {
+          issues.push({
+            code: "COPILOT_SDK_MISSING",
+            message: "The optional Copilot SDK runtime is not installed.",
+            installDir: installStatus.installDir,
+            packageName: installStatus.packageName,
+          });
+        }
+        try {
+          await readCopilotAuthState();
+        } catch (error: unknown) {
+          const normalized = normalizeError(error);
+          issues.push({
+            code: normalized.code,
+            message: normalized.message,
+            ...(normalized.details ?? {}),
+          });
+        }
+        const bridge = await probeCopilotBridgeRuntime(activeProvider);
+        if (!bridge.ok) {
+          issues.push({
+            code:
+              bridge.cause === "Copilot bridge state base URL does not match the provider runtime configuration."
+                ? "PROVIDER_BASE_URL_MISMATCH"
+                : "BRIDGE_HEALTHCHECK_FAILED",
+            message: bridge.cause,
+            ...(bridge.details ?? {}),
+          });
+        }
       }
     }
   }

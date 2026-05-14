@@ -36,6 +36,7 @@ import {
   promptForProviderSelection,
 } from "../interaction/interactive";
 import { createPromptRuntime } from "../interaction/prompt";
+import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { findCodexDirCandidates, listConfigProfiles, readStructuredConfig } from "../storage/config-repo";
 import { createCodexPaths } from "../storage/codex-paths";
 import { mergeProviders, readProvidersFileIfExists } from "../storage/providers-repo";
@@ -142,17 +143,20 @@ export async function handleRegisteredCommand(
       if (!providerName) {
         throw cliError("PROVIDER_NOT_FOUND", "Missing provider name for switch command.");
       }
-
-        return switchProvider({
-          codexDir: paths.codexDir,
-          backupsDir: paths.backupsDir,
-        latestBackupPath: paths.latestBackupPath,
-          configPath: paths.configPath,
-          providersPath: paths.providersPath,
-          authPath: paths.authPath,
-          providerName,
-        });
+      if (hasFlag(parsed.commandOptions, "--install-copilot-sdk")) {
+        throw cliError("INVALID_ARGUMENT", "--install-copilot-sdk is only supported with add --copilot.");
       }
+
+      return switchProvider({
+        codexDir: paths.codexDir,
+        backupsDir: paths.backupsDir,
+        latestBackupPath: paths.latestBackupPath,
+        configPath: paths.configPath,
+        providersPath: paths.providersPath,
+        authPath: paths.authPath,
+        providerName,
+      });
+    }
     case "import": {
       const sourceFile = parsed.positionals[0];
       if (!sourceFile) {
@@ -212,8 +216,26 @@ export async function handleRegisteredCommand(
       let note = getSingleOption(parsed.commandOptions, "--note", false);
       let tags = parsed.commandOptions.get("--tag") ?? [];
       let createProfile = hasFlag(parsed.commandOptions, "--create-profile");
+      const copilot = hasFlag(parsed.commandOptions, "--copilot");
+      const bridgeHost = getSingleOption(parsed.commandOptions, "--bridge-host", false);
+      const bridgePortValue = getSingleOption(parsed.commandOptions, "--bridge-port", false);
+      const bridgeApiKey = getSingleOption(parsed.commandOptions, "--bridge-api-key", false);
+      let installCopilotSdk = hasFlag(parsed.commandOptions, "--install-copilot-sdk");
+      const bridgePort = bridgePortValue ? Number(bridgePortValue) : null;
 
-      if (!providerName || !profile || !apiKey) {
+      if (copilot && apiKey) {
+        throw cliError("INVALID_ARGUMENT", "--copilot does not allow --api-key. Use --bridge-api-key for the local bridge secret.");
+      }
+      if (bridgePortValue && (!Number.isInteger(bridgePort) || bridgePort === null || bridgePort <= 0)) {
+        throw cliError("INVALID_ARGUMENT", "--bridge-port must be a positive integer.");
+      }
+      if (copilot && !installCopilotSdk && canPrompt(runtime, ctx.options.json) && !probeCopilotSdkInstall().installed) {
+        installCopilotSdk = await runtime.confirmAction(
+          "The optional Copilot SDK runtime is not installed. Install it now?"
+        );
+      }
+
+      if (!providerName || !profile || (!apiKey && !copilot)) {
         if (ctx.options.json || !runtime.isInteractive()) {
           throw createNonInteractiveAddError();
         }
@@ -251,12 +273,18 @@ export async function handleRegisteredCommand(
         authPath: paths.authPath,
         providerName,
         profile,
-        apiKey,
+        apiKey: apiKey ?? "",
         baseUrl,
         model,
         note,
         tags,
         createProfile,
+        copilot,
+        bridgeHost,
+        bridgePort,
+        bridgeApiKey,
+        installCopilotSdk,
+        interactive: canPrompt(runtime, ctx.options.json),
       });
     }
     case "edit": {

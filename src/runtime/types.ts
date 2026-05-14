@@ -4,15 +4,17 @@
 export type RuntimeAvailability =
   | {
       ok: true;
-      runtime: "codex";
+      runtime: "codex" | "copilot-sdk" | "copilot-bridge";
       version?: string;
+      details?: Record<string, unknown>;
     }
   | {
       ok: false;
-      runtime: "codex";
+      runtime: "codex" | "copilot-sdk" | "copilot-bridge";
       reason: "missing" | "unsupported" | "failed";
       cause: string;
       version?: string;
+      details?: Record<string, unknown>;
     };
 
 /**
@@ -37,4 +39,14 @@ export type AuthRuntimeAdapter = {
 export type ProxyRuntimeAdapter = {
   probe: () => RuntimeAvailability;
   getStatus?: () => Promise<unknown>;
+};
+
+/**
+ * Result of probing whether the optional Copilot SDK runtime has been installed locally.
+ */
+export type OptionalRuntimeInstallStatus = {
+  installed: boolean;
+  installDir: string;
+  packageName: string;
+  packageVersion?: string | null;
 };

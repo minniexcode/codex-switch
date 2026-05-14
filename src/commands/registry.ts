@@ -118,6 +118,7 @@ export const COMMANDS: CommandDefinition[] = [
     usage: ["codexs status [--json] [--codex-dir <path>]"],
     details: [
       "Reports file presence, current profile, and whether the live profile is mapped.",
+      "When the active provider uses a local runtime bridge, status also reports bridge and SDK state.",
       "Surfaces config consistency signals without mutating any files.",
       "Use doctor for deeper diagnostics.",
     ],
@@ -150,6 +151,7 @@ export const COMMANDS: CommandDefinition[] = [
     summary: "Add a provider with explicit flags or progressive TTY prompts.",
     usage: [
       "codexs add <provider> --profile <name> --api-key <key> [--base-url <url>] [--note <text>] [--tag <tag> ...]",
+      "codexs add <provider> --copilot --profile <name> [--bridge-host <host>] [--bridge-port <port>] [--bridge-api-key <secret>] [--install-copilot-sdk]",
       "codexs add <provider> --profile <name> --api-key <key> --create-profile --model <name> --base-url <url>",
       "codexs add [--profile <name>] [--api-key <key>] [--base-url <url>] [--note <text>] [--tag <tag> ...]",
     ],
@@ -160,8 +162,13 @@ export const COMMANDS: CommandDefinition[] = [
       "Interactive tags use preset multi-select only.",
       "Automation and non-TTY environments must pass all required values explicitly.",
       "Creating a missing profile section requires --create-profile together with --model and --base-url.",
+      "Use --copilot to create a GitHub Copilot bridge provider backed by the official SDK.",
     ],
-    examples: ["codexs add packycode --profile packycode --api-key sk-xxx", "codexs add packycode --profile packycode", "codexs add"],
+    examples: [
+      "codexs add packycode --profile packycode --api-key sk-xxx",
+      "codexs add copilot-main --copilot --profile copilot-main --install-copilot-sdk",
+      "codexs add",
+    ],
   },
   {
     id: "switch",
@@ -174,6 +181,7 @@ export const COMMANDS: CommandDefinition[] = [
       "When <provider> is omitted in a TTY, an interactive provider selector is shown.",
       "When <provider> is passed explicitly, switch proceeds directly without extra confirmation.",
       "Switch updates the active config profile and rewrites auth.json from the provider envKey/apiKey pair.",
+      "Copilot bridge providers probe the optional official SDK before switching and fail fast if it is missing.",
       "Backs up config.toml and auth.json, then rolls back on failure.",
     ],
     examples: ["codexs switch freemodel", "codexs switch packycode --json"],
@@ -242,7 +250,11 @@ export const COMMANDS: CommandDefinition[] = [
     group: "recovery",
     summary: "Run configuration and environment diagnostics.",
     usage: ["codexs doctor [--json] [--codex-dir <path>]"],
-    details: ["Checks the expected config files, provider/profile consistency, and Codex CLI availability.", "Returns structured issues so users and AI agents can act on them."],
+    details: [
+      "Checks the expected config files, provider/profile consistency, and Codex CLI availability.",
+      "Copilot bridge providers add runtime dependency, auth, and bridge health diagnostics.",
+      "Returns structured issues so users and AI agents can act on them.",
+    ],
     examples: ["codexs doctor", "codexs doctor --json"],
   },
   {

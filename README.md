@@ -18,7 +18,7 @@ What it does:
 - Run diagnostics and detect local drift
 - List backups and roll back to a previous managed state
 
-Current version: `0.0.7`
+Current version: `0.0.8`
 
 ## Install
 

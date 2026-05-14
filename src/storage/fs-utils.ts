@@ -17,6 +17,9 @@ export function writeTextFileAtomic(filePath: string, contents: string): void {
   // Use the current process id in the temp name to reduce collision risk.
   const tempPath = `${filePath}.tmp-${process.pid}`;
   fs.writeFileSync(tempPath, contents, "utf8");
+  if (fs.existsSync(filePath)) {
+    fs.rmSync(filePath, { force: true });
+  }
   fs.renameSync(tempPath, filePath);
 }
 
