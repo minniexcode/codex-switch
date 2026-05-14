@@ -13,6 +13,8 @@ export type GlobalOptions = {
 export type CommandId =
   | "config-show"
   | "config-list-profiles"
+  | "init"
+  | "migrate"
   | "list"
   | "show"
   | "current"

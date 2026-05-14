@@ -2,6 +2,35 @@
 
 All notable changes to `@minniexcode/codex-switch` will be documented in this file.
 
+## 0.0.7 - 2026-05-14
+
+This release splits the old `setup` command into a lightweight automation-friendly `init` path and a human-led `migrate` path so initialization and adopt semantics are no longer mixed.
+
+本次版本把旧的 `setup` 拆分为轻量、适合自动化的 `init`，以及面向人工迁移的 `migrate`，从而不再混合“空初始化”和“从运行态 adopt”两种语义。
+
+### Added
+
+- Added `codexs init` as an idempotent initializer that resolves a Codex directory, optionally creates it in TTY mode, and ensures `providers.json` exists.
+- Added `COMMAND_DEPRECATED` so old command aliases can fail with structured machine-readable replacement hints.
+
+- 新增 `codexs init`，用于幂等初始化 Codex 目录；在 TTY 下可确认创建缺失目录，并确保 `providers.json` 存在。
+- 新增 `COMMAND_DEPRECATED` 错误码，用于让旧命令以结构化、可机读的替代提示失败。
+
+### Changed
+
+- Renamed the former `setup` migration flow to `codexs migrate` while preserving adopt rules, backup/lock behavior, auth mirror writes, and post-run `doctor`.
+- Changed `codexs setup` into a deprecated command entry that no longer performs work and now points callers to `init` and `migrate`.
+- Updated README, AI README, CLI usage, help text, and command output to present `init` and `migrate` as the primary entry points.
+
+- 将原 `setup` 迁移流程重命名为 `codexs migrate`，同时保留 adopt 规则、backup/lock、`auth.json` mirror 写入和 post-run `doctor`。
+- 将 `codexs setup` 改为弃用入口，不再执行实际工作，而是明确引导调用方改用 `init` 和 `migrate`。
+- 更新 README、AI README、CLI usage、help 文案和命令输出，使 `init` 与 `migrate` 成为主入口。
+
+### Verification
+
+- `npm run build`
+- `npm test`
+
 ## 0.0.6 - 2026-05-13
 
 This release focuses on stabilizing the existing CLI contract and moving the codebase to clearer internal boundaries for future integrations.

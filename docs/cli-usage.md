@@ -89,7 +89,7 @@ CLI 的交互行为遵循以下规则：
 
 典型受影响命令包括：
 
-- `setup`
+- `migrate`
 - `add`
 - `edit`
 - `switch`
@@ -207,41 +207,89 @@ codexs backups list --json
 
 ## 5. 变更类命令
 
-### 5.1 `setup`
+### 5.1 `init`
 
-从现有 Codex 目录初始化 `providers.json`。
+轻量初始化目标 Codex 目录，确保 `providers.json` 已存在。
 
 ```bash
-codexs setup [--json] [--codex-dir <path>] [--merge|--overwrite]
+codexs init [--json] [--codex-dir <path>]
 ```
 
 示例：
 
 ```bash
-codexs setup
-codexs setup --overwrite --json
-codexs setup --merge --codex-dir ./.tmp-codex
+codexs init
+codexs init --json
+codexs init --codex-dir ./.tmp-codex
+```
+
+行为说明：
+
+- 不依赖 `codex` 可执行文件
+- 不要求 `config.toml` 或 `auth.json` 已存在
+- `providers.json` 不存在时创建空 registry：`{ "providers": {} }`
+- `providers.json` 已存在时返回成功 no-op，不改写文件，也不会创建备份
+- 成功 JSON 结果固定包含：`codexDir`、`createdCodexDir`、`createdProvidersFile`、`providersAlreadyExisted`、`configExists`、`authExists`
+
+交互模式：
+
+- 未显式传 `--codex-dir` 时，会复用候选目录发现并允许你选择或手动输入目录
+- 如果目标目录不存在，会确认是否创建目录
+
+非交互模式：
+
+- `--json` 或非 TTY 下绝不会进入 prompt
+- 目标目录不存在时直接返回结构化错误
+
+### 5.2 `migrate`
+
+从现有 `config.toml` adopt unmanaged profiles，并写入受管理的 `providers.json`。
+
+```bash
+codexs migrate [--json] [--codex-dir <path>] [--merge|--overwrite]
+```
+
+示例：
+
+```bash
+codexs migrate
+codexs migrate --overwrite --json
+codexs migrate --merge --codex-dir ./.tmp-codex
 ```
 
 行为说明：
 
 - 读取 `config.toml` 中已有 profile
-- 仅 adopt 已具备 `model`、`model_provider` 且能解析到匹配 `model_providers.*.base_url` 的 profile
+- 仅 adopt 已具备 `model`、`model_provider` 且能解析到匹配 `model_providers.*.base_url` 和 `env_key` 的 unmanaged profile
 - 收集每个 profile 对应的 provider 记录
-- 在受管备份流程下写入 `providers.json`
-- 成功后会自动运行一次 `doctor`
+- 保持现有受管备份、锁、`auth.json` mirror 和 post-run `doctor` 流程
 
 交互模式：
 
 - 如果 `providers.json` 已存在，会让你选择 `merge`、`overwrite` 或取消
-- 如果需要补全 provider 细节，会在 TTY 中询问
+- profile 选择和 provider 细节收集仍然只在 TTY 中进行
 
 非交互模式：
 
 - `providers.json` 已存在时，必须显式传入 `--merge` 或 `--overwrite`
 - `--json` 模式下不会进入任何引导式输入
+- 由于 adopt profile 选择和 provider secret 收集仍然是交互契约，当前版本会直接失败
 
-### 5.2 `add`
+### 5.3 `setup`
+
+`setup` 已弃用，不再执行实际初始化或迁移工作。
+
+```bash
+codexs setup
+```
+
+行为说明：
+
+- 该命令现在返回 `COMMAND_DEPRECATED`
+- 错误详情中包含 `replacements: ["init", "migrate"]`
+- 应改用 `codexs init` 或 `codexs migrate`
+
+### 5.4 `add`
 
 新增一个 provider。
 
@@ -278,7 +326,7 @@ codexs add
 
 - 必须显式传入所有必填字段
 
-### 5.3 `edit`
+### 5.5 `edit`
 
 编辑单个 provider 的字段。
 
@@ -309,39 +357,35 @@ codexs edit packycode --tag daily --tag paid
 
 - 至少要提供一个需要修改的字段
 
-### 5.4 `switch`
+### 5.6 `switch`
 
 切换当前使用的 provider/profile。
 
 ```bash
-codexs switch <provider> [--no-login] [--json] [--codex-dir <path>]
+codexs switch <provider> [--json] [--codex-dir <path>]
 ```
 
 示例：
 
 ```bash
 codexs switch freemodel
-codexs switch freemodel --no-login
-codexs switch --no-login
+codexs switch freemodel --json
+codexs switch
 ```
 
 行为说明：
 
 - 根据 `providers.json` 找到目标 provider
 - 更新相关运行态配置
-- 默认会执行 Codex 登录刷新流程
+- 重写当前 active provider 对应的 `auth.json` mirror
 - 会先备份 `config.toml` 和 `auth.json`
-
-参数说明：
-
-- `--no-login`：切换后不执行登录刷新
 
 交互模式：
 
 - 如果没有传 `<provider>`，TTY 下会弹出 provider 选择器
 - 如果已经传了 `<provider>`，则直接执行，不再额外确认
 
-### 5.5 `remove`
+### 5.7 `remove`
 
 删除一个 provider 记录。
 
@@ -370,7 +414,7 @@ codexs remove freemodel --force --json
 
 - 必须同时传入 `<provider>` 和 `--force`
 
-### 5.6 `import`
+### 5.8 `import`
 
 从外部 JSON 文件导入 provider 配置。
 
@@ -401,7 +445,7 @@ codexs import ./providers.json --merge --json
 - 不会弹出路径向导或确认框
 - 会先验证输入文件，再执行写入
 
-### 5.7 `export`
+### 5.9 `export`
 
 导出当前 `providers.json` 到指定文件。
 
@@ -499,7 +543,7 @@ codexs <command> --json
 ```bash
 codexs list --json
 codexs show packycode --json
-codexs switch packycode --no-login --json
+codexs switch packycode --json
 codexs export ./providers.snapshot.json --force --json
 codexs rollback 20260511-221457-switch --json
 ```
@@ -509,7 +553,8 @@ codexs rollback 20260511-221457-switch --json
 ### 8.1 第一次接管现有 Codex 配置
 
 ```bash
-codexs setup
+codexs init
+codexs migrate
 codexs list
 codexs doctor
 ```
@@ -547,7 +592,8 @@ codexs rollback <backup-id>
 
 以下命令会修改本地配置或覆盖文件，使用前应明确预期：
 
-- `setup`
+- `init`
+- `migrate`
 - `add`
 - `edit`
 - `switch`
@@ -573,6 +619,8 @@ codexs --help
 也可以查看单个命令帮助：
 
 ```bash
+codexs help init
+codexs help migrate
 codexs help setup
 codexs help add
 codexs help switch

@@ -20,6 +20,7 @@ export function buildSetupDrafts(
       record: cleanProviderRecord({
         profile,
         apiKey: detail.apiKey ?? "",
+        envKey: detail.envKey ?? "",
         baseUrl: detail.baseUrl,
         note: detail.note,
         tags: detail.tags,

@@ -6,6 +6,8 @@ import { readProvidersFile } from "../storage/providers-repo";
 import { normalizeError } from "../domain/errors";
 import { CommandResult } from "./types";
 import { probeCodexRuntime } from "../runtime/codex-probe";
+import { readManagedAuthState } from "../storage/auth-repo";
+import { findProvidersByProfile } from "../domain/providers";
 
 /**
  * Performs consistency checks across config.toml, providers.json, and the local Codex CLI.
@@ -14,6 +16,7 @@ export function runDoctor(args: {
   codexDir: string;
   configPath: string;
   providersPath: string;
+  authPath: string;
 }): CommandResult {
   const issues: Array<Record<string, unknown>> = [];
   let currentProfile: string | null = null;
@@ -66,6 +69,46 @@ export function runDoctor(args: {
     }
   }
 
+  const authState = readManagedAuthState(args.authPath);
+  if (authState.exists && !authState.valid) {
+    issues.push({
+      code: "AUTH_JSON_INVALID",
+      message: authState.parseError ?? "auth.json is invalid.",
+      file: args.authPath,
+    });
+  }
+
+  if (document?.activeProfile && providers) {
+    const matches = findProvidersByProfile(providers, document.activeProfile);
+    if (matches.length === 1) {
+      const activeProvider = providers.providers[matches[0]];
+      const payload = authState.payload ?? {};
+      const actualKeys = authState.managedSecretKeys;
+      if (authState.authMode !== null && authState.authMode !== "apikey") {
+        issues.push({
+          code: "AUTH_JSON_INVALID",
+          message: `auth.json auth_mode must be "apikey", found "${authState.authMode}".`,
+        });
+      }
+      if (!actualKeys.includes(activeProvider.envKey) || actualKeys.length !== 1) {
+        issues.push({
+          code: "AUTH_JSON_ENV_KEY_MISMATCH",
+          message: `auth.json managed env key does not match active provider "${matches[0]}".`,
+          provider: matches[0],
+          expectedEnvKey: activeProvider.envKey,
+          actualEnvKeys: actualKeys,
+        });
+      }
+      if ((payload as Record<string, unknown>)[activeProvider.envKey] !== activeProvider.apiKey) {
+        issues.push({
+          code: "AUTH_JSON_APIKEY_MISMATCH",
+          message: `auth.json secret value does not match active provider "${matches[0]}".`,
+          provider: matches[0],
+        });
+      }
+    }
+  }
+
   // Drift inspection still runs when files are missing so status output can explain partial state.
   const drift = inspectLiveStateDrift(currentProfile, providers);
 
@@ -96,6 +139,7 @@ export function runDoctor(args: {
       codexDir: args.codexDir,
       storage: getStorageRoles(),
       liveState: drift,
+      auth: authState,
     },
     warnings: issues.length === 0 ? [] : [`doctor found ${issues.length} issue(s)`],
   };
@@ -104,7 +148,7 @@ export function runDoctor(args: {
 /**
  * Maps structured config consistency issues onto stable human-readable diagnostic text.
  */
-function renderConfigIssueMessage(issue: ConfigConsistencyIssue): string {
+function renderConfigIssueMessage(issue: ConfigConsistencyIssue | Record<string, unknown>): string {
   switch (issue.code) {
     case "ORPHANED_PROFILE_REFERENCE":
       return `Profile "${issue.profile}" is referenced by providers but missing from config.toml.`;
@@ -122,7 +166,21 @@ function renderConfigIssueMessage(issue: ConfigConsistencyIssue): string {
       return `Model provider section "${issue.modelProvider}" for profile "${issue.profile}" is missing from config.toml.`;
     case "MODEL_PROVIDER_BASE_URL_MISSING":
       return `Model provider section "${issue.modelProvider}" for profile "${issue.profile}" is missing base_url.`;
+    case "MODEL_PROVIDER_ENV_KEY_MISSING":
+      return `Model provider section "${issue.modelProvider}" for profile "${issue.profile}" is missing env_key.`;
+    case "PROVIDER_ENV_KEY_MISMATCH":
+      return `Provider "${issue.provider}" envKey does not match runtime env_key for profile "${issue.profile}".`;
+    case "ACTIVE_PROVIDER_UNRESOLVED":
+      return `Active profile "${issue.profile}" maps to multiple providers and cannot determine the current auth mirror owner.`;
+    case "AUTH_JSON_INVALID":
+      return String((issue as { reason?: string; message?: string }).message ?? (issue as { reason?: string }).reason ?? "auth.json is invalid.");
+    case "AUTH_JSON_ENV_KEY_MISMATCH":
+      return `auth.json managed env key does not match provider "${String((issue as { provider?: string }).provider ?? "")}".`;
+    case "AUTH_JSON_APIKEY_MISMATCH":
+      return `auth.json secret does not match provider "${String((issue as { provider?: string }).provider ?? "")}".`;
     case "DESTRUCTIVE_REMOVE_BLOCKED":
       return `Provider "${issue.provider}" cannot be removed while "${issue.activeProfile}" remains active.`;
+    default:
+      return String((issue as { code?: string }).code ?? "UNKNOWN_ISSUE");
   }
 }

@@ -10,14 +10,15 @@ It is designed for users who work with multiple Codex providers, API keys, or pr
 
 What it does:
 
-- Initialize `providers.json` from an existing Codex directory
+- Initialize an empty managed `providers.json`
+- Migrate unmanaged runtime profiles from an existing Codex directory
 - List, show, add, edit, and remove provider records
 - Switch the active provider/profile safely
 - Import and export provider definitions
 - Run diagnostics and detect local drift
 - List backups and roll back to a previous managed state
 
-Current version: `0.0.6`
+Current version: `0.0.7`
 
 ## Install
 
@@ -44,7 +45,8 @@ codexs --help
 Take over an existing Codex directory:
 
 ```bash
-codexs setup
+codexs init
+codexs migrate
 ```
 
 Inspect managed providers:
@@ -72,7 +74,8 @@ codexs doctor
 ## Common Commands
 
 ```bash
-codexs setup
+codexs init
+codexs migrate
 codexs list
 codexs show <provider>
 codexs current
@@ -92,6 +95,8 @@ Command help:
 
 ```bash
 codexs help switch
+codexs help init
+codexs help migrate
 codexs help setup
 ```
 
@@ -120,8 +125,9 @@ Notes:
 
 This CLI supports both human TTY use and non-interactive automation.
 
-Current exception:
-- `setup` in `0.0.6` is intentionally TTY-only for adopt initialization. It requires interactive profile selection and provider detail collection, and non-interactive/`--json` runs fail fast with a structured error.
+Current exceptions:
+- `init` is automation-friendly and idempotent, but still returns a structured error in non-interactive or `--json` mode when the resolved target directory does not exist.
+- `migrate` remains intentionally TTY-only for adopt initialization. It requires interactive profile selection and provider detail collection, and non-interactive/`--json` runs fail fast with a structured error.
 
 Recommended global flags:
 

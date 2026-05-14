@@ -4,9 +4,15 @@ import { cliError } from "../domain/errors";
 import { buildManagedProfileViews } from "../domain/config";
 import { ProviderRecord } from "../domain/providers";
 import { checkCodexAvailable, checkCodexVersion } from "../runtime/codex-cli";
-import { applyConfigMutation, createConfigMutationPlan, readStructuredConfig } from "../storage/config-repo";
+import {
+  applyConfigMutation,
+  createConfigMutationPlan,
+  readStructuredConfig,
+  resolveActiveProviderName,
+} from "../storage/config-repo";
 import { ensureDir } from "../storage/fs-utils";
 import { mergeProviders, readProvidersFileIfExists, writeProvidersFile } from "../storage/providers-repo";
+import { readAuthFileIfExists, writeAuthFile } from "../storage/auth-repo";
 import { runDoctor } from "./run-doctor";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
@@ -14,18 +20,19 @@ import { CommandResult } from "./types";
 const MIN_CODEX_VERSION = "0.0.1";
 
 /**
- * Bootstraps a managed providers.json from the existing Codex directory.
+ * Migrates unmanaged Codex config profiles into a managed providers.json registry.
  */
-export function setupCodex(args: {
+export function migrateCodex(args: {
   codexDirOption?: string | null;
   codexDir: string;
   configPath: string;
   providersPath: string;
+  authPath: string;
   backupsDir: string;
   latestBackupPath: string;
   strategy: "merge" | "overwrite";
   adoptProfiles: string[];
-  providerDetailsByProfile: Record<string, { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }>;
+  providerDetailsByProfile: Record<string, { providerName?: string; apiKey?: string; envKey?: string; baseUrl?: string; note?: string; tags?: string[] }>;
 }): CommandResult {
   const available = checkCodexAvailable();
   if (!available.ok) {
@@ -51,9 +58,9 @@ export function setupCodex(args: {
 
   const document = readStructuredConfig(args.configPath);
   const profileViews = buildManagedProfileViews(document, null);
-  // Setup can only adopt unmanaged profiles that already contain enough runtime data to become managed.
+  // Migrate can only adopt unmanaged profiles that already contain enough runtime data to become managed.
   const adoptableProfiles = profileViews
-    .filter((view) => view.source === "unmanaged" && view.model && view.modelProvider === view.name && view.baseUrl)
+    .filter((view) => view.source === "unmanaged" && view.model && view.modelProvider === view.name && view.baseUrl && view.envKey)
     .map((view) => view.name)
     .sort();
   if (profileViews.length === 0) {
@@ -64,13 +71,13 @@ export function setupCodex(args: {
 
   const invalidAdoptProfiles = args.adoptProfiles.filter((profile) => !adoptableProfiles.includes(profile));
   if (invalidAdoptProfiles.length > 0) {
-    throw cliError("INVALID_ARGUMENT", "setup only adopts unmanaged profiles that already contain model, model_provider, and a matching model_providers base_url.", {
+    throw cliError("INVALID_ARGUMENT", "migrate only adopts unmanaged profiles that already contain model, model_provider, and matching model_providers base_url/env_key.", {
       invalidProfiles: invalidAdoptProfiles.sort(),
       adoptableProfiles,
     });
   }
   if (args.adoptProfiles.length === 0) {
-    throw cliError("INVALID_ARGUMENT", "setup requires at least one explicit profile to adopt.", {
+    throw cliError("INVALID_ARGUMENT", "migrate requires at least one explicit profile to adopt.", {
       adoptableProfiles,
     });
   }
@@ -78,7 +85,7 @@ export function setupCodex(args: {
   const drafts = buildSetupDrafts(args.adoptProfiles, args.providerDetailsByProfile);
   const incompleteProfiles = findIncompleteSetupProfiles(drafts);
   if (incompleteProfiles.length > 0) {
-    throw cliError("INVALID_ARGUMENT", "setup requires complete provider data for every selected profile.", {
+    throw cliError("INVALID_ARGUMENT", "migrate requires complete provider data for every selected profile.", {
       incompleteProfiles,
     });
   }
@@ -105,16 +112,20 @@ export function setupCodex(args: {
     codexDir: args.codexDir,
     backupsDir: args.backupsDir,
     latestBackupPath: args.latestBackupPath,
-    operation: "setup",
+    operation: "migrate",
     files: [
       { absolutePath: args.providersPath, relativePath: "providers.json" },
       { absolutePath: args.configPath, relativePath: "config.toml" },
+      { absolutePath: args.authPath, relativePath: "auth.json" },
     ],
     mutate: () => {
-      // setup currently preserves config structure and only asserts that the file remains writable inside the mutation flow.
+      // migrate currently preserves config structure and only asserts that the file remains writable inside the mutation flow.
       const configPlan = createConfigMutationPlan(document, {});
       writeProvidersFile(args.providersPath, finalProviders);
       applyConfigMutation(args.configPath, document, configPlan);
+      const activeProviderName = resolveActiveProviderName(document, finalProviders);
+      const existingAuth = readAuthFileIfExists(args.authPath);
+      writeAuthFile(args.authPath, finalProviders.providers[activeProviderName], existingAuth ?? undefined);
       return {
         codexDir: args.codexDir,
         strategy: args.strategy,
@@ -130,11 +141,12 @@ export function setupCodex(args: {
     },
   });
 
-  // Re-run doctor on the final state so setup returns immediate post-migration diagnostics.
+  // Re-run doctor on the final state so migrate returns immediate post-migration diagnostics.
   const doctor = runDoctor({
     codexDir: args.codexDir,
     configPath: args.configPath,
     providersPath: args.providersPath,
+    authPath: args.authPath,
   });
 
   return {

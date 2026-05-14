@@ -1,12 +1,12 @@
 # Testing Guide
 
-`codex-switch` now has four test layers:
+`codex-switch` currently ships with five active test layers:
 
-- `tests/domain.spec.js`: pure domain/unit coverage
-- `tests/app.spec.js`: file-backed application integration coverage
-- `tests/cli.spec.js`: CLI dispatch and prompt simulation coverage
-- `tests/dev-sandbox.spec.js`: real `node dist/cli.js` read-only smoke tests against `dev-codex/local-sandbox`
-- `tests/e2e.spec.js`: write-command regression tests against temporary copies of `dev-codex/local-sandbox`
+- `tests/commands.spec.js`: argument parsing, help rendering, and command dispatch contracts
+- `tests/cli-e2e.spec.js`: built CLI entrypoint checks for user-visible command behavior and rendered output
+- `tests/interaction.spec.js`: prompt boundary and interactive data collection behavior
+- `tests/runtime.spec.js`: Codex runtime probing and version checks
+- `tests/workflows.spec.js`: file-backed app workflow coverage for write operations and rollback paths
 
 ## Commands
 
@@ -22,11 +22,18 @@ Run the full suite:
 npm test
 ```
 
-Run a single suite manually:
+`npm test` is not compile-only. It runs:
 
 ```bash
-node -e "require('./tests/dev-sandbox.spec').run()"
-node -e "require('./tests/e2e.spec').run()"
+npm run build
+node tests/run-tests.js
+```
+
+Run one suite manually:
+
+```bash
+node -e "require('./tests/cli-e2e.spec').tests[0].run()"
+node -e "require('./tests/workflows.spec').tests[0].run()"
 ```
 
 ## Development Fixture
@@ -39,61 +46,74 @@ dev-codex/local-sandbox/
 
 It is used in two different ways:
 
-- read-only dispatcher tests point at it directly
-- mutation tests copy it into a temporary directory before running writes
+- read-oriented CLI subprocess tests point at it directly
+- write-oriented tests copy it into a temporary directory before running mutations
 
 Do not point destructive automation directly at `dev-codex/local-sandbox` unless you intentionally want to update the fixture.
 
-## Read-Only Smoke Tests
+## Built CLI Coverage
 
-`tests/dev-sandbox.spec.js` verifies the built CLI against the real development fixture.
+`tests/cli-e2e.spec.js` executes the built CLI entrypoint logic from `dist/` and asserts the same JSON and human-readable payloads users see.
 
-Covered commands:
+Covered entrypoint checks:
+
+- `--help`
+- `--version`
+
+Covered read commands against the repository sandbox:
 
 - `list --json`
+- `show --json`
 - `current --json`
 - `status --json`
 - `config show --json`
+- `config list-profiles --json`
 - `backups list --json`
 - `doctor --json`
 
-These tests check two execution styles:
+Covered write commands against temporary sandbox copies:
 
-- development default resolution with `NODE_ENV=development`
-- explicit `--codex-dir dev-codex/local-sandbox`
+- `init --json`
+- `add --json`
+- `add --create-profile --json`
+- `edit --json`
+- `switch --json`
+- `remove --force --json`
+- `import --json`
+- `export --force --json`
+- `rollback --json`
+- `setup --json`
 
-This is the fastest way to validate that `0.0.x` builds still read the repo sandbox correctly.
+Covered non-interactive failure contracts:
 
-## Mutation Regression Tests
-
-`tests/e2e.spec.js` uses `fs.cpSync()` to clone `dev-codex/local-sandbox` into a temp directory, then exercises the real CLI command dispatcher against the copy.
-
-Covered write scenarios:
-
-- `switch` with login and backup creation
-- `rollback` restoring `config.toml` and `auth.json`
-- `add`, `edit`, `remove`
-- `add --create-profile`
-- blocking destructive remove of the active profile provider
-- `import --merge`
-- `export`
-- `backups list` with corrupt backup entries
+- `add` without an existing profile or `--create-profile`
+- blocking destructive removal of the active provider profile
 - `rollback <missing-id>`
-- corrupt `backups/latest.json`
+- `migrate --overwrite --json`
+- `setup --json`
 
-It also includes mixed workflow scenarios where multiple commands operate on the same sandbox copy end-to-end, for example:
+This harness intentionally avoids `child_process` subprocess spawning because the current Windows sandbox used by automation blocks nested process launches with `EPERM`. The suite still validates the built CLI layer rather than calling app functions directly.
 
-- `add -> switch -> edit -> show -> config show -> export -> rollback`
-- `import --merge -> switch --no-login -> remove -> doctor -> backups list -> rollback <backup-id>`
+## Workflow Coverage
 
-The setup flow is covered with `executeCommand()` plus mocked Codex CLI checks because `setup` currently depends on external `codex --version` availability and interactive adopt input.
+`tests/workflows.spec.js` keeps the deeper file-backed mutation coverage at the app/dispatch layer.
+
+Important workflow scenarios already covered there include:
+
+- non-interactive `init`
+- non-interactive `migrate` failure behavior
+- interactive `migrate` adoption via injected runtime
+- `add`, `edit`, `remove`
+- `switch` plus rollback
+- `export` and `import`
+- auth write rollback on failure
 
 ## Fixture Rules
 
 - Prefer `--codex-dir <temp-copy>` for all write tests.
 - Prefer `--json` when assertions need stable output.
 - Treat `show --json` output as sensitive because it includes unmasked API keys.
-- If a test needs `codex login` or `codex --version`, prefer mocking the spawn layer.
+- If a test needs `codex login` or `codex --version`, prefer mocking the spawn layer instead of assuming an installed local binary.
 - Keep fixture assertions focused on stable data such as provider names, active profile, backup count, and typed error codes.
 
 ## Reporting Template
@@ -104,17 +124,17 @@ Use this template for release checks:
 Version under test: 0.0.x
 Build: PASS/FAIL
 Suite results:
-- domain: PASS/FAIL
-- app: PASS/FAIL
-- cli: PASS/FAIL
-- dev-sandbox: PASS/FAIL
-- e2e: PASS/FAIL
+- commands: PASS/FAIL
+- cli-e2e: PASS/FAIL
+- interaction: PASS/FAIL
+- runtime: PASS/FAIL
+- workflows: PASS/FAIL
 
-Read-only smoke checks:
-- list/current/status/config/backups/doctor
+Read command checks:
+- help/version/list/show/current/status/config/backups/doctor
 
 Mutation checks:
-- switch/rollback/add/edit/remove/import/export/setup
+- init/add/edit/switch/remove/import/export/rollback/migrate/setup
 
 Open risks:
 - <risk 1>
@@ -125,7 +145,7 @@ Open risks:
 
 Known areas that still deserve more coverage:
 
-- true subprocess coverage for `setup`
+- true subprocess automation for interactive TTY-only flows such as prompt-driven `migrate`
 - explicit tests for `rollback-latest`
 - more backup corruption cases inside historical manifests
-- README and release docs should stay in sync with the package version
+- docs and report snapshots should stay in sync with the current package version

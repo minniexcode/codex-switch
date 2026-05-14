@@ -1,6 +1,6 @@
 {
   "name": "@minniexcode/codex-switch",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Local-first CLI for managing and switching Codex provider/profile configuration.",
   "license": "MIT",
   "type": "commonjs",

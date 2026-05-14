@@ -17,7 +17,8 @@ Primary goals:
 ## Main Command Surface
 
 ```bash
-codexs setup
+codexs init
+codexs migrate
 codexs list
 codexs show <provider>
 codexs current
@@ -92,11 +93,12 @@ codexs status --json
 Current package version in this repository:
 
 ```text
-0.0.4
+0.0.7
 ```
 
 Recent version summary:
 
+- `0.0.7`: command-surface refactor, env_key/auth-mirror model corrections, and the `setup` split into `init` plus `migrate`
 - `0.0.4`: setup/show/edit/backups list/specific rollback/import merge and clearer CLI semantics
 - `0.0.3`: interactive TTY flows and improved help
 - `0.0.2`: mutation orchestration, backups, rollback, locks, drift detection improvements
@@ -107,4 +109,5 @@ Recent version summary:
 - Prefer `--json` when invoking commands programmatically
 - Treat `providers.json` as sensitive because it may contain API keys
 - Do not assume silent write-back from runtime files into `providers.json`
+- Prefer `init` for repeatable machine setup and `migrate` for human-led adopt flows
 - Use `docs/` for deeper product and architecture context

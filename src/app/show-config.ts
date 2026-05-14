@@ -1,5 +1,6 @@
 import { buildManagedProfileViews } from "../domain/config";
 import { cliError } from "../domain/errors";
+import { findProvidersByProfile } from "../domain/providers";
 import { readStructuredConfig } from "../storage/config-repo";
 import { readProvidersFileIfExists } from "../storage/providers-repo";
 import { CommandResult } from "./types";
@@ -29,7 +30,14 @@ export function showConfig(args: { configPath: string; providersPath: string; pr
     data: {
       activeProfile: document.activeProfile,
       selectedProfile,
-      profiles,
+      profiles: profiles.map((profile) => ({
+        ...profile,
+        managedProviderEnvKeys: findProvidersByProfile(providers, profile.name).map((providerName) => ({
+          providerName,
+          envKey: providers.providers[providerName].envKey,
+          matchesRuntime: providers.providers[providerName].envKey === profile.envKey,
+        })),
+      })),
     },
   };
 }

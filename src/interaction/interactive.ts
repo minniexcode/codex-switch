@@ -163,10 +163,10 @@ export async function confirmRollback(
  * Prompts for setup merge strategy when providers.json already exists.
  */
 export async function chooseSetupStrategy(runtime: CliPromptRuntime): Promise<"merge" | "overwrite" | "cancel"> {
-  return runtime.selectOne("providers.json already exists. Choose a setup strategy.", [
+  return runtime.selectOne("providers.json already exists. Choose a migrate strategy.", [
     { value: "merge", label: "merge", hint: "keep existing providers and override by imported names" },
     { value: "overwrite", label: "overwrite", hint: "replace the existing registry" },
-    { value: "cancel", label: "cancel", hint: "abort setup without writing" },
+    { value: "cancel", label: "cancel", hint: "abort migrate without writing" },
   ]);
 }
 
@@ -212,11 +212,20 @@ export async function chooseCodexDir(
 }
 
 /**
+ * Confirms whether a missing Codex directory should be created during init.
+ */
+export async function confirmCreateCodexDir(runtime: CliPromptRuntime, codexDir: string): Promise<boolean> {
+  return runtime.confirmAction(`Create missing Codex directory ${codexDir}?`, {
+    defaultValue: false,
+  });
+}
+
+/**
  * Lets setup adopt a subset of unmanaged config profiles into providers.json.
  */
 export async function chooseSetupProfiles(
   runtime: CliPromptRuntime,
-  profiles: Array<{ name: string; model: string; baseUrl: string }>
+  profiles: Array<{ name: string; model: string; baseUrl: string; envKey: string }>
 ): Promise<string[]> {
   if (profiles.length === 0) {
     return [];
@@ -227,7 +236,7 @@ export async function chooseSetupProfiles(
     profiles.map((profile) => ({
       value: profile.name,
       label: profile.name,
-      hint: `${profile.model} | ${profile.baseUrl}`,
+      hint: `${profile.model} | ${profile.baseUrl} | ${profile.envKey}`,
     }))
   );
 }
@@ -238,17 +247,24 @@ export async function chooseSetupProfiles(
 export async function collectSetupProviderDetails(
   runtime: CliPromptRuntime,
   profiles: string[],
-  defaultsByProfile: Record<string, { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }> = {}
-): Promise<Record<string, { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }>> {
-  const result: Record<string, { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }> = {};
+  defaultsByProfile: Record<string, { providerName?: string; apiKey?: string; envKey?: string; baseUrl?: string; note?: string; tags?: string[] }> = {}
+): Promise<Record<string, { providerName?: string; apiKey?: string; envKey?: string; baseUrl?: string; note?: string; tags?: string[] }>> {
+  const result: Record<string, { providerName?: string; apiKey?: string; envKey?: string; baseUrl?: string; note?: string; tags?: string[] }> = {};
 
   for (const profile of profiles) {
     const defaults = defaultsByProfile[profile] ?? {};
     const providerName = (await runtime.inputText(`Provider name for profile "${profile}"`, {
       defaultValue: defaults.providerName ?? profile,
     })).trim();
-    const apiKey = (await runtime.inputSecret(`API key for profile "${profile}"`)).trim() || defaults.apiKey?.trim() || "";
-    const baseUrl = (await runtime.inputText(`Base URL for profile "${profile}" (optional)`, {
+    if (defaults.envKey) {
+      runtime.writeLine(`Runtime env key for "${profile}": ${defaults.envKey}`);
+    }
+    const apiKey = await promptRequiredSecret(
+      runtime,
+      `API key for profile "${profile}"`,
+      defaults.apiKey?.trim() || undefined
+    );
+    const baseUrl = (await runtime.inputText(`Base URL note for profile "${profile}" (optional)`, {
       defaultValue: defaults.baseUrl ?? "",
     })).trim();
     const note = (await runtime.inputText(`Note for profile "${profile}" (optional)`, {
@@ -259,6 +275,7 @@ export async function collectSetupProviderDetails(
     result[profile] = {
       providerName: providerName || defaults.providerName || profile,
       apiKey,
+      envKey: defaults.envKey,
       baseUrl: baseUrl || defaults.baseUrl || undefined,
       note: note || defaults.note || undefined,
       // Empty selections are omitted so downstream setup validation can distinguish unset from explicit data.
@@ -267,6 +284,19 @@ export async function collectSetupProviderDetails(
   }
 
   return result;
+}
+
+/**
+ * Re-prompts until a required secret value is provided, optionally falling back to a non-empty default.
+ */
+async function promptRequiredSecret(runtime: CliPromptRuntime, label: string, defaultValue?: string): Promise<string> {
+  while (true) {
+    const value = (await runtime.inputSecret(label)).trim() || defaultValue || "";
+    if (value.length > 0) {
+      return value;
+    }
+    runtime.writeLine(`${label} is required.`);
+  }
 }
 
 /**

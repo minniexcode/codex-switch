@@ -109,7 +109,8 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
             ? ` tags=${(provider.tags as string[]).join(",")}`
             : "";
           const note = provider.note ? ` note=${provider.note}` : "";
-          lines.push(`${provider.name} -> ${provider.profile}${tags}${note}`);
+          const envKey = provider.envKey ? ` envKey=${provider.envKey}` : "";
+          lines.push(`${provider.name} -> ${provider.profile}${envKey}${tags}${note}`);
         }
       }
       break;
@@ -119,6 +120,7 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`Provider: ${String(data?.providerName ?? "")}`);
       lines.push(`profile: ${String(provider.profile ?? "")}`);
       lines.push(`apiKey: ${String(provider.apiKey ?? "")}`);
+      lines.push(`envKey: ${String(provider.envKey ?? "")}`);
       if (provider.baseUrl) {
         lines.push(`baseUrl: ${String(provider.baseUrl)}`);
       }
@@ -139,16 +141,20 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`providersExists: ${String(data?.providersExists ?? false)}`);
       lines.push(`currentProfile: ${String(data?.currentProfile ?? "")}`);
       lines.push(`mappedProvider: ${String(data?.provider ?? "")}`);
+      lines.push(`activeProviderResolvable: ${String(data?.activeProviderResolvable ?? false)}`);
+      const auth = (data?.auth as Record<string, unknown>) ?? {};
+      lines.push(`authExists: ${String(auth.exists ?? false)}`);
+      lines.push(`authManagedKeys: ${Array.isArray(auth.managedSecretKeys) ? (auth.managedSecretKeys as string[]).join(",") : ""}`);
       lines.push(`issues: ${Array.isArray(data?.issues) ? (data?.issues as Array<unknown>).length : 0}`);
       break;
     case "config-show": {
       lines.push(`activeProfile: ${String(data?.activeProfile ?? "")}`);
       const profiles = (data?.profiles as Array<Record<string, unknown>>) ?? [];
-      for (const profile of profiles) {
-        lines.push(
-          `${String(profile.name)} managed=${String(profile.managed)} active=${String(profile.isActive)} source=${String(profile.source)} model=${String(profile.model ?? "")} modelProvider=${String(profile.modelProvider ?? "")} baseUrl=${String(profile.baseUrl ?? "")}`
-        );
-      }
+        for (const profile of profiles) {
+          lines.push(
+          `${String(profile.name)} managed=${String(profile.managed)} active=${String(profile.isActive)} source=${String(profile.source)} model=${String(profile.model ?? "")} modelProvider=${String(profile.modelProvider ?? "")} baseUrl=${String(profile.baseUrl ?? "")} envKey=${String(profile.envKey ?? "")}`
+          );
+        }
       break;
     }
     case "config-list-profiles": {
@@ -162,8 +168,8 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
     }
     case "switch":
       lines.push(`Switched to provider ${String(data?.provider ?? "")} using profile ${String(data?.profile ?? "")}.`);
+      lines.push(`envKey: ${String(data?.envKey ?? "")}`);
       lines.push(`Backup: ${String(data?.backupPath ?? "")}`);
-      lines.push(`Login performed: ${String(data?.loginPerformed ?? false)}`);
       break;
     case "import":
       lines.push(`Imported providers from file using mode ${String(data?.mode ?? "replace")}. Backup: ${String(data?.backupPath ?? "")}`);
@@ -171,11 +177,20 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
     case "export":
       lines.push(`Exported providers to ${String(data?.exportedTo ?? "")}.`);
       break;
-    case "setup":
-      lines.push(`Initialized providers in ${String(data?.codexDir ?? "")} using ${String(data?.strategy ?? "")}.`);
+    case "init":
+      lines.push(`Initialized Codex directory ${String(data?.codexDir ?? "")}.`);
+      lines.push(`Created codexDir: ${String(data?.createdCodexDir ?? false)}`);
+      lines.push(`Created providers.json: ${String(data?.createdProvidersFile ?? false)}`);
+      lines.push(`providersAlreadyExisted: ${String(data?.providersAlreadyExisted ?? false)}`);
+      break;
+    case "migrate":
+      lines.push(`Migrated providers in ${String(data?.codexDir ?? "")} using ${String(data?.strategy ?? "")}.`);
       lines.push(`Providers initialized: ${String(data?.providersInitialized ?? 0)}`);
       lines.push(`Doctor healthy: ${String((data?.doctor as Record<string, unknown> | undefined)?.healthy ?? false)}`);
       lines.push(`Backup: ${String(data?.backupPath ?? "")}`);
+      break;
+    case "setup":
+      lines.push("setup is deprecated. Use `codexs init` or `codexs migrate`.");
       break;
     case "edit":
       lines.push(`Updated provider ${String(data?.provider ?? "")}. Backup: ${String(data?.backupPath ?? "")}`);

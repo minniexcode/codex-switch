@@ -16,6 +16,8 @@ type PromptedAddInput = {
   providerName: string;
   profile: string;
   apiKey: string;
+  createProfile: boolean;
+  model?: string | null;
   baseUrl?: string | null;
   note?: string | null;
   tags: string[];
@@ -27,7 +29,8 @@ type PromptedAddInput = {
 export async function collectAddInput(
   runtime: CliPromptRuntime,
   defaults: AddPromptDefaults,
-  providerExists: (providerName: string) => boolean
+  providerExists: (providerName: string) => boolean,
+  profileExists: (profileName: string) => boolean
 ): Promise<PromptedAddInput> {
   runtime.writeLine("Interactive add mode");
   runtime.writeLine("Provide the missing required fields. Press Enter to skip optional fields.");
@@ -39,8 +42,11 @@ export async function collectAddInput(
   const apiKey = defaults.apiKey
     ? normalizeRequiredValue(defaults.apiKey)
     : await promptConfirmedSecret(runtime, "API key", "Confirm API key");
-
-  const baseUrl = defaults.baseUrl ?? normalizeOptionalValue(await runtime.inputText("Base URL (optional)"));
+  const createProfile = !profileExists(profile);
+  const model = createProfile ? await promptRequiredValue(runtime, `Model for new profile "${profile}"`) : null;
+  const baseUrl = createProfile
+    ? (defaults.baseUrl ? normalizeRequiredValue(defaults.baseUrl) : await promptRequiredValue(runtime, `Base URL for new profile "${profile}"`))
+    : defaults.baseUrl ?? normalizeOptionalValue(await runtime.inputText("Base URL (optional)"));
   const note = defaults.note ?? normalizeOptionalValue(await runtime.inputText("Note (optional)"));
   const tags = defaults.tags.length > 0 ? defaults.tags : await promptTags(runtime);
 
@@ -48,6 +54,8 @@ export async function collectAddInput(
     providerName,
     profile,
     apiKey,
+    createProfile,
+    model,
     baseUrl,
     note,
     tags,

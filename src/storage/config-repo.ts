@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   ConfigMutationPlan,
+  ManagedModelProviderFields,
   ManagedProfileFields,
   ManagedProfileView,
   ParsedConfigDocument,
@@ -13,7 +14,7 @@ import {
   planConfigMutation,
 } from "../domain/config";
 import { cliError, normalizeError } from "../domain/errors";
-import { ProvidersFile } from "../domain/providers";
+import { findProvidersByProfile, ProvidersFile } from "../domain/providers";
 import { CODEX_DIR_ENV_NAME, resolveCodexDir } from "./codex-paths";
 import { readRequiredFile, writeTextFileAtomic } from "./fs-utils";
 
@@ -114,6 +115,13 @@ export function requireManagedProfileRuntime(
       missingFields: ["base_url"],
     });
   }
+  if (!modelProviderSection.envKey) {
+    throw cliError("MODEL_PROVIDER_ENV_KEY_MISSING", `Model provider "${view.modelProvider}" requires env_key.`, {
+      profile,
+      modelProvider: view.modelProvider,
+      missingFields: ["env_key"],
+    });
+  }
   return view;
 }
 
@@ -135,6 +143,56 @@ export function requireModelProviderRuntimeSection(document: ParsedConfigDocumen
       missingFields: ["base_url"],
     });
   }
+  if (!modelProviderSection.envKey) {
+    throw cliError("MODEL_PROVIDER_ENV_KEY_MISSING", `Model provider "${profile}" requires env_key.`, {
+      profile,
+      modelProvider: profile,
+      missingFields: ["env_key"],
+    });
+  }
+}
+
+/**
+ * Returns the runtime env_key for one profile or throws a typed error.
+ */
+export function requireRuntimeEnvKey(document: ParsedConfigDocument, profile: string): string {
+  const modelProviderSection = document.modelProviders.find((entry) => entry.name === profile);
+  if (!modelProviderSection) {
+    throw cliError("PROFILE_NOT_FOUND", `Model provider "${profile}" does not exist in config.toml.`, {
+      profile,
+      modelProvider: profile,
+    });
+  }
+  if (!modelProviderSection.envKey) {
+    throw cliError("MODEL_PROVIDER_ENV_KEY_MISSING", `Model provider "${profile}" requires env_key.`, {
+      profile,
+      modelProvider: profile,
+      missingFields: ["env_key"],
+    });
+  }
+  return modelProviderSection.envKey;
+}
+
+/**
+ * Resolves the current active provider and requires the mapping to be unique.
+ */
+export function resolveActiveProviderName(document: ParsedConfigDocument, providers: ProvidersFile): string {
+  if (!document.activeProfile) {
+    throw cliError("PROFILE_NOT_FOUND", "No top-level profile is set in config.toml.");
+  }
+  const matches = findProvidersByProfile(providers, document.activeProfile);
+  if (matches.length === 0) {
+    throw cliError("UNMANAGED_ACTIVE_PROFILE", `Active profile "${document.activeProfile}" is not mapped by providers.json.`, {
+      profile: document.activeProfile,
+    });
+  }
+  if (matches.length > 1) {
+    throw cliError("ACTIVE_PROVIDER_UNRESOLVED", `Active profile "${document.activeProfile}" maps to multiple providers.`, {
+      profile: document.activeProfile,
+      providers: matches,
+    });
+  }
+  return matches[0];
 }
 
 /**
@@ -154,6 +212,7 @@ export function createConfigMutationPlan(
   args: {
     setActiveProfile?: string | null;
     upsertProfiles?: Record<string, Partial<ManagedProfileFields>>;
+    upsertModelProviders?: Record<string, Partial<ManagedModelProviderFields>>;
     deleteProfiles?: string[];
   }
 ): ConfigMutationPlan {

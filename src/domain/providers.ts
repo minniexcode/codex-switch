@@ -4,6 +4,7 @@
 export type ProviderRecord = {
   profile: string;
   apiKey: string;
+  envKey: string;
   baseUrl?: string;
   note?: string;
   tags?: string[];
@@ -42,6 +43,9 @@ export function validateProvidersShape(input: unknown): ProvidersFile {
     if (typeof provider.apiKey !== "string" || provider.apiKey.trim() === "") {
       throw new Error(`Provider "${name}" is missing a valid apiKey.`);
     }
+    if (typeof provider.envKey !== "string" || provider.envKey.trim() === "") {
+      throw new Error(`Provider "${name}" is missing a valid envKey.`);
+    }
 
     if (provider.baseUrl !== undefined && typeof provider.baseUrl !== "string") {
       throw new Error(`Provider "${name}" has an invalid baseUrl.`);
@@ -60,6 +64,7 @@ export function validateProvidersShape(input: unknown): ProvidersFile {
     providers[name] = cleanProviderRecord({
       profile: provider.profile,
       apiKey: provider.apiKey,
+      envKey: provider.envKey,
       baseUrl: provider.baseUrl as string | undefined,
       note: provider.note as string | undefined,
       tags: provider.tags as string[] | undefined,
@@ -76,6 +81,7 @@ export function cleanProviderRecord(record: ProviderRecord): ProviderRecord {
   const next: ProviderRecord = {
     profile: record.profile.trim(),
     apiKey: record.apiKey.trim(),
+    envKey: record.envKey.trim(),
   };
 
   if (record.baseUrl && record.baseUrl.trim() !== "") {
@@ -109,13 +115,22 @@ export function sortProviders(providers: ProvidersFile): ProvidersFile {
  * Finds the provider name associated with a given Codex profile.
  */
 export function findProviderByProfile(providers: ProvidersFile, profile: string): string | null {
+  const matches = findProvidersByProfile(providers, profile);
+  return matches.length > 0 ? matches[0] : null;
+}
+
+/**
+ * Returns all provider names associated with a given Codex profile.
+ */
+export function findProvidersByProfile(providers: ProvidersFile, profile: string): string[] {
+  const matches: string[] = [];
   for (const [name, provider] of Object.entries(providers.providers)) {
     if (provider.profile === profile) {
-      return name;
+      matches.push(name);
     }
   }
 
-  return null;
+  return matches.sort();
 }
 
 /**

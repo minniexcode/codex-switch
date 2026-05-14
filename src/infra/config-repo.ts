@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   ConfigMutationPlan,
+  ManagedModelProviderFields,
   ManagedProfileFields,
   ManagedProfileView,
   ParsedConfigDocument,
@@ -154,6 +155,7 @@ export function createConfigMutationPlan(
   args: {
     setActiveProfile?: string | null;
     upsertProfiles?: Record<string, Partial<ManagedProfileFields>>;
+    upsertModelProviders?: Record<string, Partial<ManagedModelProviderFields>>;
     deleteProfiles?: string[];
   }
 ): ConfigMutationPlan {

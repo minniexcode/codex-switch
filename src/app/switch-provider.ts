@@ -1,12 +1,17 @@
 import { cliError } from "../domain/errors";
-import { applyConfigMutation, createConfigMutationPlan, ensureProfileExists } from "../storage/config-repo";
+import {
+  applyConfigMutation,
+  createConfigMutationPlan,
+  ensureProfileExists,
+  requireRuntimeEnvKey,
+} from "../storage/config-repo";
 import { readProvidersFile } from "../storage/providers-repo";
+import { readAuthFileIfExists, writeAuthFile } from "../storage/auth-repo";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
-import { runCodexLogin } from "../runtime/codex-cli";
 
 /**
- * Switches the active Codex profile and optionally refreshes the CLI login session.
+ * Switches the active Codex profile and rewrites auth.json for the target provider.
  */
 export function switchProvider(args: {
   codexDir: string;
@@ -16,7 +21,6 @@ export function switchProvider(args: {
   providersPath: string;
   authPath: string;
   providerName: string;
-  noLogin: boolean;
 }): CommandResult {
   const providers = readProvidersFile(args.providersPath);
   const provider = providers.providers[args.providerName];
@@ -27,6 +31,15 @@ export function switchProvider(args: {
   }
 
   const document = ensureProfileExists(args.configPath, provider.profile, args.providerName);
+  const envKey = requireRuntimeEnvKey(document, provider.profile);
+  if (provider.envKey !== envKey) {
+    throw cliError("PROVIDER_ENV_KEY_MISMATCH", `Provider "${args.providerName}" envKey does not match runtime env_key.`, {
+      provider: args.providerName,
+      profile: provider.profile,
+      providerEnvKey: provider.envKey,
+      runtimeEnvKey: envKey,
+    });
+  }
   return runMutation({
     codexDir: args.codexDir,
     backupsDir: args.backupsDir,
@@ -40,15 +53,13 @@ export function switchProvider(args: {
       const configPlan = createConfigMutationPlan(document, {
         setActiveProfile: provider.profile,
       });
-      // Update the runtime profile first so any subsequent login is associated with the new target.
       applyConfigMutation(args.configPath, document, configPlan);
-      if (!args.noLogin) {
-        runCodexLogin(provider.apiKey, args.codexDir);
-      }
+      const existingAuth = readAuthFileIfExists(args.authPath);
+      writeAuthFile(args.authPath, provider, existingAuth ?? undefined);
       return {
         provider: args.providerName,
         profile: provider.profile,
-        loginPerformed: !args.noLogin,
+        envKey: provider.envKey,
       };
     },
   });

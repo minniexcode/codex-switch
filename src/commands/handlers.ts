@@ -4,6 +4,7 @@ import { editProvider } from "../app/edit-provider";
 import { exportProviders } from "../app/export-providers";
 import { getCurrentProfile } from "../app/get-current-profile";
 import { getStatus } from "../app/get-status";
+import { initCodex } from "../app/init-codex";
 import { importProviders } from "../app/import-providers";
 import { listConfigProfilesView } from "../app/list-config-profiles";
 import { listBackupEntries } from "../app/list-backups";
@@ -11,7 +12,7 @@ import { listProviders } from "../app/list-providers";
 import { removeProvider } from "../app/remove-provider";
 import { rollbackBackup } from "../app/rollback-backup";
 import { runDoctor } from "../app/run-doctor";
-import { setupCodex } from "../app/setup-codex";
+import { migrateCodex } from "../app/setup-codex";
 import { showConfig } from "../app/show-config";
 import { showProvider } from "../app/show-provider";
 import { switchProvider } from "../app/switch-provider";
@@ -24,6 +25,7 @@ import {
   chooseCodexDir,
   chooseSetupProfiles,
   chooseSetupStrategy,
+  confirmCreateCodexDir,
   collectEditInput,
   collectSetupProviderDetails,
   confirmExportOverwrite,
@@ -72,7 +74,54 @@ export async function handleRegisteredCommand(
     case "current":
       return getCurrentProfile(paths.configPath);
     case "status":
-      return getStatus(paths.codexDir, paths.configPath, paths.providersPath);
+      return getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath);
+    case "init": {
+      let codexDir = ctx.options.codexDir;
+      const candidates = findCodexDirCandidates(ctx.options.codexDirExplicit ? ctx.options.codexDir : null);
+      if (!ctx.options.codexDirExplicit) {
+        if (candidates.length > 1) {
+          if (!canPrompt(runtime, ctx.options.json)) {
+            throw cliError("CODEX_DIR_AMBIGUOUS", "Multiple Codex directories were found.", {
+              candidates,
+            });
+          }
+          codexDir = await chooseCodexDir(runtime, candidates);
+        } else if (candidates.length === 0) {
+          if (!canPrompt(runtime, ctx.options.json)) {
+            throw cliError("CODEX_DIR_NOT_FOUND", "No Codex directory could be found.", {
+              codexDir: ctx.options.codexDir,
+            });
+          }
+          codexDir = await chooseCodexDir(runtime, candidates);
+        } else {
+          codexDir = candidates[0];
+        }
+      }
+
+      setupPaths = createCodexPaths(codexDir);
+      let createCodexDir = false;
+      if (!fs.existsSync(setupPaths.codexDir)) {
+        if (!canPrompt(runtime, ctx.options.json)) {
+          throw cliError("CODEX_DIR_NOT_FOUND", "The requested Codex directory does not exist.", {
+            codexDir: setupPaths.codexDir,
+          });
+        }
+        createCodexDir = await confirmCreateCodexDir(runtime, setupPaths.codexDir);
+        if (!createCodexDir) {
+          throw cliError("CODEX_DIR_NOT_FOUND", "The requested Codex directory does not exist.", {
+            codexDir: setupPaths.codexDir,
+          });
+        }
+      }
+
+      return initCodex({
+        codexDir: setupPaths.codexDir,
+        providersPath: setupPaths.providersPath,
+        configPath: setupPaths.configPath,
+        authPath: setupPaths.authPath,
+        createCodexDir,
+      });
+    }
     case "config-show":
       return showConfig({
         configPath: paths.configPath,
@@ -94,17 +143,16 @@ export async function handleRegisteredCommand(
         throw cliError("PROVIDER_NOT_FOUND", "Missing provider name for switch command.");
       }
 
-      return switchProvider({
-        codexDir: paths.codexDir,
-        backupsDir: paths.backupsDir,
+        return switchProvider({
+          codexDir: paths.codexDir,
+          backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
-        configPath: paths.configPath,
-        providersPath: paths.providersPath,
-        authPath: paths.authPath,
-        providerName,
-        noLogin: hasFlag(parsed.commandOptions, "--no-login"),
-      });
-    }
+          configPath: paths.configPath,
+          providersPath: paths.providersPath,
+          authPath: paths.authPath,
+          providerName,
+        });
+      }
     case "import": {
       const sourceFile = parsed.positionals[0];
       if (!sourceFile) {
@@ -163,7 +211,7 @@ export async function handleRegisteredCommand(
       let model = getSingleOption(parsed.commandOptions, "--model", false);
       let note = getSingleOption(parsed.commandOptions, "--note", false);
       let tags = parsed.commandOptions.get("--tag") ?? [];
-      const createProfile = hasFlag(parsed.commandOptions, "--create-profile");
+      let createProfile = hasFlag(parsed.commandOptions, "--create-profile");
 
       if (!providerName || !profile || !apiKey) {
         if (ctx.options.json || !runtime.isInteractive()) {
@@ -180,15 +228,18 @@ export async function handleRegisteredCommand(
             note,
             tags,
           },
-          (candidate) => Boolean(readProvidersFileIfExists(paths.providersPath).providers[candidate])
+          (candidate) => Boolean(readProvidersFileIfExists(paths.providersPath).providers[candidate]),
+          (candidate) => Boolean(readStructuredConfig(paths.configPath).profiles.find((profileView) => profileView.name === candidate))
         );
 
         providerName = prompted.providerName;
         profile = prompted.profile;
         apiKey = prompted.apiKey;
+        model = prompted.model ?? null;
         baseUrl = prompted.baseUrl ?? null;
         note = prompted.note ?? null;
         tags = prompted.tags;
+        createProfile = createProfile || prompted.createProfile;
       }
 
       return addProvider({
@@ -197,6 +248,7 @@ export async function handleRegisteredCommand(
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
         configPath: paths.configPath,
+        authPath: paths.authPath,
         providerName,
         profile,
         apiKey,
@@ -258,6 +310,7 @@ export async function handleRegisteredCommand(
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
         configPath: paths.configPath,
+        authPath: paths.authPath,
         providerName,
         profile,
         apiKey,
@@ -305,8 +358,9 @@ export async function handleRegisteredCommand(
         codexDir: paths.codexDir,
         configPath: paths.configPath,
         providersPath: paths.providersPath,
+        authPath: paths.authPath,
       });
-    case "setup": {
+    case "migrate": {
       let codexDir = ctx.options.codexDir;
       const candidates = findCodexDirCandidates(ctx.options.codexDirExplicit ? ctx.options.codexDir : null);
       if (!ctx.options.codexDirExplicit) {
@@ -331,7 +385,7 @@ export async function handleRegisteredCommand(
       const overwrite = hasFlag(parsed.commandOptions, "--overwrite");
       const merge = hasFlag(parsed.commandOptions, "--merge");
       if (overwrite && merge) {
-        throw cliError("INVALID_ARGUMENT", "setup does not allow both --merge and --overwrite.");
+        throw cliError("INVALID_ARGUMENT", "migrate does not allow both --merge and --overwrite.");
       }
 
       let strategy: "merge" | "overwrite" | null = overwrite ? "overwrite" : merge ? "merge" : null;
@@ -352,17 +406,17 @@ export async function handleRegisteredCommand(
 
       const document = readStructuredConfig(setupPaths.configPath);
       const adoptableProfiles = buildManagedProfileViews(document, null)
-        .filter((view) => view.source === "unmanaged" && view.model && view.modelProvider === view.name && view.baseUrl)
+        .filter((view) => view.source === "unmanaged" && view.model && view.modelProvider === view.name && view.baseUrl && view.envKey)
         .map((view) => ({
           name: view.name,
           model: view.model as string,
           baseUrl: view.baseUrl as string,
-          apiKey: document.modelProviders.find((provider) => provider.name === view.name)?.apiKey ?? null,
+          envKey: view.envKey as string,
         }))
         .sort((left, right) => left.name.localeCompare(right.name));
       const selectedProfiles = Array.from(listConfigProfiles(setupPaths.configPath)).sort();
       let adoptProfiles: string[] = [];
-      let providerDetailsByProfile: Record<string, { providerName?: string; apiKey?: string; baseUrl?: string; note?: string; tags?: string[] }> = {};
+      let providerDetailsByProfile: Record<string, { providerName?: string; apiKey?: string; envKey?: string; baseUrl?: string; note?: string; tags?: string[] }> = {};
 
       if (canPrompt(runtime, ctx.options.json)) {
         adoptProfiles = await chooseSetupProfiles(runtime, adoptableProfiles);
@@ -370,32 +424,33 @@ export async function handleRegisteredCommand(
         providerDetailsByProfile = await collectSetupProviderDetails(
           runtime,
           adoptProfiles,
-          adoptableProfiles.reduce<Record<string, { providerName?: string; apiKey?: string; baseUrl?: string }>>((accumulator, profile) => {
+          adoptableProfiles.reduce<Record<string, { providerName?: string; envKey?: string; baseUrl?: string }>>((accumulator, profile) => {
             accumulator[profile.name] = {
               providerName: profile.name,
-              apiKey: profile.apiKey ?? undefined,
+              envKey: profile.envKey,
               baseUrl: profile.baseUrl,
             };
             return accumulator;
           }, {})
         );
-      } else {
-        throw cliError(
-          "INVALID_ARGUMENT",
-          "setup currently requires an interactive TTY to choose adoptable profiles and collect provider details.",
-          {
-            adoptableProfiles,
-            availableProfiles: selectedProfiles,
-            suggestion: "Run `codexs setup` in an interactive terminal. Non-interactive setup input flags are not available in 0.0.6.",
-          }
-        );
-      }
+        } else {
+          throw cliError(
+            "INVALID_ARGUMENT",
+            "migrate currently requires an interactive TTY to choose adoptable profiles and collect provider details.",
+            {
+              adoptableProfiles,
+              availableProfiles: selectedProfiles,
+              suggestion: "Run `codexs migrate` in an interactive terminal. Non-interactive migrate flags for profile selection and provider secrets are not available in this release.",
+            }
+          );
+        }
 
-      return setupCodex({
+      return migrateCodex({
         codexDirOption: ctx.options.codexDir,
         codexDir: setupPaths.codexDir,
         configPath: setupPaths.configPath,
         providersPath: setupPaths.providersPath,
+        authPath: setupPaths.authPath,
         backupsDir: setupPaths.backupsDir,
         latestBackupPath: setupPaths.latestBackupPath,
         strategy: strategy ?? "overwrite",
@@ -403,6 +458,10 @@ export async function handleRegisteredCommand(
         providerDetailsByProfile,
       });
     }
+    case "setup":
+      throw cliError("COMMAND_DEPRECATED", "setup has been split into init and migrate.", {
+        replacements: ["init", "migrate"],
+      });
     case "backups-list":
       return listBackupEntries(paths.backupsDir);
     case "rollback":
