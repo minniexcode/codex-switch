@@ -2,7 +2,7 @@
 
 All notable changes to `@minniexcode/codex-switch` will be documented in this file.
 
-## 0.0.7 - 2026-05-14
+## 0.0.10 - 2026-05-18
 
 This release splits the old `setup` command into a lightweight automation-friendly `init` path and a human-led `migrate` path so initialization and adopt semantics are no longer mixed.
 
@@ -18,11 +18,11 @@ This release splits the old `setup` command into a lightweight automation-friend
 
 ### Changed
 
-- Renamed the former `setup` migration flow to `codexs migrate` while preserving adopt rules, backup/lock behavior, auth mirror writes, and post-run `doctor`.
+- Renamed the former `setup` migration flow to `codexs migrate` while preserving adopt rules, backup/lock behavior, and post-run `doctor`.
 - Changed `codexs setup` into a deprecated command entry that no longer performs work and now points callers to `init` and `migrate`.
 - Updated README, AI README, CLI usage, help text, and command output to present `init` and `migrate` as the primary entry points.
 
-- 将原 `setup` 迁移流程重命名为 `codexs migrate`，同时保留 adopt 规则、backup/lock、`auth.json` mirror 写入和 post-run `doctor`。
+- 将原 `setup` 迁移流程重命名为 `codexs migrate`，同时保留 adopt 规则、backup/lock 和 post-run `doctor`。
 - 将 `codexs setup` 改为弃用入口，不再执行实际工作，而是明确引导调用方改用 `init` 和 `migrate`。
 - 更新 README、AI README、CLI usage、help 文案和命令输出，使 `init` 与 `migrate` 成为主入口。
 

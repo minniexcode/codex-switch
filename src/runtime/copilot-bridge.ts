@@ -65,8 +65,8 @@ export type CopilotBridgeStartResult = {
 /**
  * Returns the last known Copilot bridge runtime status.
  */
-export async function probeCopilotBridgeRuntime(provider: ProviderRecord | null): Promise<RuntimeAvailability> {
-  const state = readCopilotBridgeState();
+export async function probeCopilotBridgeRuntime(provider: ProviderRecord | null, persistedState?: CopilotBridgeState | null): Promise<RuntimeAvailability> {
+  const state = persistedState === undefined ? readCopilotBridgeState() : persistedState;
   if (state && (!provider || !isCopilotBridgeProvider(provider))) {
     return {
       ok: false,

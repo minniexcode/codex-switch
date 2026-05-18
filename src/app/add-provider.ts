@@ -1,18 +1,15 @@
 import * as crypto from "node:crypto";
-import { buildManagedProfileEnvKey, validateManagedProfileCreation } from "../domain/config";
+import { validateManagedProfileCreation } from "../domain/config";
 import { buildCopilotBridgeBaseUrl, cleanProviderRecord, ProviderRuntime } from "../domain/providers";
 import { cliError } from "../domain/errors";
 import {
   applyConfigMutation,
   createConfigMutationPlan,
   readStructuredConfig,
-  requireRuntimeEnvKey,
   requireManagedProfileRuntime,
-    resolveActiveProviderName,
-  } from "../storage/config-repo";
+} from "../storage/config-repo";
 import { ensureDir } from "../storage/fs-utils";
 import { readProvidersFileIfExists, writeProvidersFile } from "../storage/providers-repo";
-import { readAuthFileIfExists, writeAuthFile } from "../storage/auth-repo";
 import { installCopilotSdk, probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
@@ -100,14 +97,12 @@ export function addProvider(args: {
     ? {
         [args.profile]: {
           baseUrl: args.copilot ? buildCopilotBridgeBaseUrl(runtime as ProviderRuntime) : args.baseUrl ?? undefined,
-          envKey: buildManagedProfileEnvKey(args.profile),
         },
       }
     : undefined;
   if (existingProfile) {
     requireManagedProfileRuntime(document, providers, args.profile);
   }
-  const envKey = existingModelProvider?.envKey ?? buildManagedProfileEnvKey(args.profile);
   const apiKey = args.copilot ? args.bridgeApiKey ?? crypto.randomBytes(24).toString("hex") : args.apiKey;
   const baseUrl = args.copilot ? buildCopilotBridgeBaseUrl(runtime as ProviderRuntime) : args.baseUrl ?? undefined;
 
@@ -117,7 +112,6 @@ export function addProvider(args: {
       [args.providerName]: cleanProviderRecord({
         profile: args.profile,
         apiKey,
-        envKey,
         baseUrl,
         note: args.note ?? undefined,
         tags: args.tags,
@@ -134,7 +128,6 @@ export function addProvider(args: {
     files: [
       { absolutePath: args.providersPath, relativePath: "providers.json" },
       { absolutePath: args.configPath, relativePath: "config.toml" },
-      { absolutePath: args.authPath, relativePath: "auth.json" },
     ],
     mutate: () => {
       const configPlan = createConfigMutationPlan(document, {
@@ -144,21 +137,15 @@ export function addProvider(args: {
       // Persist only the normalized provider payload so later reads are deterministic.
       writeProvidersFile(args.providersPath, next);
       applyConfigMutation(args.configPath, document, configPlan);
-      if (document.activeProfile === args.profile) {
-        const activeProviderName = resolveActiveProviderName(document, next);
-        const existingAuth = readAuthFileIfExists(args.authPath);
-        writeAuthFile(args.authPath, next.providers[activeProviderName], existingAuth ?? undefined);
-      }
-        return {
-          provider: args.providerName,
-          profile: args.profile,
-          envKey,
-          runtimeKind: runtime?.kind ?? null,
-          createdProfileSections: configPlan.createdProfileSections,
-          createdModelProviderSections: configPlan.createdModelProviderSections,
-          deletedProfileSections: configPlan.deletedProfileSections,
-          keptSharedProfiles: [],
-          switchedActiveProfile: configPlan.switchedActiveProfile,
+      return {
+        provider: args.providerName,
+        profile: args.profile,
+        runtimeKind: runtime?.kind ?? null,
+        createdProfileSections: configPlan.createdProfileSections,
+        createdModelProviderSections: configPlan.createdModelProviderSections,
+        deletedProfileSections: configPlan.deletedProfileSections,
+        keptSharedProfiles: [],
+        switchedActiveProfile: configPlan.switchedActiveProfile,
         adoptedProfiles: [],
         repairedProfiles: [],
       };

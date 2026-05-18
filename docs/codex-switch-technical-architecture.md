@@ -98,7 +98,7 @@
 - `Low Coupling`
   - 参数解析、业务编排、文件访问、错误模型彼此解耦
 - `Split State Model`
-  - `providers.json` 是管理态事实源，`config.toml` / `auth.json` 是运行态镜像
+- `providers.json` 是管理态事实源，`config.toml` 是运行态路由文件，`auth.json` 是 direct provider 的认证投影
 - `Lightweight Transactions`
   - 单次写操作要有锁、备份、回滚边界
 
@@ -125,7 +125,8 @@ Infrastructure 层
 当前实现还明确区分三类状态对象：
 
 - 管理态单一事实源：`providers.json`
-- 运行态镜像：`config.toml`、`auth.json`
+- 运行态路由：`config.toml`
+- 当前 active direct provider 的认证投影：`auth.json`
 - 回滚态：`backups/latest.json` 和对应 manifest
 
 这意味着未来即使引入 GUI / MCP / HTTP 适配层，核心同步目标仍然是 runtime files，而不是把 runtime files 本身当成长期管理数据库。
@@ -555,13 +556,13 @@ scripts/
 - 深度解析 profile 内部更多字段
 - 管理 base URL 或模型等 profile 内容
 
-它在当前架构里属于运行态镜像，只承担“当前活跃 profile 落地”的职责。
+它在当前架构里是 direct provider 的认证投影文件，不承担 provider 选择职责，也不作为 provider registry 的事实源。
 
 ### 5.3 `auth.json`
 
 当前实现不直接建模其内部字段，但它有明确架构角色：
 
-- 属于运行态镜像
+- 属于 direct provider 的认证投影
 - 在存在时纳入备份与回滚
 - 不是 provider registry 的事实源
 
@@ -622,7 +623,7 @@ scripts/
 6. 校验 provider 对应的 `profile` 在配置中存在
 7. 创建备份：
    - `config.toml`
-   - `auth.json`（如果存在）
+- `auth.json` 仅在历史备份清单已包含时由 rollback 兼容恢复
 8. 更新顶层 `profile`
 9. 如果未传 `--no-login`，执行 `codex login --with-api-key`
 10. 成功后把这次备份记录为 `latest.json`

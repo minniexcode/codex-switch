@@ -82,21 +82,71 @@ export function installCopilotSdk(): OptionalRuntimeInstallStatus {
     );
   }
 
-  const command = process.platform === "win32" ? "npm.cmd" : "npm";
-  const result = spawnImplementation(command, ["install", "--no-save", `${COPILOT_SDK_PACKAGE}@${COPILOT_SDK_VERSION}`], {
+  const installCommand = resolveNpmInstallCommand();
+  const result = spawnImplementation(installCommand.command, installCommand.args, {
     cwd: installDir,
     stdio: "pipe",
     encoding: "utf8",
     shell: false,
   });
 
+  if (result.error) {
+    throw cliError("COPILOT_SDK_INSTALL_FAILED", "Failed to install the optional Copilot SDK runtime.", {
+      installDir,
+      packageName: COPILOT_SDK_PACKAGE,
+      cause: result.error.message,
+      errorCode: (result.error as NodeJS.ErrnoException).code ?? null,
+      command: installCommand.command,
+      args: installCommand.args,
+    });
+  }
+
   if (result.status !== 0) {
     throw cliError("COPILOT_SDK_INSTALL_FAILED", "Failed to install the optional Copilot SDK runtime.", {
       installDir,
       packageName: COPILOT_SDK_PACKAGE,
       cause: result.stderr || result.stdout || `npm exited with status ${String(result.status)}`,
+      command: installCommand.command,
+      args: installCommand.args,
     });
   }
 
   return probeCopilotSdkInstall();
+}
+
+/**
+ * Resolves a stable npm install invocation for the optional Copilot SDK runtime.
+ */
+function resolveNpmInstallCommand(): { command: string; args: string[] } {
+  const installArgs = ["install", "--no-save", `${COPILOT_SDK_PACKAGE}@${COPILOT_SDK_VERSION}`];
+  const npmCliPath = resolveNpmCliPath();
+  if (npmCliPath) {
+    return {
+      command: process.execPath,
+      args: [npmCliPath, ...installArgs],
+    };
+  }
+  return {
+    command: process.platform === "win32" ? "npm.cmd" : "npm",
+    args: installArgs,
+  };
+}
+
+/**
+ * Finds a locally available npm CLI script near the active Node runtime.
+ */
+function resolveNpmCliPath(): string | null {
+  const execDir = path.dirname(process.execPath);
+  const candidates = [
+    process.env.npm_execpath,
+    path.join(execDir, "node_modules", "npm", "bin", "npm-cli.js"),
+    path.join(execDir, "..", "node_modules", "npm", "bin", "npm-cli.js"),
+    path.join(execDir, "..", "..", "node_modules", "npm", "bin", "npm-cli.js"),
+  ];
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return path.resolve(candidate);
+    }
+  }
+  return null;
 }

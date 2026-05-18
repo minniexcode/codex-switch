@@ -54,7 +54,8 @@ Shared flags:
 Operational model:
 
 - `providers.json` is the management-state source of truth
-- `config.toml` and `auth.json` are runtime mirrors
+- `config.toml` is the managed runtime-routing file
+- `auth.json` is the active auth projection file for direct providers and is also inspected by status/doctor
 - `backups/latest.json` tracks the latest rollback state
 - mutating commands should back up first and run under a lightweight file lock
 
@@ -93,12 +94,13 @@ codexs status --json
 Current package version in this repository:
 
 ```text
-0.0.7
+0.0.10
 ```
 
 Recent version summary:
 
-- `0.0.7`: command-surface refactor, env_key/auth-mirror model corrections, and the `setup` split into `init` plus `migrate`
+- `0.0.10`: `init` / `migrate` command split finalized, `setup` deprecated, and the managed provider model reduced to static profile plus `base_url` configuration
+- `0.0.7`: command-surface refactor, env_key/auth-mirror model corrections, and the initial `setup` split toward `init` plus `migrate`
 - `0.0.4`: setup/show/edit/backups list/specific rollback/import merge and clearer CLI semantics
 - `0.0.3`: interactive TTY flows and improved help
 - `0.0.2`: mutation orchestration, backups, rollback, locks, drift detection improvements

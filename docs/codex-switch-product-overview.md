@@ -150,7 +150,7 @@ MVP 的能力范围主要包括：
 
 - `config.toml` 是主配置文件
 - `providers.json` 是 `codex-switch` 自身维护的 provider 清单
-- `auth.json` 在存在时会被纳入备份与回滚考虑
+- `auth.json` 是当前 active direct provider 的认证投影文件；切换 direct provider 时会刷新 `OPENAI_API_KEY`
 - `backups/` 用于保存历史备份
 
 产品不会要求用户先理解全部内部实现，只暴露统一的命令接口。
@@ -167,7 +167,7 @@ MVP 的能力范围主要包括：
 
 ### 场景 3：切换到目标 provider
 
-用户执行切换命令后，工具会完成校验、备份、修改和必要的登录动作。
+用户执行切换命令后，工具会完成校验、备份、修改运行态配置，并在 direct provider 场景下同步 `auth.json`。
 
 ### 场景 4：出现异常时恢复
 

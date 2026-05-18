@@ -109,8 +109,7 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
             ? ` tags=${(provider.tags as string[]).join(",")}`
             : "";
           const note = provider.note ? ` note=${provider.note}` : "";
-          const envKey = provider.envKey ? ` envKey=${provider.envKey}` : "";
-          lines.push(`${provider.name} -> ${provider.profile}${envKey}${tags}${note}`);
+          lines.push(`${provider.name} -> ${provider.profile}${tags}${note}`);
         }
       }
       break;
@@ -120,7 +119,6 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`Provider: ${String(data?.providerName ?? "")}`);
       lines.push(`profile: ${String(provider.profile ?? "")}`);
       lines.push(`apiKey: ${String(provider.apiKey ?? "")}`);
-      lines.push(`envKey: ${String(provider.envKey ?? "")}`);
       if (provider.baseUrl) {
         lines.push(`baseUrl: ${String(provider.baseUrl)}`);
       }
@@ -144,7 +142,8 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`activeProviderResolvable: ${String(data?.activeProviderResolvable ?? false)}`);
       const auth = (data?.auth as Record<string, unknown>) ?? {};
       lines.push(`authExists: ${String(auth.exists ?? false)}`);
-      lines.push(`authManagedKeys: ${Array.isArray(auth.managedSecretKeys) ? (auth.managedSecretKeys as string[]).join(",") : ""}`);
+      lines.push(`authValid: ${String(auth.valid ?? false)}`);
+      lines.push(`authMode: ${String(auth.authMode ?? "")}`);
       lines.push(`issues: ${Array.isArray(data?.issues) ? (data?.issues as Array<unknown>).length : 0}`);
       break;
     case "config-show": {
@@ -152,7 +151,7 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       const profiles = (data?.profiles as Array<Record<string, unknown>>) ?? [];
         for (const profile of profiles) {
           lines.push(
-          `${String(profile.name)} managed=${String(profile.managed)} active=${String(profile.isActive)} source=${String(profile.source)} model=${String(profile.model ?? "")} modelProvider=${String(profile.modelProvider ?? "")} baseUrl=${String(profile.baseUrl ?? "")} envKey=${String(profile.envKey ?? "")}`
+          `${String(profile.name)} managed=${String(profile.managed)} active=${String(profile.isActive)} source=${String(profile.source)} model=${String(profile.model ?? "")} modelProvider=${String(profile.modelProvider ?? "")} baseUrl=${String(profile.baseUrl ?? "")}`
           );
         }
       break;
@@ -168,7 +167,6 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
     }
     case "switch":
       lines.push(`Switched to provider ${String(data?.provider ?? "")} using profile ${String(data?.profile ?? "")}.`);
-      lines.push(`envKey: ${String(data?.envKey ?? "")}`);
       lines.push(`Backup: ${String(data?.backupPath ?? "")}`);
       break;
     case "import":

@@ -17,30 +17,43 @@
 
 ## 现在可以做什么
 
-当前 MVP 命令如下：
+当前命令面如下：
 
 ```bash
+codexs init
+codexs migrate
 codexs list
+codexs show <provider>
 codexs current
-codexs switch <provider>
 codexs status
+codexs edit <provider>
+codexs switch <provider>
 codexs import <file>
 codexs export <file>
 codexs add <provider>
 codexs remove <provider>
+codexs backups list
 codexs doctor
 codexs rollback
+codexs setup
 ```
 
 对应能力包括：
 
+- 初始化空的受管 `providers.json`
+- 从已有 `config.toml` adopt 可管理的 runtime profile
 - 查看本地已管理的 provider
+- 查看单个 provider 详情
 - 查看当前激活的 profile
+- 查看本地运行态摘要
+- 编辑已有 provider
 - 安全切换 provider
 - 导入和导出 provider 映射
 - 新增和删除 provider
+- 查看备份列表
 - 检查配置漂移和常见本地问题
 - 在变更前自动备份，并在失败时回滚
+- 保留 `setup` 作为弃用入口，并引导到 `init` / `migrate`
 
 ## 简单用法
 
@@ -65,6 +78,8 @@ codexs --help
 典型使用方式：
 
 ```bash
+codexs init
+codexs migrate
 codexs list
 codexs current
 codexs add my-provider --profile my-provider --api-key sk-xxx
@@ -111,7 +126,8 @@ codexs status --json
 存储模型：
 
 - `providers.json` 是管理态的单一事实来源
-- `config.toml` 和 `auth.json` 是运行态文件
+- `config.toml` 是受管的运行时路由文件
+- `auth.json` 是独立的 Codex 认证状态文件，`status` / `doctor` 只读检查它
 - `backups/latest.json` 记录最近一次可回滚窗口
 
 注意：`providers.json` 可能包含 API key，应视为本地敏感文件。
@@ -127,6 +143,12 @@ codexs status --json
 - [命令设计](./docs/codex-switch-command-design.md)
 
 ## 最近 3 个版本更新
+
+### 0.0.10
+
+- 正式拆分 `setup`：新增 `init` 和 `migrate`，`setup` 变为弃用命令
+- 增加 `show`、`edit`、`backups list` 等对当前命令面的整理
+- 清理 provider/runtime 管理语义，CLI 只负责静态 profile 与 `base_url` 层配置
 
 ### 0.0.3
 

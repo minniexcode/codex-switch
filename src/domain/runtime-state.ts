@@ -5,7 +5,8 @@ import { ProvidersFile } from "./providers";
  */
 export type StorageRoles = {
   managementSSOT: "providers.json";
-  runtimeMirrors: ["config.toml", "auth.json"];
+  runtimeMirrors: ["config.toml"];
+  authStateFile: "auth.json";
   rollbackState: "backups/latest.json";
 };
 
@@ -31,7 +32,8 @@ export type LiveStateDrift = {
 export function getStorageRoles(): StorageRoles {
   return {
     managementSSOT: "providers.json",
-    runtimeMirrors: ["config.toml", "auth.json"],
+    runtimeMirrors: ["config.toml"],
+    authStateFile: "auth.json",
     rollbackState: "backups/latest.json",
   };
 }

@@ -18,9 +18,10 @@ import { showConfig } from "../app/show-config";
 import { showProvider } from "../app/show-provider";
 import { switchProvider } from "../app/switch-provider";
 import { buildManagedProfileViews } from "../domain/config";
-import { cliError } from "../domain/errors";
+import { cliError, normalizeError } from "../domain/errors";
+import { collectMigrateAdoptability, SetupProviderDetails } from "../domain/setup";
 import { validateProvidersShape } from "../domain/providers";
-import { collectAddInput, createNonInteractiveAddError } from "../interaction/add-interactive";
+import { collectAddInput, collectCopilotAddInput, createNonInteractiveAddError } from "../interaction/add-interactive";
 import {
   canPrompt,
   chooseCodexDir,
@@ -36,9 +37,10 @@ import {
   exportTargetExists,
   promptForProviderSelection,
 } from "../interaction/interactive";
-import { createPromptRuntime } from "../interaction/prompt";
-import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
-import { findCodexDirCandidates, listConfigProfiles, readStructuredConfig } from "../storage/config-repo";
+import { CliPromptRuntime, createPromptRuntime } from "../interaction/prompt";
+import { readCopilotAuthState } from "../runtime/copilot-adapter";
+import { installCopilotSdk as installCopilotSdkRuntime, probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import { findCodexDirCandidates, readStructuredConfig } from "../storage/config-repo";
 import { createCodexPaths } from "../storage/codex-paths";
 import { mergeProviders, readProvidersFileIfExists } from "../storage/providers-repo";
 import { getSingleOption, hasFlag } from "./args";
@@ -248,11 +250,11 @@ export async function handleRegisteredCommand(
       let tags = parsed.commandOptions.get("--tag") ?? [];
       let createProfile = hasFlag(parsed.commandOptions, "--create-profile");
       const copilot = hasFlag(parsed.commandOptions, "--copilot");
-      const bridgeHost = getSingleOption(parsed.commandOptions, "--bridge-host", false);
+      let bridgeHost = getSingleOption(parsed.commandOptions, "--bridge-host", false);
       const bridgePortValue = getSingleOption(parsed.commandOptions, "--bridge-port", false);
-      const bridgeApiKey = getSingleOption(parsed.commandOptions, "--bridge-api-key", false);
+      let bridgeApiKey = getSingleOption(parsed.commandOptions, "--bridge-api-key", false);
       let installCopilotSdk = hasFlag(parsed.commandOptions, "--install-copilot-sdk");
-      const bridgePort = bridgePortValue ? Number(bridgePortValue) : null;
+      let bridgePort = bridgePortValue ? Number(bridgePortValue) : null;
 
       if (copilot && apiKey) {
         throw cliError("INVALID_ARGUMENT", "--copilot does not allow --api-key. Use --bridge-api-key for the local bridge secret.");
@@ -268,31 +270,73 @@ export async function handleRegisteredCommand(
 
       if (!providerName || !profile || (!apiKey && !copilot)) {
         if (ctx.options.json || !runtime.isInteractive()) {
-          throw createNonInteractiveAddError();
+          throw createNonInteractiveAddError({ copilot });
         }
 
-        const prompted = await collectAddInput(
-          runtime,
-          {
-            providerName,
-            profile,
-            apiKey,
-            baseUrl,
-            note,
-            tags,
-          },
-          (candidate) => Boolean(readProvidersFileIfExists(paths.providersPath).providers[candidate]),
-          (candidate) => Boolean(readStructuredConfig(paths.configPath).profiles.find((profileView) => profileView.name === candidate))
-        );
+        if (copilot) {
+          const prompted = await collectCopilotAddInput(
+            runtime,
+            {
+              providerName,
+              profile,
+              model,
+              note,
+              tags,
+            },
+            (candidate) => Boolean(readProvidersFileIfExists(paths.providersPath).providers[candidate]),
+            (candidate) => Boolean(readStructuredConfig(paths.configPath).profiles.find((profileView) => profileView.name === candidate)),
+            {
+              bridgeHost,
+              bridgePort,
+              bridgeApiKey,
+            }
+          );
 
-        providerName = prompted.providerName;
-        profile = prompted.profile;
-        apiKey = prompted.apiKey;
-        model = prompted.model ?? null;
-        baseUrl = prompted.baseUrl ?? null;
-        note = prompted.note ?? null;
-        tags = prompted.tags;
-        createProfile = createProfile || prompted.createProfile;
+          providerName = prompted.providerName;
+          profile = prompted.profile;
+          model = prompted.model ?? null;
+          note = prompted.note ?? null;
+          tags = prompted.tags;
+          createProfile = createProfile || prompted.createProfile;
+          baseUrl = null;
+          bridgeHost = prompted.bridgeHost ?? bridgeHost;
+          bridgePort = prompted.bridgePort ?? bridgePort;
+          bridgeApiKey = prompted.bridgeApiKey ?? bridgeApiKey;
+        } else {
+          const prompted = await collectAddInput(
+            runtime,
+            {
+              providerName,
+              profile,
+              apiKey,
+              model,
+              baseUrl,
+              note,
+              tags,
+            },
+            (candidate) => Boolean(readProvidersFileIfExists(paths.providersPath).providers[candidate]),
+            (candidate) => Boolean(readStructuredConfig(paths.configPath).profiles.find((profileView) => profileView.name === candidate))
+          );
+
+          providerName = prompted.providerName;
+          profile = prompted.profile;
+          apiKey = prompted.apiKey;
+          model = prompted.model ?? null;
+          baseUrl = prompted.baseUrl ?? null;
+          note = prompted.note ?? null;
+          tags = prompted.tags;
+          createProfile = createProfile || prompted.createProfile;
+        }
+      }
+
+      if (copilot) {
+        if (installCopilotSdk && !probeCopilotSdkInstall().installed) {
+          installCopilotSdkRuntime();
+        }
+        await ensureCopilotAuthForAdd({
+          runtime,
+          json: ctx.options.json,
+        });
       }
 
       return addProvider({
@@ -447,9 +491,26 @@ export async function handleRegisteredCommand(
         throw cliError("INVALID_ARGUMENT", "migrate does not allow both --merge and --overwrite.");
       }
 
-      let strategy: "merge" | "overwrite" | null = overwrite ? "overwrite" : merge ? "merge" : null;
       const providersExists = fs.existsSync(setupPaths.providersPath);
-      if (providersExists && strategy === null) {
+      const document = readStructuredConfig(setupPaths.configPath);
+      const currentProviders = providersExists ? validateProvidersShape(readProvidersFileIfExists(setupPaths.providersPath)) : null;
+      const adoptability = collectMigrateAdoptability(document, currentProviders);
+      if (adoptability.availableProfiles.length === 0) {
+        throw cliError("PROFILE_NOT_FOUND", "No profiles were found in config.toml.", {
+          file: setupPaths.configPath,
+        });
+      }
+      if (adoptability.adoptableProfiles.length === 0) {
+        throw cliError("MIGRATE_NO_ADOPTABLE_PROFILES", "No adoptable profiles were found for migrate.", {
+          availableProfiles: adoptability.availableProfiles,
+          adoptableProfiles: adoptability.adoptableProfiles,
+          blockingReasonsByProfile: adoptability.blockingReasonsByProfile,
+        });
+      }
+
+      let strategy: "merge" | "overwrite" | null = overwrite ? "overwrite" : merge ? "merge" : null;
+      const registryIsEmpty = !currentProviders || Object.keys(currentProviders.providers).length === 0;
+      if (providersExists && strategy === null && !registryIsEmpty) {
         if (!canPrompt(runtime, ctx.options.json)) {
           throw cliError("PROVIDERS_ALREADY_EXISTS", "providers.json already exists. Pass --merge or --overwrite.", {
             file: setupPaths.providersPath,
@@ -463,46 +524,48 @@ export async function handleRegisteredCommand(
         strategy = selected;
       }
 
-      const document = readStructuredConfig(setupPaths.configPath);
-      const adoptableProfiles = buildManagedProfileViews(document, null)
-        .filter((view) => view.source === "unmanaged" && view.model && view.modelProvider === view.name && view.baseUrl && view.envKey)
-        .map((view) => ({
-          name: view.name,
-          model: view.model as string,
-          baseUrl: view.baseUrl as string,
-          envKey: view.envKey as string,
-        }))
-        .sort((left, right) => left.name.localeCompare(right.name));
-      const selectedProfiles = Array.from(listConfigProfiles(setupPaths.configPath)).sort();
+      const adoptableProfiles = adoptability.adoptableProfileDetails;
       let adoptProfiles: string[] = [];
-      let providerDetailsByProfile: Record<string, { providerName?: string; apiKey?: string; envKey?: string; baseUrl?: string; note?: string; tags?: string[] }> = {};
+      let providerDetailsByProfile: Record<string, SetupProviderDetails> = {};
 
       if (canPrompt(runtime, ctx.options.json)) {
         adoptProfiles = await chooseSetupProfiles(runtime, adoptableProfiles);
         // Defaults are derived from config.toml so interactive setup only asks for missing provider metadata.
-        providerDetailsByProfile = await collectSetupProviderDetails(
+        const collectedDetails = await collectSetupProviderDetails(
           runtime,
           adoptProfiles,
-          adoptableProfiles.reduce<Record<string, { providerName?: string; envKey?: string; baseUrl?: string }>>((accumulator, profile) => {
+          adoptableProfiles.reduce<Record<string, { providerName?: string; baseUrl?: string }>>((accumulator, profile) => {
             accumulator[profile.name] = {
               providerName: profile.name,
-              envKey: profile.envKey,
               baseUrl: profile.baseUrl,
             };
             return accumulator;
           }, {})
         );
-        } else {
-          throw cliError(
-            "INVALID_ARGUMENT",
-            "migrate currently requires an interactive TTY to choose adoptable profiles and collect provider details.",
+        providerDetailsByProfile = Object.fromEntries(
+          Object.entries(collectedDetails).map(([profile, detail]) => [
+            profile,
             {
-              adoptableProfiles,
-              availableProfiles: selectedProfiles,
-              suggestion: "Run `codexs migrate` in an interactive terminal. Non-interactive migrate flags for profile selection and provider secrets are not available in this release.",
-            }
-          );
-        }
+              providerName: detail.providerName,
+              apiKey: detail.apiKey,
+              baseUrl: detail.baseUrl,
+              note: detail.note,
+              tags: detail.tags,
+            },
+          ])
+        );
+      } else {
+        throw cliError(
+          "INVALID_ARGUMENT",
+          "migrate currently requires an interactive TTY to choose adoptable profiles and collect provider details.",
+          {
+            availableProfiles: adoptability.availableProfiles,
+            adoptableProfiles: adoptability.adoptableProfiles,
+            blockingReasonsByProfile: adoptability.blockingReasonsByProfile,
+            suggestion: "Run `codexs migrate` in an interactive terminal. Non-interactive migrate flags for profile selection and provider secrets are not available in this release.",
+          }
+        );
+      }
 
       return migrateCodex({
         codexDirOption: ctx.options.codexDir,
@@ -537,5 +600,52 @@ export async function handleRegisteredCommand(
       });
     default:
       throw cliError("UNKNOWN_COMMAND", `Unknown command: ${ctx.command}`);
+  }
+}
+
+/**
+ * Verifies that the optional Copilot SDK can create an authenticated session before `add --copilot` persists a provider.
+ */
+async function ensureCopilotAuthForAdd(args: {
+  runtime: CliPromptRuntime;
+  json: boolean;
+}): Promise<void> {
+  while (true) {
+    try {
+      await readCopilotAuthState();
+      return;
+    } catch (error: unknown) {
+      const normalized = normalizeError(error);
+      if (normalized.code !== "COPILOT_AUTH_REQUIRED") {
+        throw error;
+      }
+
+      if (!canPrompt(args.runtime, args.json)) {
+        throw cliError(
+          "COPILOT_AUTH_REQUIRED",
+          "Copilot authentication is required before the local bridge can be added.",
+          {
+            ...(normalized.details ?? {}),
+            suggestion: "Complete GitHub Copilot login with the official tooling, then rerun add --copilot.",
+          }
+        );
+      }
+
+      args.runtime.writeLine("GitHub Copilot login is required before this provider can be added.");
+      args.runtime.writeLine("Complete the official Copilot login flow in another terminal, then retry the auth check here.");
+      const retry = await args.runtime.confirmAction("Retry Copilot authentication check now?", {
+        defaultValue: true,
+      });
+      if (!retry) {
+        throw cliError(
+          "COPILOT_AUTH_REQUIRED",
+          "Copilot authentication is required before the local bridge can be added.",
+          {
+            ...(normalized.details ?? {}),
+            suggestion: "Complete GitHub Copilot login with the official tooling, then rerun add --copilot.",
+          }
+        );
+      }
+    }
   }
 }

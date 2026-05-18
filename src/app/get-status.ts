@@ -4,11 +4,11 @@ import { getStorageRoles, inspectLiveStateDrift } from "../domain/runtime-state"
 import { findProvidersByProfile, isCopilotBridgeProvider } from "../domain/providers";
 import { readStructuredConfig } from "../storage/config-repo";
 import { readProvidersFile } from "../storage/providers-repo";
-import { readManagedAuthState } from "../storage/auth-repo";
+import { readAuthFileState } from "../storage/auth-repo";
 import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { probeCopilotBridgeRuntime } from "../runtime/copilot-bridge";
 import { readCopilotAuthState } from "../runtime/copilot-adapter";
-import { readCopilotBridgeState } from "../storage/runtime-state-repo";
+import { inspectCopilotBridgeState } from "../storage/runtime-state-repo";
 import { CommandResult } from "./types";
 
 /**
@@ -22,7 +22,7 @@ export async function getStatus(codexDir: string, configPath: string, providersP
   const providers = providersExists ? readProvidersFile(providersPath) : null;
   let configViews: ReturnType<typeof buildManagedProfileViews> = [];
   let consistencyIssues: ReturnType<typeof collectConfigConsistencyIssues> = [];
-  const authState = readManagedAuthState(authPath);
+  const authState = readAuthFileState(authPath);
 
   if (configExists) {
     const document = readStructuredConfig(configPath);
@@ -39,7 +39,8 @@ export async function getStatus(codexDir: string, configPath: string, providersP
   const activeProvider =
     activeProviderCandidates.length === 1 && providers ? providers.providers[activeProviderCandidates[0]] : null;
   const copilotInstall = probeCopilotSdkInstall();
-  const runtimeState = readCopilotBridgeState();
+  const runtimeStateInspection = inspectCopilotBridgeState();
+  const runtimeState = runtimeStateInspection.state;
   const runtimeStateProvider = runtimeState && providers ? providers.providers[runtimeState.provider] ?? null : null;
   const bridgeProbeTarget =
     activeProvider && isCopilotBridgeProvider(activeProvider)
@@ -47,13 +48,24 @@ export async function getStatus(codexDir: string, configPath: string, providersP
       : runtimeStateProvider && isCopilotBridgeProvider(runtimeStateProvider)
         ? runtimeStateProvider
         : null;
-  const copilotBridge = bridgeProbeTarget ? await probeCopilotBridgeRuntime(bridgeProbeTarget) : runtimeState ? {
-    ok: false,
-    runtime: "copilot-bridge",
-    reason: "failed",
-    cause: "Copilot bridge runtime state exists but no matching managed Copilot provider is active.",
-    details: runtimeState,
-  } : null;
+  const copilotBridge = !runtimeStateInspection.valid && runtimeStateInspection.exists
+    ? {
+        ok: false,
+        runtime: "copilot-bridge" as const,
+        reason: "failed" as const,
+        cause: runtimeStateInspection.parseError ?? "Failed to parse Copilot bridge runtime state.",
+      }
+    : bridgeProbeTarget
+      ? await probeCopilotBridgeRuntime(bridgeProbeTarget, runtimeState)
+      : runtimeState
+        ? {
+            ok: false,
+            runtime: "copilot-bridge" as const,
+            reason: "failed" as const,
+            cause: "Copilot bridge runtime state exists but no matching managed Copilot provider is active.",
+            details: runtimeState,
+          }
+        : null;
   const copilotAuth =
     activeProvider && isCopilotBridgeProvider(activeProvider)
       ? await readCopilotAuthState().catch((error: unknown) => ({
@@ -66,6 +78,9 @@ export async function getStatus(codexDir: string, configPath: string, providersP
   if (liveState.canBackfillActiveProvider) {
     // Surface unmanaged live state without mutating anything during a read-only status call.
     warnings.push("Current config profile is not mapped in providers.json. Backfill would be required before treating live state as managed.");
+  }
+  if (runtimeStateInspection.exists && !runtimeStateInspection.valid) {
+    warnings.push(`Copilot bridge runtime state is unreadable: ${runtimeStateInspection.parseError ?? "unknown parse failure"}`);
   }
 
   return {

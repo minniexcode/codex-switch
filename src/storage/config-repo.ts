@@ -115,13 +115,6 @@ export function requireManagedProfileRuntime(
       missingFields: ["base_url"],
     });
   }
-  if (!modelProviderSection.envKey) {
-    throw cliError("MODEL_PROVIDER_ENV_KEY_MISSING", `Model provider "${view.modelProvider}" requires env_key.`, {
-      profile,
-      modelProvider: view.modelProvider,
-      missingFields: ["env_key"],
-    });
-  }
   return view;
 }
 
@@ -143,34 +136,6 @@ export function requireModelProviderRuntimeSection(document: ParsedConfigDocumen
       missingFields: ["base_url"],
     });
   }
-  if (!modelProviderSection.envKey) {
-    throw cliError("MODEL_PROVIDER_ENV_KEY_MISSING", `Model provider "${profile}" requires env_key.`, {
-      profile,
-      modelProvider: profile,
-      missingFields: ["env_key"],
-    });
-  }
-}
-
-/**
- * Returns the runtime env_key for one profile or throws a typed error.
- */
-export function requireRuntimeEnvKey(document: ParsedConfigDocument, profile: string): string {
-  const modelProviderSection = document.modelProviders.find((entry) => entry.name === profile);
-  if (!modelProviderSection) {
-    throw cliError("PROFILE_NOT_FOUND", `Model provider "${profile}" does not exist in config.toml.`, {
-      profile,
-      modelProvider: profile,
-    });
-  }
-  if (!modelProviderSection.envKey) {
-    throw cliError("MODEL_PROVIDER_ENV_KEY_MISSING", `Model provider "${profile}" requires env_key.`, {
-      profile,
-      modelProvider: profile,
-      missingFields: ["env_key"],
-    });
-  }
-  return modelProviderSection.envKey;
 }
 
 /**
@@ -187,7 +152,7 @@ export function resolveActiveProviderName(document: ParsedConfigDocument, provid
     });
   }
   if (matches.length > 1) {
-    throw cliError("ACTIVE_PROVIDER_UNRESOLVED", `Active profile "${document.activeProfile}" maps to multiple providers.`, {
+    throw cliError("ACTIVE_PROVIDER_UNRESOLVED", `Active profile "${document.activeProfile}" maps to multiple providers, so the active managed provider is ambiguous.`, {
       profile: document.activeProfile,
       providers: matches,
     });

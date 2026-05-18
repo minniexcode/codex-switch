@@ -18,7 +18,7 @@ What it does:
 - Run diagnostics and detect local drift
 - List backups and roll back to a previous managed state
 
-Current version: `0.0.8`
+Current version: `0.0.10`
 
 ## Install
 
@@ -117,7 +117,8 @@ Managed files:
 Notes:
 
 - `providers.json` is the managed provider registry
-- `config.toml` and `auth.json` represent runtime state
+- `config.toml` is the managed runtime-routing file
+- `auth.json` is the active auth projection file; direct-provider switches rewrite `OPENAI_API_KEY`, while `status` and `doctor` inspect its state
 - mutating commands back up before writing
 - rollback is available after failed or undesired changes
 

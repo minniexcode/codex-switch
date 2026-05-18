@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { normalizeError } from "../domain/errors";
 import { ensureDir, writeTextFileAtomic } from "./fs-utils";
 
 /**
@@ -14,6 +15,13 @@ export type CopilotBridgeState = {
   baseUrl: string;
   startedAt: string;
   lastHealthcheckAt: string;
+};
+
+export type CopilotBridgeStateInspection = {
+  exists: boolean;
+  valid: boolean;
+  parseError: string | null;
+  state: CopilotBridgeState | null;
 };
 
 /**
@@ -36,6 +44,37 @@ export function readCopilotBridgeState(): CopilotBridgeState | null {
     return null;
   }
   return JSON.parse(fs.readFileSync(statePath, "utf8")) as CopilotBridgeState;
+}
+
+/**
+ * Safely inspects the runtime-state file for status/doctor style read paths.
+ */
+export function inspectCopilotBridgeState(): CopilotBridgeStateInspection {
+  const statePath = getCopilotBridgeStatePath();
+  if (!fs.existsSync(statePath)) {
+    return {
+      exists: false,
+      valid: false,
+      parseError: null,
+      state: null,
+    };
+  }
+
+  try {
+    return {
+      exists: true,
+      valid: true,
+      parseError: null,
+      state: readCopilotBridgeState(),
+    };
+  } catch (error: unknown) {
+    return {
+      exists: true,
+      valid: false,
+      parseError: normalizeError(error).message,
+      state: null,
+    };
+  }
 }
 
 /**

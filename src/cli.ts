@@ -6,7 +6,7 @@ import { buildHelpText, getKnownCommandNames, isKnownCommandNameForHelp } from "
 import { cliError, normalizeError } from "./domain/errors";
 import { outputFailure, outputSuccess } from "./cli/output";
 
-const VERSION = "0.0.8";
+const VERSION = (require("../package.json") as { version?: string }).version ?? "0.0.0";
 
 /**
  * Prints the command help text to stdout.

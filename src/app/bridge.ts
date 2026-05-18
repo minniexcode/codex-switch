@@ -5,7 +5,6 @@ import {
   createConfigMutationPlan,
   readCurrentProfile,
   readStructuredConfig,
-  requireRuntimeEnvKey,
 } from "../storage/config-repo";
 import { readProvidersFile, writeProvidersFile } from "../storage/providers-repo";
 import { canPrompt } from "../interaction/interactive";
@@ -358,7 +357,6 @@ function persistRecoveredBridgePort(args: {
       upsertModelProviders: {
         [args.provider.profile]: {
           baseUrl: buildCopilotBridgeBaseUrl(args.provider.runtime!),
-          envKey: requireRuntimeEnvKey(document, args.provider.profile),
         },
       },
     });

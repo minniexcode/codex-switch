@@ -10,7 +10,6 @@ export function listProviders(providersPath: string): CommandResult {
   const items = names.map((name) => ({
     name,
     profile: providers.providers[name].profile,
-    envKey: providers.providers[name].envKey,
     note: providers.providers[name].note ?? null,
     tags: providers.providers[name].tags ?? [],
   }));

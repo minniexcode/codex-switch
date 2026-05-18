@@ -1,6 +1,6 @@
 # codex-switch CLI Usage
 
-本文档详细介绍 `codex-switch` 在 `0.0.4` 版本中的命令、参数、交互规则和典型使用方式。
+本文档详细介绍 `codex-switch` 在 `0.0.10` 版本中的命令、参数、交互规则和典型使用方式。
 
 可执行命令名：
 
@@ -260,9 +260,9 @@ codexs migrate --merge --codex-dir ./.tmp-codex
 行为说明：
 
 - 读取 `config.toml` 中已有 profile
-- 仅 adopt 已具备 `model`、`model_provider` 且能解析到匹配 `model_providers.*.base_url` 和 `env_key` 的 unmanaged profile
+- 仅 adopt 已具备 `model`、`model_provider` 且能解析到匹配 `model_providers.*.base_url` 的 unmanaged profile
 - 收集每个 profile 对应的 provider 记录
-- 保持现有受管备份、锁、`auth.json` mirror 和 post-run `doctor` 流程
+- 保持现有受管备份、锁和 post-run `doctor` 流程，不重写 `auth.json`
 
 交互模式：
 
@@ -291,14 +291,15 @@ codexs setup
 
 ### 5.4 `add`
 
-新增一个 provider。
+新增一个 provider。`add` 当前同时支持 direct provider 和 Copilot bridge provider 两条路径。
 
 ```bash
 codexs add <provider> --profile <name> --api-key <key> [--base-url <url>] [--note <text>] [--tag <tag> ...]
-codexs add [--profile <name>] [--api-key <key>] [--base-url <url>] [--note <text>] [--tag <tag> ...]
+codexs add <provider> --copilot --profile <name> [--bridge-host <host>] [--bridge-port <port>] [--bridge-api-key <secret>] [--install-copilot-sdk]
+codexs add
 ```
 
-示例：
+direct provider 示例：
 
 ```bash
 codexs add packycode --profile packycode --api-key sk-xxx
@@ -306,7 +307,14 @@ codexs add packycode --profile packycode --api-key sk-xxx --tag paid --tag daily
 codexs add
 ```
 
-字段说明：
+Copilot provider 示例：
+
+```bash
+codexs add copilot-main --copilot --profile copilot-main --install-copilot-sdk
+codexs add copilot-main --copilot --profile copilot-main --bridge-port 41415 --bridge-api-key local-secret
+```
+
+direct provider 字段说明：
 
 - `provider`：provider 名称，也是后续 `switch/show/edit/remove` 的标识
 - `--profile`：写入到 `config.toml` 的 profile 名称
@@ -315,16 +323,30 @@ codexs add
 - `--note`：备注
 - `--tag`：标签，可重复传多次
 
+Copilot provider 字段说明：
+
+- `--copilot`：切换到 Copilot provider 模式
+- `--profile`：必填
+- `--api-key`：在 `--copilot` 下禁止使用；Copilot 不接收 direct provider API key
+- `--bridge-host`：本地 bridge host，默认 `127.0.0.1`
+- `--bridge-port`：本地 bridge port，默认 `41415`
+- `--bridge-api-key`：本地 bridge shared secret；留空时自动生成
+- `--install-copilot-sdk`：允许在首次接入时安装可选 Copilot SDK runtime
+
 交互模式：
 
-- 如果缺少 `provider`、`profile`、`apiKey`，会在 TTY 中补问
-- profile 选择会优先复用现有 `config.toml` profile
-- API key 的隐藏输入会做二次确认
-- tag 仅支持预设选项多选
+- direct provider 缺少 `provider`、`profile`、`apiKey` 时，会在 TTY 中补问
+- direct provider 的 API key 隐藏输入会做二次确认
+- Copilot provider 会进入专用输入流，只采集 provider/profile/model、note/tags 和 bridge 参数
+- Copilot provider 不会提示 `API key`、`Confirm API key` 或输出 `API key is required.`
+- 若 Copilot SDK 尚未安装，会先确认是否立即安装
+- SDK 可用后会检查官方 Copilot 登录态；未登录时会提示你在外部完成官方登录，再回到当前流程重试
 
 非交互模式：
 
-- 必须显式传入所有必填字段
+- direct provider 必须显式传入所有必填字段
+- `add --copilot` 必须显式传入 `<provider>` 和 `--profile`
+- `add --copilot --json` 不会进入任何 prompt；若 SDK 缺失且未传 `--install-copilot-sdk`，直接失败；若 auth 未就绪，也直接返回 `COPILOT_AUTH_REQUIRED`
 
 ### 5.5 `edit`
 
@@ -377,8 +399,9 @@ codexs switch
 
 - 根据 `providers.json` 找到目标 provider
 - 更新相关运行态配置
-- 重写当前 active provider 对应的 `auth.json` mirror
-- 会先备份 `config.toml` 和 `auth.json`
+- direct provider 会切换当前 active profile，并将 `auth.json` 重写为 `auth_mode = "apikey"` 和 `OPENAI_API_KEY = <provider.apiKey>`
+- Copilot bridge provider 不写 `OPENAI_API_KEY`，而是维护本地 bridge 路由
+- 备份 `config.toml`，并在 direct provider 切换时一并备份 `auth.json`
 
 交互模式：
 

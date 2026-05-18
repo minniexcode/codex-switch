@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { buildSetupDrafts, findIncompleteSetupProfiles } from "../domain/setup";
+import { buildSetupDrafts, collectMigrateAdoptability, findIncompleteSetupProfiles, SetupProviderDetails } from "../domain/setup";
 import { cliError } from "../domain/errors";
 import { buildManagedProfileViews } from "../domain/config";
 import { ProviderRecord } from "../domain/providers";
@@ -8,11 +8,9 @@ import {
   applyConfigMutation,
   createConfigMutationPlan,
   readStructuredConfig,
-  resolveActiveProviderName,
 } from "../storage/config-repo";
 import { ensureDir } from "../storage/fs-utils";
 import { mergeProviders, readProvidersFileIfExists, writeProvidersFile } from "../storage/providers-repo";
-import { readAuthFileIfExists, writeAuthFile } from "../storage/auth-repo";
 import { runDoctor } from "./run-doctor";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
@@ -32,7 +30,7 @@ export async function migrateCodex(args: {
   latestBackupPath: string;
   strategy: "merge" | "overwrite";
   adoptProfiles: string[];
-  providerDetailsByProfile: Record<string, { providerName?: string; apiKey?: string; envKey?: string; baseUrl?: string; note?: string; tags?: string[] }>;
+  providerDetailsByProfile: Record<string, SetupProviderDetails>;
 }): Promise<CommandResult> {
   const available = checkCodexAvailable();
   if (!available.ok) {
@@ -57,32 +55,48 @@ export async function migrateCodex(args: {
   }
 
   const document = readStructuredConfig(args.configPath);
-  const profileViews = buildManagedProfileViews(document, null);
-  // Migrate can only adopt unmanaged profiles that already contain enough runtime data to become managed.
-  const adoptableProfiles = profileViews
-    .filter((view) => view.source === "unmanaged" && view.model && view.modelProvider === view.name && view.baseUrl && view.envKey)
-    .map((view) => view.name)
-    .sort();
+  const currentProviders = readProvidersFileIfExists(args.providersPath);
+  const profileViews = buildManagedProfileViews(document, currentProviders);
+  const adoptability = collectMigrateAdoptability(document, currentProviders);
   if (profileViews.length === 0) {
     throw cliError("PROFILE_NOT_FOUND", "No profiles were found in config.toml.", {
       file: args.configPath,
     });
   }
+  if (adoptability.adoptableProfiles.length === 0) {
+    throw cliError("MIGRATE_NO_ADOPTABLE_PROFILES", "No adoptable profiles were found for migrate.", {
+      availableProfiles: adoptability.availableProfiles,
+      adoptableProfiles: adoptability.adoptableProfiles,
+      blockingReasonsByProfile: adoptability.blockingReasonsByProfile,
+    });
+  }
 
-  const invalidAdoptProfiles = args.adoptProfiles.filter((profile) => !adoptableProfiles.includes(profile));
+  const invalidAdoptProfiles = args.adoptProfiles.filter((profile) => !adoptability.adoptableProfiles.includes(profile));
   if (invalidAdoptProfiles.length > 0) {
-    throw cliError("INVALID_ARGUMENT", "migrate only adopts unmanaged profiles that already contain model, model_provider, and matching model_providers base_url/env_key.", {
+    throw cliError("INVALID_ARGUMENT", "migrate only adopts unmanaged profiles that already contain model, model_provider, and matching model_providers base_url.", {
       invalidProfiles: invalidAdoptProfiles.sort(),
-      adoptableProfiles,
+      availableProfiles: adoptability.availableProfiles,
+      adoptableProfiles: adoptability.adoptableProfiles,
+      blockingReasonsByProfile: adoptability.blockingReasonsByProfile,
     });
   }
   if (args.adoptProfiles.length === 0) {
     throw cliError("INVALID_ARGUMENT", "migrate requires at least one explicit profile to adopt.", {
-      adoptableProfiles,
+      availableProfiles: adoptability.availableProfiles,
+      adoptableProfiles: adoptability.adoptableProfiles,
+      blockingReasonsByProfile: adoptability.blockingReasonsByProfile,
     });
   }
 
-  const drafts = buildSetupDrafts(args.adoptProfiles, args.providerDetailsByProfile);
+  const runtimeByProfile = profileViews.reduce<Record<string, { baseUrl?: string }>>((accumulator, view) => {
+    if (view.source === "unmanaged") {
+      accumulator[view.name] = {
+        baseUrl: view.baseUrl ?? undefined,
+      };
+    }
+    return accumulator;
+  }, {});
+  const drafts = buildSetupDrafts(args.adoptProfiles, args.providerDetailsByProfile, runtimeByProfile);
   const incompleteProfiles = findIncompleteSetupProfiles(drafts);
   if (incompleteProfiles.length > 0) {
     throw cliError("INVALID_ARGUMENT", "migrate requires complete provider data for every selected profile.", {
@@ -91,7 +105,6 @@ export async function migrateCodex(args: {
   }
 
   ensureDir(args.codexDir);
-  const currentProviders = readProvidersFileIfExists(args.providersPath);
   const providersExists = fs.existsSync(args.providersPath);
   if (providersExists && args.strategy !== "merge" && args.strategy !== "overwrite") {
     throw cliError("PROVIDERS_ALREADY_EXISTS", "providers.json already exists.", {
@@ -116,16 +129,12 @@ export async function migrateCodex(args: {
     files: [
       { absolutePath: args.providersPath, relativePath: "providers.json" },
       { absolutePath: args.configPath, relativePath: "config.toml" },
-      { absolutePath: args.authPath, relativePath: "auth.json" },
     ],
     mutate: () => {
       // migrate currently preserves config structure and only asserts that the file remains writable inside the mutation flow.
       const configPlan = createConfigMutationPlan(document, {});
       writeProvidersFile(args.providersPath, finalProviders);
       applyConfigMutation(args.configPath, document, configPlan);
-      const activeProviderName = resolveActiveProviderName(document, finalProviders);
-      const existingAuth = readAuthFileIfExists(args.authPath);
-      writeAuthFile(args.authPath, finalProviders.providers[activeProviderName], existingAuth ?? undefined);
       return {
         codexDir: args.codexDir,
         strategy: args.strategy,

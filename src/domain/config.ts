@@ -12,7 +12,6 @@ export type ManagedProfileFields = {
  */
 export type ManagedModelProviderFields = {
   baseUrl: string;
-  envKey: string;
 };
 
 export type ManagedProfileView = {
@@ -23,7 +22,6 @@ export type ManagedProfileView = {
   model: string | null;
   modelProvider: string | null;
   baseUrl: string | null;
-  envKey: string | null;
   managedFields: string[];
   source: "managed" | "unmanaged" | "orphaned-reference";
 };
@@ -37,8 +35,6 @@ export type ConfigConsistencyIssue =
   | { code: "MODEL_PROVIDER_NAME_MISMATCH"; profile: string; modelProvider: string }
   | { code: "MODEL_PROVIDER_SECTION_MISSING"; profile: string; modelProvider: string }
   | { code: "MODEL_PROVIDER_BASE_URL_MISSING"; profile: string; modelProvider: string }
-  | { code: "MODEL_PROVIDER_ENV_KEY_MISSING"; profile: string; modelProvider: string }
-  | { code: "PROVIDER_ENV_KEY_MISMATCH"; provider: string; profile: string; providerEnvKey: string; runtimeEnvKey: string | null }
   | { code: "ACTIVE_PROVIDER_UNRESOLVED"; profile: string; providers: string[] }
   | { code: "DESTRUCTIVE_REMOVE_BLOCKED"; profile: string; provider: string; activeProfile: string; linkedProviders: string[] };
 
@@ -65,8 +61,6 @@ export type ModelProviderSectionRef = {
   sectionEnd: number;
   baseUrlValueRange: ValueRange | null;
   baseUrl: string | null;
-  envKeyValueRange: ValueRange | null;
-  envKey: string | null;
 };
 
 export type ParsedConfigDocument = {
@@ -176,8 +170,6 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
         sectionEnd: configContent.length,
         baseUrlValueRange: null,
         baseUrl: null,
-        envKeyValueRange: null,
-        envKey: null,
       };
       modelProviders.push(currentModelProvider);
       inRoot = false;
@@ -236,14 +228,6 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
           end: line.start + baseUrlMatch.valueEnd,
         };
       }
-      const envKeyMatch = matchKeyValueLine(line.content, "env_key");
-      if (envKeyMatch) {
-        currentModelProvider.envKey = envKeyMatch.value;
-        currentModelProvider.envKeyValueRange = {
-          start: line.start + envKeyMatch.valueStart,
-          end: line.start + envKeyMatch.valueEnd,
-        };
-      }
     }
   }
 
@@ -284,7 +268,6 @@ export function buildManagedProfileViews(
       model: section.model,
       modelProvider: section.modelProvider,
       baseUrl: modelProviderSection?.baseUrl ?? null,
-      envKey: modelProviderSection?.envKey ?? null,
       managedFields: collectManagedFields(section.model, section.modelProvider),
       source: linkInfo.managed ? "managed" : "unmanaged",
     });
@@ -302,7 +285,6 @@ export function buildManagedProfileViews(
       model: null,
       modelProvider: null,
       baseUrl: null,
-      envKey: null,
       managedFields: [],
       source: "orphaned-reference",
     });
@@ -367,28 +349,6 @@ export function collectConfigConsistencyIssues(
             profile: view.name,
             modelProvider: view.modelProvider,
           });
-        } else if (!modelProviderSection.envKey) {
-          issues.push({
-            code: "MODEL_PROVIDER_ENV_KEY_MISSING",
-            profile: view.name,
-            modelProvider: view.modelProvider,
-          });
-        }
-      }
-
-      for (const providerName of view.linkedProviders) {
-        const provider = providers?.providers[providerName];
-        if (!provider) {
-          continue;
-        }
-        if (provider.envKey !== view.envKey) {
-          issues.push({
-            code: "PROVIDER_ENV_KEY_MISMATCH",
-            provider: providerName,
-            profile: view.name,
-            providerEnvKey: provider.envKey,
-            runtimeEnvKey: view.envKey,
-          });
         }
       }
     }
@@ -441,18 +401,6 @@ export function validateManagedProfileCreation(
     model,
     modelProvider,
   };
-}
-
-/**
- * Normalizes a profile name into the default env_key used for generated runtime sections.
- */
-export function buildManagedProfileEnvKey(profile: string): string {
-  const normalized = profile
-    .trim()
-    .replace(/[^A-Za-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .toUpperCase();
-  return `${normalized || "PROVIDER"}_API_KEY`;
 }
 
 /**
@@ -599,14 +547,12 @@ export function planConfigMutation(
     const section = modelProviderSectionMap.get(profileName);
     if (!section) {
       const baseUrl = fields.baseUrl?.trim() ?? "";
-      const envKey = fields.envKey?.trim() ?? "";
-      if (!baseUrl || !envKey) {
-        throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${profileName}" requires both base_url and env_key.`, {
+      if (!baseUrl) {
+        throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${profileName}" requires base_url.`, {
           profile: profileName,
           modelProvider: profileName,
           missingFields: [
             !baseUrl ? "base_url" : null,
-            !envKey ? "env_key" : null,
           ].filter((value): value is string => Boolean(value)),
         });
       }
@@ -618,8 +564,7 @@ export function planConfigMutation(
         index: document.rawText.length,
         text:
           `${prefix}[model_providers.${profileName}]${document.lineEnding}` +
-          `base_url = ${JSON.stringify(baseUrl)}${document.lineEnding}` +
-          `env_key = ${JSON.stringify(envKey)}${document.lineEnding}`,
+          `base_url = ${JSON.stringify(baseUrl)}${document.lineEnding}`,
       });
       createdModelProviderSections.push(profileName);
       continue;
@@ -716,7 +661,7 @@ function planSectionFieldMutation(
 }
 
 /**
- * Plans base_url/env_key updates for one model_providers section.
+ * Plans base_url updates for one model_providers section.
  */
 function planModelProviderFieldMutation(
   section: ModelProviderSectionRef,
@@ -725,7 +670,6 @@ function planModelProviderFieldMutation(
 ): boolean {
   let updated = false;
   const baseUrlText = fields.baseUrl !== undefined ? JSON.stringify(fields.baseUrl) : null;
-  const envKeyText = fields.envKey !== undefined ? JSON.stringify(fields.envKey) : null;
   const inserts: string[] = [];
 
   if (baseUrlText !== null && section.baseUrlValueRange) {
@@ -740,20 +684,6 @@ function planModelProviderFieldMutation(
     }
   } else if (baseUrlText !== null) {
     inserts.push(`base_url = ${baseUrlText}`);
-  }
-
-  if (envKeyText !== null && section.envKeyValueRange) {
-    if (section.envKey !== fields.envKey) {
-      operations.push({
-        kind: "replace-range",
-        start: section.envKeyValueRange.start,
-        end: section.envKeyValueRange.end,
-        text: envKeyText,
-      });
-      updated = true;
-    }
-  } else if (envKeyText !== null) {
-    inserts.push(`env_key = ${envKeyText}`);
   }
 
   if (inserts.length > 0) {

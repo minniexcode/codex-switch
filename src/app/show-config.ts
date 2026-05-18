@@ -32,11 +32,7 @@ export function showConfig(args: { configPath: string; providersPath: string; pr
       selectedProfile,
       profiles: profiles.map((profile) => ({
         ...profile,
-        managedProviderEnvKeys: findProvidersByProfile(providers, profile.name).map((providerName) => ({
-          providerName,
-          envKey: providers.providers[providerName].envKey,
-          matchesRuntime: providers.providers[providerName].envKey === profile.envKey,
-        })),
+        linkedProviderNames: findProvidersByProfile(providers, profile.name),
       })),
     },
   };
