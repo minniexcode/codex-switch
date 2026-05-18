@@ -39,6 +39,7 @@ import {
 } from "../interaction/interactive";
 import { CliPromptRuntime, createPromptRuntime } from "../interaction/prompt";
 import { readCopilotAuthState } from "../runtime/copilot-adapter";
+import { checkCopilotCliAvailable, runCopilotLogin } from "../runtime/copilot-cli";
 import { installCopilotSdk as installCopilotSdkRuntime, probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { findCodexDirCandidates, readStructuredConfig } from "../storage/config-repo";
 import { createCodexPaths } from "../storage/codex-paths";
@@ -262,10 +263,12 @@ export async function handleRegisteredCommand(
       if (bridgePortValue && (!Number.isInteger(bridgePort) || bridgePort === null || bridgePort <= 0)) {
         throw cliError("INVALID_ARGUMENT", "--bridge-port must be a positive integer.");
       }
-      if (copilot && !installCopilotSdk && canPrompt(runtime, ctx.options.json) && !probeCopilotSdkInstall().installed) {
-        installCopilotSdk = await runtime.confirmAction(
-          "The optional Copilot SDK runtime is not installed. Install it now?"
-        );
+      if (copilot) {
+        installCopilotSdk = await ensureCopilotReadyForAdd({
+          runtime,
+          json: ctx.options.json,
+          installCopilotSdk,
+        });
       }
 
       if (!providerName || !profile || (!apiKey && !copilot)) {
@@ -327,16 +330,6 @@ export async function handleRegisteredCommand(
           tags = prompted.tags;
           createProfile = createProfile || prompted.createProfile;
         }
-      }
-
-      if (copilot) {
-        if (installCopilotSdk && !probeCopilotSdkInstall().installed) {
-          installCopilotSdkRuntime();
-        }
-        await ensureCopilotAuthForAdd({
-          runtime,
-          json: ctx.options.json,
-        });
       }
 
       return addProvider({
@@ -604,48 +597,131 @@ export async function handleRegisteredCommand(
 }
 
 /**
- * Verifies that the optional Copilot SDK can create an authenticated session before `add --copilot` persists a provider.
+ * Runs the deterministic Copilot onboarding preflight before any provider persistence.
  */
-async function ensureCopilotAuthForAdd(args: {
+async function ensureCopilotReadyForAdd(args: {
   runtime: CliPromptRuntime;
   json: boolean;
-}): Promise<void> {
-  while (true) {
+  installCopilotSdk: boolean;
+}): Promise<boolean> {
+  let installCopilotSdk = args.installCopilotSdk;
+
+  const interactive = canPrompt(args.runtime, args.json);
+  if (interactive) {
+    args.runtime.writeLine("Checking Copilot SDK runtime...");
+  }
+  if (!probeCopilotSdkInstall().installed) {
+    if (!interactive) {
+      if (!installCopilotSdk) {
+        const installStatus = probeCopilotSdkInstall();
+        throw cliError(
+          "COPILOT_SDK_INSTALL_REQUIRES_TTY",
+          "The optional Copilot SDK runtime is not installed. Pass --install-copilot-sdk when running non-interactively.",
+          {
+            installDir: installStatus.installDir,
+            packageName: installStatus.packageName,
+          }
+        );
+      }
+      installCopilotSdkRuntime();
+    } else {
+      if (!installCopilotSdk) {
+        installCopilotSdk = await args.runtime.confirmAction("The optional Copilot SDK runtime is not installed. Install it now?");
+      }
+      if (!installCopilotSdk) {
+        const installStatus = probeCopilotSdkInstall();
+        throw cliError(
+          "COPILOT_SDK_MISSING",
+          "The optional Copilot SDK runtime is not installed. Re-run with --install-copilot-sdk or confirm installation interactively.",
+          {
+            installDir: installStatus.installDir,
+            packageName: installStatus.packageName,
+          }
+        );
+      }
+      if (interactive) {
+        args.runtime.writeLine("Installing Copilot SDK runtime...");
+      }
+      installCopilotSdkRuntime();
+      if (interactive) {
+        args.runtime.writeLine("Copilot SDK runtime installed.");
+      }
+    }
+  }
+
+  if (interactive) {
+    args.runtime.writeLine("Checking GitHub Copilot login...");
+  }
+  try {
+    await readCopilotAuthState();
+    return installCopilotSdk;
+  } catch (error: unknown) {
+    const normalized = normalizeError(error);
+    if (normalized.code !== "COPILOT_AUTH_REQUIRED") {
+      throw error;
+    }
+
+    if (!interactive) {
+      throw cliError(
+        "COPILOT_AUTH_REQUIRED",
+        "Copilot authentication is required before the local bridge can be added.",
+        {
+          ...(normalized.details ?? {}),
+          manualLoginCommand: "copilot login",
+          suggestion: "Run `copilot login` manually or provide supported Copilot SDK credentials, then rerun add --copilot.",
+        }
+      );
+    }
+
+    args.runtime.writeLine("GitHub Copilot login is required. Starting official copilot login...");
+    let loginLaunchCause: string | undefined;
+    try {
+      const availability = checkCopilotCliAvailable();
+      if (!availability.ok) {
+        throw new Error(availability.cause ?? "copilot CLI is unavailable");
+      }
+      runCopilotLogin();
+    } catch (launchError: unknown) {
+      loginLaunchCause = launchError instanceof Error ? launchError.message : String(launchError);
+      args.runtime.writeLine("Unable to launch the official Copilot login automatically.");
+      args.runtime.writeLine("Run this command in the current terminal: copilot login");
+      args.runtime.writeLine("GitHub's official device flow should open the browser or show the verification URL and code.");
+    }
+
+    args.runtime.writeLine("GitHub Copilot login completed. Rechecking session...");
+    const retry = await args.runtime.confirmAction("Recheck GitHub Copilot login now?", {
+      defaultValue: true,
+    });
+    if (!retry) {
+      throw cliError(
+        "COPILOT_AUTH_REQUIRED",
+        "Copilot authentication is required before the local bridge can be added.",
+        {
+          ...(normalized.details ?? {}),
+          manualLoginCommand: "copilot login",
+          loginLaunchCause,
+          suggestion: "Complete GitHub Copilot login with the official tooling, then rerun add --copilot.",
+        }
+      );
+    }
     try {
       await readCopilotAuthState();
-      return;
-    } catch (error: unknown) {
-      const normalized = normalizeError(error);
-      if (normalized.code !== "COPILOT_AUTH_REQUIRED") {
-        throw error;
+      return installCopilotSdk;
+    } catch (recheckError: unknown) {
+      const rechecked = normalizeError(recheckError);
+      if (rechecked.code !== "COPILOT_AUTH_REQUIRED") {
+        throw recheckError;
       }
-
-      if (!canPrompt(args.runtime, args.json)) {
-        throw cliError(
-          "COPILOT_AUTH_REQUIRED",
-          "Copilot authentication is required before the local bridge can be added.",
-          {
-            ...(normalized.details ?? {}),
-            suggestion: "Complete GitHub Copilot login with the official tooling, then rerun add --copilot.",
-          }
-        );
-      }
-
-      args.runtime.writeLine("GitHub Copilot login is required before this provider can be added.");
-      args.runtime.writeLine("Complete the official Copilot login flow in another terminal, then retry the auth check here.");
-      const retry = await args.runtime.confirmAction("Retry Copilot authentication check now?", {
-        defaultValue: true,
-      });
-      if (!retry) {
-        throw cliError(
-          "COPILOT_AUTH_REQUIRED",
-          "Copilot authentication is required before the local bridge can be added.",
-          {
-            ...(normalized.details ?? {}),
-            suggestion: "Complete GitHub Copilot login with the official tooling, then rerun add --copilot.",
-          }
-        );
-      }
+      throw cliError(
+        "COPILOT_AUTH_REQUIRED",
+        "Copilot authentication is required before the local bridge can be added.",
+        {
+          ...(rechecked.details ?? {}),
+          manualLoginCommand: "copilot login",
+          loginLaunchCause,
+          suggestion: "Complete GitHub Copilot login with the official tooling, then rerun add --copilot.",
+        }
+      );
     }
   }
 }

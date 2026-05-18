@@ -205,6 +205,7 @@ export const COMMANDS: CommandDefinition[] = [
       "Automation and non-TTY environments must pass all required values explicitly.",
       "Creating a missing profile section requires --create-profile together with --model and --base-url.",
       "Use --copilot to create a GitHub Copilot bridge provider backed by the official SDK.",
+      "TTY add --copilot checks SDK install and GitHub Copilot login before it asks for Copilot provider fields.",
     ],
     examples: [
       "codexs add packycode --profile packycode --api-key sk-xxx",

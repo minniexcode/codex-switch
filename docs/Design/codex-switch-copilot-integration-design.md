@@ -228,15 +228,22 @@ Copilot 输入模型里不允许出现 `apiKey: string` 这个“provider secret
 TTY 下 `add --copilot` 的推荐时序固定为：
 
 1. 解析命令行已有参数
-2. 若缺 provider/profile/model 等必需输入，进入 Copilot 专用 add prompt
+2. 检查 Copilot SDK runtime 是否存在
 3. 若 SDK 缺失：
    - 弹出确认：`The optional Copilot SDK runtime is not installed. Install it now?`
-   - 用户确认后才允许安装
-4. SDK 安装成功后，立即 probe Copilot auth readiness
+   - 用户确认后立即安装
+   - 输出状态行：`Installing Copilot SDK runtime...` / `Copilot SDK runtime installed.`
+4. 立即 probe Copilot auth readiness
 5. 若 auth 缺失：
-   - 输出明确提示，说明需要使用官方 Copilot 登录流程完成上游登录
-   - 提供一个“完成登录后重试”的 retry loop
-6. auth readiness 通过后，调用 app 层完成 provider 写入与 config projection
+   - 输出状态行：`GitHub Copilot login is required. Starting official copilot login...`
+   - 直接在当前终端调用官方 `copilot login`
+   - GitHub 的 browser/device-code 体验完全委托给官方 CLI
+6. 若 `copilot login` 无法启动或退出非零：
+   - 输出人工兜底指引，明确手动命令为 `copilot login`
+   - 说明 GitHub 官方流程会打开浏览器或显示 verification URL/code
+   - 仅提供一次明确的 recheck 路径
+7. auth readiness 通过后，才进入 Copilot 专用 add prompt
+8. prompt 完成后，调用 app 层完成 provider 写入与 config projection
 
 ### 6.4 Copilot 专用交互采集项
 
@@ -272,7 +279,7 @@ Copilot add prompt 至少覆盖：
 
 ### 6.6 Auth Guidance 职责
 
-CLI 采用引导式登录，不采用托管式登录：
+CLI 采用官方登录 handoff，不采用托管式登录：
 
 - `codex-switch` 不写入 GitHub token
 - `codex-switch` 不新增自己的 token storage
@@ -281,8 +288,9 @@ CLI 采用引导式登录，不采用托管式登录：
 但它必须负责：
 
 - 检测 auth 是否 ready
-- 在 TTY 下解释“你现在缺的是 Copilot upstream 登录”
-- 允许用户在外部完成官方登录后返回当前流程并重试 auth check
+- 在 TTY 下启动官方 `copilot login`
+- 启动失败时解释“你现在缺的是 Copilot upstream 登录”，并给出手动命令
+- 允许用户在官方流程完成后返回当前流程并执行一次显式 recheck
 
 标准失败码：
 
@@ -290,9 +298,9 @@ CLI 采用引导式登录，不采用托管式登录：
 
 标准交互策略：
 
-- 输出人类可理解的提示
-- 使用 confirm prompt 实现 `Retry Copilot authentication check now?`
-- 用户拒绝 retry 时返回 `COPILOT_AUTH_REQUIRED`
+- 输出固定状态行而不是 spinner
+- 默认路径是 run/login/recheck，不是无限 retry loop
+- 用户拒绝 recheck 或 recheck 仍失败时返回 `COPILOT_AUTH_REQUIRED`
 
 ### 6.7 文件写入时机
 
@@ -507,4 +515,3 @@ Copilot 接入可以视为“设计与实现完整”的最低标准是：
 4. `switch` 到 Copilot provider 时能稳定完成 runtime gate。
 5. `status` / `doctor` 能把 SDK、auth、bridge 三层问题清楚区分。
 6. 文档对 Copilot 的文件边界和行为边界与代码一致。
-

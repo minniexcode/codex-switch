@@ -337,10 +337,11 @@ Copilot provider 字段说明：
 
 - direct provider 缺少 `provider`、`profile`、`apiKey` 时，会在 TTY 中补问
 - direct provider 的 API key 隐藏输入会做二次确认
-- Copilot provider 会进入专用输入流，只采集 provider/profile/model、note/tags 和 bridge 参数
+- Copilot provider 会先做固定 preflight：检查 SDK、必要时立即安装、检查 GitHub Copilot 登录态、必要时执行官方 `copilot login`，全部通过后才进入专用输入流
+- Copilot provider 的专用输入流只采集 provider/profile/model、note/tags 和 bridge 参数
 - Copilot provider 不会提示 `API key`、`Confirm API key` 或输出 `API key is required.`
-- 若 Copilot SDK 尚未安装，会先确认是否立即安装
-- SDK 可用后会检查官方 Copilot 登录态；未登录时会提示你在外部完成官方登录，再回到当前流程重试
+- 若官方 `copilot login` 无法启动，会回退为人工提示：运行 `copilot login`，完成 GitHub 官方 device/browser 流程后执行一次明确 recheck
+- `add --copilot --json` 永远不会启动登录流程；若 auth 未就绪，直接返回 `COPILOT_AUTH_REQUIRED`，并提示手动运行 `copilot login`
 
 非交互模式：
 

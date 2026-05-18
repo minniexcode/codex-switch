@@ -5,9 +5,13 @@ import { RuntimeAvailability } from "./types";
 
 type CopilotSdkModule = Record<string, unknown>;
 type CopilotSessionLike = Record<string, unknown>;
+type CopilotPermissionRequest = Record<string, unknown>;
 type CopilotClientLike = {
   createSession?: (...args: unknown[]) => unknown;
   stop?: () => unknown;
+};
+type CopilotSessionOptions = {
+  onPermissionRequest: (request: CopilotPermissionRequest) => boolean | Promise<boolean>;
 };
 
 /**
@@ -132,17 +136,38 @@ async function createCopilotSession(): Promise<{
     throw cliError("COPILOT_SDK_UNSUPPORTED", "The installed Copilot SDK does not expose a supported createSession API.", {});
   }
   try {
-    const session = (await Promise.resolve(createSession({}))) as CopilotSessionLike;
+    const session = (await Promise.resolve(createSession(createSessionOptions(sdk)))) as CopilotSessionLike;
     return {
       sdk,
       client,
       session,
     };
   } catch (error: unknown) {
+    if (classifyCopilotSessionError(error) === "unsupported") {
+      throw cliError("COPILOT_SDK_UNSUPPORTED", "The installed Copilot SDK does not expose a compatible permission-handling session API.", {
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
     throw cliError("COPILOT_AUTH_REQUIRED", "Copilot authentication is required before the local bridge can be used.", {
       cause: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+/**
+ * Builds the session options used consistently across auth probes and request execution.
+ */
+function createSessionOptions(sdk: CopilotSdkModule): CopilotSessionOptions {
+  const approveAll = resolveApproveAll(sdk);
+  if (approveAll) {
+    return {
+      onPermissionRequest: (request) => approveAll(request),
+    };
+  }
+
+  return {
+    onPermissionRequest: () => true,
+  };
 }
 
 function createCopilotClient(sdk: CopilotSdkModule): CopilotClientLike | null {
@@ -163,6 +188,17 @@ async function stopCopilotClient(client: CopilotClientLike | null): Promise<void
   if (client && typeof client.stop === "function") {
     await Promise.resolve(client.stop());
   }
+}
+
+/**
+ * Distinguishes true auth failures from SDK API-shape mismatches.
+ */
+function classifyCopilotSessionError(error: unknown): "auth" | "unsupported" {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/onPermissionRequest/i.test(message) || /permission/i.test(message)) {
+    return "unsupported";
+  }
+  return "auth";
 }
 
 function resolveCallable(target: Record<string, unknown> | null, name: string): ((...args: unknown[]) => unknown) | null {
@@ -188,6 +224,21 @@ function resolveConstructor(target: Record<string, unknown>, name: string): (new
   const nestedDefault = target.default as Record<string, unknown> | undefined;
   if (nestedDefault && typeof nestedDefault[name] === "function") {
     return nestedDefault[name] as new (...args: unknown[]) => CopilotClientLike;
+  }
+  return null;
+}
+
+/**
+ * Resolves the SDK-provided permission helper when available.
+ */
+function resolveApproveAll(target: Record<string, unknown>): ((request: CopilotPermissionRequest) => boolean | Promise<boolean>) | null {
+  const direct = target.approveAll;
+  if (typeof direct === "function") {
+    return direct as (request: CopilotPermissionRequest) => boolean | Promise<boolean>;
+  }
+  const nestedDefault = target.default as Record<string, unknown> | undefined;
+  if (nestedDefault && typeof nestedDefault.approveAll === "function") {
+    return nestedDefault.approveAll as (request: CopilotPermissionRequest) => boolean | Promise<boolean>;
   }
   return null;
 }
