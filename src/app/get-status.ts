@@ -8,6 +8,7 @@ import { readManagedAuthState } from "../storage/auth-repo";
 import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { probeCopilotBridgeRuntime } from "../runtime/copilot-bridge";
 import { readCopilotAuthState } from "../runtime/copilot-adapter";
+import { readCopilotBridgeState } from "../storage/runtime-state-repo";
 import { CommandResult } from "./types";
 
 /**
@@ -38,7 +39,21 @@ export async function getStatus(codexDir: string, configPath: string, providersP
   const activeProvider =
     activeProviderCandidates.length === 1 && providers ? providers.providers[activeProviderCandidates[0]] : null;
   const copilotInstall = probeCopilotSdkInstall();
-  const copilotBridge = activeProvider && isCopilotBridgeProvider(activeProvider) ? await probeCopilotBridgeRuntime(activeProvider) : null;
+  const runtimeState = readCopilotBridgeState();
+  const runtimeStateProvider = runtimeState && providers ? providers.providers[runtimeState.provider] ?? null : null;
+  const bridgeProbeTarget =
+    activeProvider && isCopilotBridgeProvider(activeProvider)
+      ? activeProvider
+      : runtimeStateProvider && isCopilotBridgeProvider(runtimeStateProvider)
+        ? runtimeStateProvider
+        : null;
+  const copilotBridge = bridgeProbeTarget ? await probeCopilotBridgeRuntime(bridgeProbeTarget) : runtimeState ? {
+    ok: false,
+    runtime: "copilot-bridge",
+    reason: "failed",
+    cause: "Copilot bridge runtime state exists but no matching managed Copilot provider is active.",
+    details: runtimeState,
+  } : null;
   const copilotAuth =
     activeProvider && isCopilotBridgeProvider(activeProvider)
       ? await readCopilotAuthState().catch((error: unknown) => ({
@@ -74,6 +89,7 @@ export async function getStatus(codexDir: string, configPath: string, providersP
       },
       copilotAuth,
       copilotBridge,
+      copilotRuntimeState: runtimeState,
       liveState,
       auth: authState,
       configProfiles: configViews,

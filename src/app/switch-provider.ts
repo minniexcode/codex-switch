@@ -1,12 +1,12 @@
 import { cliError } from "../domain/errors";
-import { isCopilotBridgeProvider } from "../domain/providers";
+import { buildCopilotBridgeBaseUrl, cleanProviderRecord, isCopilotBridgeProvider } from "../domain/providers";
 import {
   applyConfigMutation,
   createConfigMutationPlan,
   ensureProfileExists,
   requireRuntimeEnvKey,
 } from "../storage/config-repo";
-import { readProvidersFile } from "../storage/providers-repo";
+import { readProvidersFile, writeProvidersFile } from "../storage/providers-repo";
 import { readAuthFileIfExists, writeAuthFile } from "../storage/auth-repo";
 import { ensureCopilotBridge, stopCopilotBridge } from "../runtime/copilot-bridge";
 import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
@@ -54,6 +54,16 @@ export async function switchProvider(args: {
     }
     await readCopilotAuthState();
     const bridge = await ensureCopilotBridge(args.providerName, provider);
+    const nextProvider = bridge.portChanged
+      ? cleanProviderRecord({
+          ...provider,
+          baseUrl: bridge.baseUrl,
+          runtime: {
+            ...provider.runtime!,
+            bridgePort: bridge.port,
+          },
+        })
+      : provider;
     try {
       return runMutation({
         codexDir: args.codexDir,
@@ -67,14 +77,32 @@ export async function switchProvider(args: {
         mutate: () => {
           const configPlan = createConfigMutationPlan(document, {
             setActiveProfile: provider.profile,
+            upsertModelProviders: bridge.portChanged
+              ? {
+                  [provider.profile]: {
+                    baseUrl: buildCopilotBridgeBaseUrl(nextProvider.runtime!),
+                    envKey,
+                  },
+                }
+              : undefined,
           });
+          if (bridge.portChanged) {
+            writeProvidersFile(args.providersPath, {
+              providers: {
+                ...providers.providers,
+                [args.providerName]: nextProvider,
+              },
+            });
+          }
           applyConfigMutation(args.configPath, document, configPlan);
           const existingAuth = readAuthFileIfExists(args.authPath);
-          writeAuthFile(args.authPath, provider, existingAuth ?? undefined);
+          writeAuthFile(args.authPath, nextProvider, existingAuth ?? undefined);
           return {
             provider: args.providerName,
-            profile: provider.profile,
-            envKey: provider.envKey,
+            profile: nextProvider.profile,
+            envKey: nextProvider.envKey,
+            portChanged: bridge.portChanged,
+            bridgePort: bridge.port,
           };
         },
       });

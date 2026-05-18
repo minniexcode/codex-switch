@@ -48,7 +48,7 @@ export function addProvider(args: {
     throw cliError("INVALID_IMPORT_FILE", `Provider "${args.providerName}" already exists.`);
   }
   const bridgeHost = args.bridgeHost ?? "127.0.0.1";
-  const bridgePort = args.bridgePort ?? 4141;
+  const bridgePort = args.bridgePort ?? 41415;
   const runtime: ProviderRuntime | undefined = args.copilot
     ? {
         kind: "copilot-sdk-bridge",

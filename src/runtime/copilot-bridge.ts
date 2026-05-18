@@ -51,10 +51,31 @@ type BridgeRequestContext = {
 };
 
 /**
+ * Result returned when a managed bridge is started or reused.
+ */
+export type CopilotBridgeStartResult = {
+  baseUrl: string;
+  host: string;
+  port: number;
+  reused: boolean;
+  portChanged: boolean;
+  replaced: boolean;
+};
+
+/**
  * Returns the last known Copilot bridge runtime status.
  */
 export async function probeCopilotBridgeRuntime(provider: ProviderRecord | null): Promise<RuntimeAvailability> {
   const state = readCopilotBridgeState();
+  if (state && (!provider || !isCopilotBridgeProvider(provider))) {
+    return {
+      ok: false,
+      runtime: "copilot-bridge",
+      reason: "failed",
+      cause: "Copilot bridge runtime state exists but no active Copilot bridge provider is selected.",
+      details: state,
+    };
+  }
   if (!provider || !isCopilotBridgeProvider(provider)) {
     return {
       ok: false,
@@ -116,7 +137,14 @@ export async function probeCopilotBridgeRuntime(provider: ProviderRecord | null)
 /**
  * Starts or reuses a Copilot bridge worker, then verifies its health before returning.
  */
-export async function ensureCopilotBridge(providerName: string, provider: ProviderRecord): Promise<{ baseUrl: string; reused: boolean }> {
+export async function ensureCopilotBridge(providerName: string, provider: ProviderRecord): Promise<CopilotBridgeStartResult> {
+  return startOrReuseCopilotBridge(providerName, provider);
+}
+
+/**
+ * Starts or reuses a Copilot bridge worker and reports the chosen port.
+ */
+export async function startOrReuseCopilotBridge(providerName: string, provider: ProviderRecord): Promise<CopilotBridgeStartResult> {
   if (!isCopilotBridgeProvider(provider)) {
     throw cliError("RUNTIME_PROVIDER_INVALID", "Provider is not backed by a Copilot bridge runtime.", {
       provider: providerName,
@@ -130,6 +158,7 @@ export async function ensureCopilotBridge(providerName: string, provider: Provid
   }
   const expectedBaseUrl = buildCopilotBridgeBaseUrl(runtime);
   const current = readCopilotBridgeState();
+  let replaced = false;
   if (current && current.provider === providerName && current.baseUrl === expectedBaseUrl) {
     const healthy = await healthcheckCopilotBridge(current.host, current.port);
     if (healthy.ok) {
@@ -139,20 +168,22 @@ export async function ensureCopilotBridge(providerName: string, provider: Provid
       });
       return {
         baseUrl: expectedBaseUrl,
+        host: current.host,
+        port: current.port,
         reused: true,
+        portChanged: false,
+        replaced: false,
       };
     }
   }
 
-  const portCheck = await checkPortAvailability(runtime.bridgeHost, runtime.bridgePort);
-  if (!portCheck.ok) {
-    throw cliError("BRIDGE_PORT_CONFLICT", "Copilot bridge port is already in use.", {
-      provider: providerName,
-      host: runtime.bridgeHost,
-      port: runtime.bridgePort,
-      cause: portCheck.cause,
-    });
+  if (current && current.provider !== providerName) {
+    stopCopilotBridge();
+    replaced = true;
   }
+
+  const selectedPort = await selectBridgePort(runtime.bridgeHost, runtime.bridgePort);
+  const selectedBaseUrl = `http://${runtime.bridgeHost}:${selectedPort}${runtime.bridgePath}`;
 
   const workerPath = path.join(__dirname, "copilot-bridge-worker.js");
   let child;
@@ -164,37 +195,37 @@ export async function ensureCopilotBridge(providerName: string, provider: Provid
         ...process.env,
         CODEX_SWITCH_BRIDGE_PROVIDER: providerName,
         CODEX_SWITCH_BRIDGE_HOST: runtime.bridgeHost,
-        CODEX_SWITCH_BRIDGE_PORT: String(runtime.bridgePort),
+        CODEX_SWITCH_BRIDGE_PORT: String(selectedPort),
         CODEX_SWITCH_BRIDGE_API_KEY: provider.apiKey,
-        CODEX_SWITCH_BRIDGE_BASE_URL: expectedBaseUrl,
+        CODEX_SWITCH_BRIDGE_BASE_URL: selectedBaseUrl,
       },
     });
   } catch (error: unknown) {
     throw cliError("BRIDGE_START_FAILED", "Failed to start the Copilot bridge worker.", {
       provider: providerName,
       host: runtime.bridgeHost,
-      port: runtime.bridgePort,
+      port: selectedPort,
       cause: error instanceof Error ? error.message : String(error),
     });
   }
   child.unref();
 
   const startedAt = new Date().toISOString();
-  const healthy = await waitForCopilotBridgeStartup(child, runtime.bridgeHost, runtime.bridgePort, 15, 200);
+  const healthy = await waitForCopilotBridgeStartup(child, runtime.bridgeHost, selectedPort, 15, 200);
   if (!healthy.ok) {
     clearCopilotBridgeState();
     if (healthy.reason === "start-failed") {
       throw cliError("BRIDGE_START_FAILED", "Copilot bridge worker exited before becoming healthy.", {
         provider: providerName,
         host: runtime.bridgeHost,
-        port: runtime.bridgePort,
+        port: selectedPort,
         cause: healthy.cause,
       });
     }
     throw cliError("BRIDGE_HEALTHCHECK_FAILED", "Copilot bridge did not become healthy after startup.", {
       provider: providerName,
       host: runtime.bridgeHost,
-      port: runtime.bridgePort,
+      port: selectedPort,
       cause: healthy.cause,
     });
   }
@@ -203,16 +234,20 @@ export async function ensureCopilotBridge(providerName: string, provider: Provid
     provider: providerName,
     pid: child.pid ?? null,
     host: runtime.bridgeHost,
-    port: runtime.bridgePort,
-    baseUrl: expectedBaseUrl,
+    port: selectedPort,
+    baseUrl: selectedBaseUrl,
     startedAt,
     lastHealthcheckAt: new Date().toISOString(),
   };
   writeCopilotBridgeState(state);
 
   return {
-    baseUrl: expectedBaseUrl,
+    baseUrl: selectedBaseUrl,
+    host: runtime.bridgeHost,
+    port: selectedPort,
     reused: false,
+    portChanged: selectedPort !== runtime.bridgePort,
+    replaced,
   };
 }
 
@@ -348,6 +383,26 @@ async function checkPortAvailability(host: string, port: number): Promise<{ ok: 
         resolve({ ok: true });
       });
     });
+  });
+}
+
+async function selectBridgePort(host: string, preferredPort: number): Promise<number> {
+  const preferred = await checkPortAvailability(host, preferredPort);
+  if (preferred.ok) {
+    return preferredPort;
+  }
+  for (let port = 10000; port <= 99999; port += 1) {
+    if (port === preferredPort) {
+      continue;
+    }
+    const available = await checkPortAvailability(host, port);
+    if (available.ok) {
+      return port;
+    }
+  }
+  throw cliError("BRIDGE_PORT_CONFLICT", "Unable to find a free 5-digit bridge port.", {
+    host,
+    port: preferredPort,
   });
 }
 

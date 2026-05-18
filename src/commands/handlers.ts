@@ -12,6 +12,7 @@ import { listProviders } from "../app/list-providers";
 import { removeProvider } from "../app/remove-provider";
 import { rollbackBackup } from "../app/rollback-backup";
 import { runDoctor } from "../app/run-doctor";
+import { startBridge, statusBridge, stopBridge } from "../app/bridge";
 import { migrateCodex } from "../app/setup-codex";
 import { showConfig } from "../app/show-config";
 import { showProvider } from "../app/show-provider";
@@ -76,6 +77,36 @@ export async function handleRegisteredCommand(
       return getCurrentProfile(paths.configPath);
     case "status":
       return getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath);
+    case "bridge-start": {
+      const providerName = parsed.positionals[0] ?? null;
+      return startBridge({
+        providersPath: paths.providersPath,
+        configPath: paths.configPath,
+        providerName,
+        runtime,
+        json: ctx.options.json,
+      });
+    }
+    case "bridge-stop": {
+      const providerName = parsed.positionals[0] ?? null;
+      return stopBridge({
+        providersPath: paths.providersPath,
+        configPath: paths.configPath,
+        providerName,
+        runtime,
+        json: ctx.options.json,
+      });
+    }
+    case "bridge-status": {
+      const providerName = parsed.positionals[0] ?? null;
+      return statusBridge({
+        providersPath: paths.providersPath,
+        configPath: paths.configPath,
+        providerName,
+        runtime,
+        json: ctx.options.json,
+      });
+    }
     case "init": {
       let codexDir = ctx.options.codexDir;
       const candidates = findCodexDirCandidates(ctx.options.codexDirExplicit ? ctx.options.codexDir : null);

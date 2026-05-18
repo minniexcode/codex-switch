@@ -68,6 +68,7 @@ export function buildHelpText(commandName?: string | null): string {
       "  codexs migrate",
       "  codexs list",
       "  codexs switch",
+      "  codexs bridge start",
       "  codexs add packycode --profile packycode --api-key sk-xxx",
       "  codexs config show",
       "  codexs remove freemodel",

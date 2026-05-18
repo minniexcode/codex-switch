@@ -11,6 +11,7 @@ import { findProvidersByProfile, isCopilotBridgeProvider } from "../domain/provi
 import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { probeCopilotBridgeRuntime } from "../runtime/copilot-bridge";
 import { readCopilotAuthState } from "../runtime/copilot-adapter";
+import { readCopilotBridgeState } from "../storage/runtime-state-repo";
 
 /**
  * Performs consistency checks across config.toml, providers.json, and the local Codex CLI.
@@ -73,6 +74,7 @@ export async function runDoctor(args: {
   }
 
   const authState = readManagedAuthState(args.authPath);
+  const runtimeState = readCopilotBridgeState();
   if (authState.exists && !authState.valid) {
     issues.push({
       code: "AUTH_JSON_INVALID",
@@ -132,15 +134,32 @@ export async function runDoctor(args: {
         const bridge = await probeCopilotBridgeRuntime(activeProvider);
         if (!bridge.ok) {
           issues.push({
-            code:
-              bridge.cause === "Copilot bridge state base URL does not match the provider runtime configuration."
-                ? "PROVIDER_BASE_URL_MISMATCH"
-                : "BRIDGE_HEALTHCHECK_FAILED",
+            code: mapBridgeDiagnosticCode(bridge.cause),
             message: bridge.cause,
             ...(bridge.details ?? {}),
           });
         }
       }
+    }
+  }
+
+  if (runtimeState && providers) {
+    const runtimeProvider = providers.providers[runtimeState.provider] ?? null;
+    if (!runtimeProvider || !isCopilotBridgeProvider(runtimeProvider)) {
+      issues.push({
+        code: "BRIDGE_STATE_STALE",
+        message: "Copilot bridge runtime state exists but no matching managed Copilot provider is available.",
+        ...runtimeState,
+      });
+    } else if (!document?.activeProfile || runtimeProvider.profile !== document.activeProfile) {
+      issues.push({
+        code: "BRIDGE_STATE_STALE",
+        message: "Copilot bridge runtime state exists for a provider that is not the current active profile.",
+        activeProfile: document?.activeProfile ?? null,
+        runtimeProvider: runtimeState.provider,
+        runtimeProfile: runtimeProvider.profile,
+        ...runtimeState,
+      });
     }
   }
 
@@ -178,6 +197,19 @@ export async function runDoctor(args: {
     },
     warnings: issues.length === 0 ? [] : [`doctor found ${issues.length} issue(s)`],
   };
+}
+
+function mapBridgeDiagnosticCode(cause: string): string {
+  if (cause === "Copilot bridge state manifest is missing.") {
+    return "BRIDGE_STATE_MISSING";
+  }
+  if (cause === "Copilot bridge runtime state exists but no active Copilot bridge provider is selected.") {
+    return "BRIDGE_STATE_STALE";
+  }
+  if (cause === "Copilot bridge state base URL does not match the provider runtime configuration.") {
+    return "PROVIDER_BASE_URL_MISMATCH";
+  }
+  return "BRIDGE_HEALTHCHECK_FAILED";
 }
 
 /**
