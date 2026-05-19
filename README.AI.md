@@ -4,7 +4,7 @@ This file is for AI agents, automation scripts, and contributors who need a comp
 
 ## Repository Purpose
 
-`@minniexcode/codex-switch` is a local-first TypeScript CLI for managing provider/profile state for Codex under `~/.codex/`.
+`@minniexcode/codex-switch` is a local-first TypeScript CLI for managing provider/profile state for Codex while keeping codex-switch tool state separate from the target Codex runtime.
 
 Primary goals:
 
@@ -13,22 +13,29 @@ Primary goals:
 - rollback on failure
 - stable machine-readable CLI output
 - support for both human TTY usage and agent automation
+- explicit onboarding for interactive upstreams such as GitHub Copilot
 
 ## Main Command Surface
 
 ```bash
 codexs init
+codexs login copilot
 codexs migrate
 codexs list
 codexs show <provider>
 codexs current
 codexs status
+codexs config show [profile]
+codexs config list-profiles
 codexs edit <provider>
 codexs switch <provider>
 codexs import <file>
 codexs export <file>
 codexs add <provider>
 codexs remove <provider>
+codexs bridge start [provider]
+codexs bridge status [provider]
+codexs bridge stop [provider]
 codexs backups list
 codexs doctor
 codexs rollback [backup-id]
@@ -41,23 +48,43 @@ Shared flags:
 --codex-dir <path>
 ```
 
-## Important Runtime Files
+Relevant environment variables:
+
+```bash
+CODEXS_HOME
+CODEXS_CODEX_DIR
+```
+
+## Important Files
+
+Tool home:
+
+```text
+~/.config/codex-switch/
+  codex-switch.json
+  providers.json
+  backups/
+  runtime/
+  runtimes/
+```
+
+Target Codex runtime:
 
 ```text
 ~/.codex/
   config.toml
   auth.json
-  providers.json
-  backups/
 ```
 
 Operational model:
 
 - `providers.json` is the management-state source of truth
-- `config.toml` is the managed runtime-routing file
-- `auth.json` is the active auth projection file for direct providers and is also inspected by status/doctor
-- `backups/latest.json` tracks the latest rollback state
-- mutating commands should back up first and run under a lightweight file lock
+- `codex-switch.json` stores tool-level metadata such as `defaultCodexDir`
+- `config.toml` remains the managed runtime-routing file in the target Codex directory
+- `auth.json` remains the active auth projection file
+- `runtime/` stores managed bridge runtime state
+- `runtimes/` stores optional local runtimes such as the Copilot SDK install
+- mutating commands back up first and run under a lightweight file lock in the tool home
 
 ## Project Structure
 
@@ -65,8 +92,11 @@ Operational model:
 src/
   app/
   cli/
+  commands/
   domain/
-  infra/
+  interaction/
+  runtime/
+  storage/
 tests/
 docs/
 dist/
@@ -74,10 +104,13 @@ dist/
 
 Layer intent:
 
-- `cli`: argument parsing, help, TTY flows, output shaping
+- `cli`: output shaping and thin CLI-facing utilities
+- `commands`: argument parsing, help rendering, and command dispatch
 - `app`: command orchestration and use-case logic
 - `domain`: pure domain rules and shared models
-- `infra`: filesystem, lock, backup, config, and Codex integration code
+- `interaction`: TTY-only prompt flows
+- `runtime`: Codex/Copilot runtime probing and local bridge management
+- `storage`: filesystem-backed repositories and path resolution
 
 ## Command Entry Point
 
@@ -87,6 +120,7 @@ Use `codexs` directly for runtime interaction:
 codexs --help
 codexs list --json
 codexs status --json
+codexs config list-profiles --json
 ```
 
 ## Current Version Context
@@ -94,13 +128,14 @@ codexs status --json
 Current package version in this repository:
 
 ```text
-0.0.10
+0.0.11
 ```
 
 Recent version summary:
 
-- `0.0.10`: `init` / `migrate` command split finalized, `setup` deprecated, and the managed provider model reduced to static profile plus `base_url` configuration
-- `0.0.7`: command-surface refactor, env_key/auth-mirror model corrections, and the initial `setup` split toward `init` plus `migrate`
+- `0.0.11`: tool-home split, `login copilot`, managed bridge commands, and config inspection commands
+- `0.0.10`: `init` / `migrate` command split finalized and `setup` deprecated
+- `0.0.7`: command-surface refactor and setup split groundwork
 - `0.0.4`: setup/show/edit/backups list/specific rollback/import merge and clearer CLI semantics
 - `0.0.3`: interactive TTY flows and improved help
 - `0.0.2`: mutation orchestration, backups, rollback, locks, drift detection improvements
@@ -111,5 +146,7 @@ Recent version summary:
 - Prefer `--json` when invoking commands programmatically
 - Treat `providers.json` as sensitive because it may contain API keys
 - Do not assume silent write-back from runtime files into `providers.json`
-- Prefer `init` for repeatable machine setup and `migrate` for human-led adopt flows
+- Prefer `init` for repeatable tool-home setup and `migrate` for human-led adopt flows
+- `login copilot` requires a real TTY and should not be used under `--json`
+- `add --copilot` assumes SDK install and upstream auth readiness are already satisfied
 - Use `docs/` for deeper product and architecture context

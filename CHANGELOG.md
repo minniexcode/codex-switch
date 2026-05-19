@@ -2,6 +2,41 @@
 
 All notable changes to `@minniexcode/codex-switch` will be documented in this file.
 
+## 0.0.11 - 2026-05-19
+
+This release separates codex-switch tool state from the target Codex runtime, formalizes interactive upstream onboarding for GitHub Copilot, and freezes the expanded public command surface around config inspection and managed bridge operations.
+
+本次版本正式把 codex-switch 的工具级管理态从目标 Codex runtime 中分离出来，引入独立的 GitHub Copilot 上游登录流程，并将 config 检视与受管 bridge 操作纳入公开命令面。
+
+### Added
+
+- Added `codexs login copilot` for interactive GitHub Copilot SDK installation and upstream auth readiness checks.
+- Added `codexs bridge start`, `codexs bridge status`, and `codexs bridge stop` to manage the local Copilot bridge runtime explicitly.
+- Added `codexs config show` and `codexs config list-profiles` for structured `config.toml` inspection with managed-state hints.
+
+- 新增 `codexs login copilot`，用于交互式完成 GitHub Copilot SDK 安装和上游登录就绪检查。
+- 新增 `codexs bridge start`、`codexs bridge status`、`codexs bridge stop`，显式管理本地 Copilot bridge runtime。
+- 新增 `codexs config show` 与 `codexs config list-profiles`，提供带受管态提示的结构化 `config.toml` 检视能力。
+
+### Changed
+
+- Changed `init` to bootstrap the codex-switch tool home and registry files instead of treating the Codex runtime directory as the management root.
+- Changed the storage model so `providers.json`, backups, runtime state, and optional runtimes live under the codex-switch tool home, while `config.toml` and `auth.json` remain in the target Codex directory.
+- Changed `add --copilot` and `switch` to require Copilot SDK install and upstream login readiness to be handled through `codexs login copilot`, while keeping local bridge secrets and routing under managed provider state.
+- Updated README, AI README, Chinese README, CLI usage, and release metadata to align with the 0.0.11 command and path contracts.
+
+- 将 `init` 改为初始化 codex-switch 的 tool home 与 registry 文件，不再把 Codex runtime 目录当作管理根目录。
+- 调整存储模型：`providers.json`、备份、runtime state 和可选 runtimes 存放在 codex-switch tool home 下，而 `config.toml` 与 `auth.json` 仍位于目标 Codex 目录。
+- 调整 `add --copilot` 与 `switch` 的公开契约：Copilot SDK 安装和上游登录统一通过 `codexs login copilot` 完成，本地 bridge secret 和路由仍由受管 provider 状态维护。
+- 更新 README、AI README、中文 README、CLI usage 和发布元数据，使其与 0.0.11 的命令与路径契约保持一致。
+
+### Verification
+
+- `npm run build`
+- `npm test`
+- `npx tsc --noEmit`
+- `npm pack --dry-run`
+
 ## 0.0.10 - 2026-05-18
 
 This release splits the old `setup` command into a lightweight automation-friendly `init` path and a human-led `migrate` path so initialization and adopt semantics are no longer mixed.

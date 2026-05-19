@@ -1,6 +1,6 @@
 # codex-switch CLI Usage
 
-本文档详细介绍 `codex-switch` 在 `0.0.10` 版本中的命令、参数、交互规则和典型使用方式。
+本文档详细介绍 `codex-switch` 在 `0.0.11` 版本中的命令、参数、交互规则和典型使用方式。
 
 可执行命令名：
 
@@ -10,22 +10,35 @@ codexs
 
 ## 1. 概览
 
-`codex-switch` 用来管理本地 Codex 目录中的 provider/profile 配置，默认目标目录是 `~/.codex`。
+从 `0.0.11` 开始，`codex-switch` 使用双路径模型：
 
-它的核心设计有三点：
+- tool home：保存 `codex-switch` 自己的管理态
+- target Codex runtime：保存目标 Codex 的 `config.toml` 和 `auth.json`
 
-1. 本地优先，不依赖远端服务保存状态
+核心设计：
+
+1. 本地优先，不依赖远端服务保存管理态
 2. 写入前先备份，异常时支持回滚
 3. 同时兼容人类终端使用和脚本/Agent 自动化调用
+4. 对 GitHub Copilot 这类交互式上游登录提供独立命令入口
 
-默认管理的文件：
+tool home 默认路径：
+
+```text
+~/.config/codex-switch/
+  codex-switch.json
+  providers.json
+  backups/
+  runtime/
+  runtimes/
+```
+
+target Codex runtime 默认路径：
 
 ```text
 ~/.codex/
   config.toml
   auth.json
-  providers.json
-  backups/
 ```
 
 ## 2. 安装与入口
@@ -70,11 +83,23 @@ codexs --version
 说明：
 
 - `--json`：输出标准 JSON 结果，并禁用所有交互 prompt
-- `--codex-dir <path>`：将目标目录从默认 `~/.codex` 改成指定路径
+- `--codex-dir <path>`：指定目标 Codex runtime 目录
 - `--help`：查看命令帮助
 - `--version`：输出当前 CLI 版本
 
-### 3.2 交互规则
+### 3.2 环境变量
+
+```bash
+CODEXS_HOME
+CODEXS_CODEX_DIR
+```
+
+说明：
+
+- `CODEXS_HOME`：覆盖默认 tool home 目录
+- `CODEXS_CODEX_DIR`：在未传 `--codex-dir` 时提供默认 Codex runtime 目录
+
+### 3.3 交互规则
 
 CLI 的交互行为遵循以下规则：
 
@@ -82,8 +107,10 @@ CLI 的交互行为遵循以下规则：
 - 只要传入 `--json`，就绝不会出现 prompt
 - 面向脚本或 CI 的调用应显式传参，并优先使用 `--json`
 - 某些危险操作在交互模式下会确认，在非交互模式下则要求显式参数
+- `login copilot` 必须在真实 TTY 中运行
+- `migrate` 当前仍保留交互式 adopt 契约
 
-### 3.3 备份与回滚
+### 3.4 备份与回滚
 
 所有受管理的写操作都会先备份相关文件，再执行写入。
 
@@ -93,6 +120,7 @@ CLI 的交互行为遵循以下规则：
 - `add`
 - `edit`
 - `switch`
+- `bridge start`
 - `remove`
 - `import`
 
@@ -113,18 +141,6 @@ codexs rollback <backup-id>
 codexs list [--json] [--codex-dir <path>]
 ```
 
-示例：
-
-```bash
-codexs list
-codexs list --json
-```
-
-适用场景：
-
-- 查看当前已管理 provider 列表
-- 给后续 `switch`、`show`、`edit`、`remove` 提供候选名称
-
 ### 4.2 `show`
 
 查看单个 provider 的完整记录。
@@ -133,17 +149,10 @@ codexs list --json
 codexs show <provider> [--json] [--codex-dir <path>]
 ```
 
-示例：
-
-```bash
-codexs show packycode
-codexs show packycode --json
-```
-
 说明：
 
-- 普通文本输出会默认隐藏 `apiKey`
-- `--json` 模式会输出完整 provider 数据，适合本地自动化
+- 普通文本输出默认隐藏 `apiKey`
+- `--json` 模式会返回完整 provider 数据
 
 ### 4.3 `current`
 
@@ -153,51 +162,57 @@ codexs show packycode --json
 codexs current [--json] [--codex-dir <path>]
 ```
 
-示例：
-
-```bash
-codexs current
-codexs current --json
-```
-
-说明：
-
-- 如果缺少 `config.toml`，或配置中没有顶层 profile，会直接报错
-
 ### 4.4 `status`
 
-输出本地 Codex 目录的快速状态摘要。
+输出目标 Codex runtime 的快速状态摘要。
 
 ```bash
 codexs status [--json] [--codex-dir <path>]
-```
-
-示例：
-
-```bash
-codexs status
-codexs status --json
 ```
 
 通常会覆盖这些信息：
 
 - 关键文件是否存在
 - 当前激活 profile 是什么
-- 当前运行态是否能在受管理的 provider 映射中找到
+- 当前运行态是否能在受管理 provider 映射中找到
+- Copilot SDK 是否已安装
+- Copilot bridge runtime state 是否健康
 
-### 4.5 `backups list`
+### 4.5 `config show`
+
+查看结构化 config profile 视图。
+
+```bash
+codexs config show [profile] [--json] [--codex-dir <path>]
+```
+
+说明：
+
+- 不传 `[profile]` 时返回全部可识别 profile
+- 可同时看到 managed、unmanaged 和 orphaned 引用
+
+### 4.6 `config list-profiles`
+
+列出可识别的 config profile 名称及其受管态提示。
+
+```bash
+codexs config list-profiles [--json] [--codex-dir <path>]
+```
+
+### 4.7 `bridge status`
+
+查看当前受管 Copilot bridge 的运行状态。
+
+```bash
+codexs bridge status [provider] [--json] [--codex-dir <path>]
+```
+
+### 4.8 `backups list`
 
 查看历史备份清单。
 
 ```bash
 codexs backups list [--json] [--codex-dir <path>]
-```
-
-示例：
-
-```bash
-codexs backups list
-codexs backups list --json
 ```
 
 说明：
@@ -209,39 +224,39 @@ codexs backups list --json
 
 ### 5.1 `init`
 
-轻量初始化目标 Codex 目录，确保 `providers.json` 已存在。
+初始化 codex-switch tool home 和 registry 文件。
 
 ```bash
 codexs init [--json] [--codex-dir <path>]
 ```
 
-示例：
+行为说明：
+
+- 不依赖 `codex` 可执行文件
+- 不要求目标 `config.toml` 或 `auth.json` 已存在
+- `codex-switch.json` 不存在时创建
+- `providers.json` 不存在时创建空 registry：`{ "providers": {} }`
+- 若显式传入 `--codex-dir` 且 `codex-switch.json` 尚不存在，`init` 会把它持久化为 `defaultCodexDir`
+- 成功结果围绕 tool home 返回，不再承诺旧的 `createdCodexDir`、`configExists`、`authExists` 等字段
+
+### 5.2 `login copilot`
+
+完成 GitHub Copilot 上游安装与登录就绪检查。
 
 ```bash
-codexs init
-codexs init --json
-codexs init --codex-dir ./.tmp-codex
+codexs login copilot
+codexs login github-copilot
 ```
 
 行为说明：
 
-- 不依赖 `codex` 可执行文件
-- 不要求 `config.toml` 或 `auth.json` 已存在
-- `providers.json` 不存在时创建空 registry：`{ "providers": {} }`
-- `providers.json` 已存在时返回成功 no-op，不改写文件，也不会创建备份
-- 成功 JSON 结果固定包含：`codexDir`、`createdCodexDir`、`createdProvidersFile`、`providersAlreadyExisted`、`configExists`、`authExists`
+- 当前支持 `copilot` 与 `github-copilot` 两种拼写
+- 若本地 Copilot SDK runtime 未安装，会先确认是否安装
+- 若登录尚未就绪，会调用官方 `copilot login`，完成后做一次 recheck
+- 该命令要求真实 TTY，不支持 `--json`
+- 登录状态是共享的；切换 GitHub 账号会影响所有 Copilot provider
 
-交互模式：
-
-- 未显式传 `--codex-dir` 时，会复用候选目录发现并允许你选择或手动输入目录
-- 如果目标目录不存在，会确认是否创建目录
-
-非交互模式：
-
-- `--json` 或非 TTY 下绝不会进入 prompt
-- 目标目录不存在时直接返回结构化错误
-
-### 5.2 `migrate`
+### 5.3 `migrate`
 
 从现有 `config.toml` adopt unmanaged profiles，并写入受管理的 `providers.json`。
 
@@ -249,33 +264,15 @@ codexs init --codex-dir ./.tmp-codex
 codexs migrate [--json] [--codex-dir <path>] [--merge|--overwrite]
 ```
 
-示例：
-
-```bash
-codexs migrate
-codexs migrate --overwrite --json
-codexs migrate --merge --codex-dir ./.tmp-codex
-```
-
 行为说明：
 
 - 读取 `config.toml` 中已有 profile
-- 仅 adopt 已具备 `model`、`model_provider` 且能解析到匹配 `model_providers.*.base_url` 的 unmanaged profile
+- 仅 adopt 已具备 `model`、`model_provider` 且能解析到匹配 `base_url` 的 unmanaged profile
 - 收集每个 profile 对应的 provider 记录
-- 保持现有受管备份、锁和 post-run `doctor` 流程，不重写 `auth.json`
+- 保持受管备份、锁和 post-run `doctor` 流程
+- 非交互模式下，profile 选择和 provider 细节收集仍不会自动化展开
 
-交互模式：
-
-- 如果 `providers.json` 已存在，会让你选择 `merge`、`overwrite` 或取消
-- profile 选择和 provider 细节收集仍然只在 TTY 中进行
-
-非交互模式：
-
-- `providers.json` 已存在时，必须显式传入 `--merge` 或 `--overwrite`
-- `--json` 模式下不会进入任何引导式输入
-- 由于 adopt profile 选择和 provider secret 收集仍然是交互契约，当前版本会直接失败
-
-### 5.3 `setup`
+### 5.4 `setup`
 
 `setup` 已弃用，不再执行实际初始化或迁移工作。
 
@@ -283,104 +280,49 @@ codexs migrate --merge --codex-dir ./.tmp-codex
 codexs setup
 ```
 
-行为说明：
+### 5.5 `add`
 
-- 该命令现在返回 `COMMAND_DEPRECATED`
-- 错误详情中包含 `replacements: ["init", "migrate"]`
-- 应改用 `codexs init` 或 `codexs migrate`
-
-### 5.4 `add`
-
-新增一个 provider。`add` 当前同时支持 direct provider 和 Copilot bridge provider 两条路径。
+新增一个 provider。`add` 同时支持 direct provider 和 Copilot bridge provider。
 
 ```bash
 codexs add <provider> --profile <name> --api-key <key> [--base-url <url>] [--note <text>] [--tag <tag> ...]
-codexs add <provider> --copilot --profile <name> [--bridge-host <host>] [--bridge-port <port>] [--bridge-api-key <secret>] [--install-copilot-sdk]
+codexs add <provider> --copilot --profile <name> [--bridge-host <host>] [--bridge-port <port>] [--bridge-api-key <secret>]
+codexs add <provider> --profile <name> --api-key <key> --create-profile --model <name> --base-url <url>
 codexs add
 ```
 
-direct provider 示例：
+说明：
 
-```bash
-codexs add packycode --profile packycode --api-key sk-xxx
-codexs add packycode --profile packycode --api-key sk-xxx --tag paid --tag daily
-codexs add
-```
-
-Copilot provider 示例：
-
-```bash
-codexs add copilot-main --copilot --profile copilot-main --install-copilot-sdk
-codexs add copilot-main --copilot --profile copilot-main --bridge-port 41415 --bridge-api-key local-secret
-```
-
-direct provider 字段说明：
-
-- `provider`：provider 名称，也是后续 `switch/show/edit/remove` 的标识
-- `--profile`：写入到 `config.toml` 的 profile 名称
-- `--api-key`：provider API key
-- `--base-url`：可选的 provider 元数据，不会写回 `[profiles.*]`
-- `--note`：备注
-- `--tag`：标签，可重复传多次
-
-Copilot provider 字段说明：
-
-- `--copilot`：切换到 Copilot provider 模式
-- `--profile`：必填
-- `--api-key`：在 `--copilot` 下禁止使用；Copilot 不接收 direct provider API key
-- `--bridge-host`：本地 bridge host，默认 `127.0.0.1`
-- `--bridge-port`：本地 bridge port，默认 `41415`
-- `--bridge-api-key`：本地 bridge shared secret；留空时自动生成
-- `--install-copilot-sdk`：允许在首次接入时安装可选 Copilot SDK runtime
+- direct provider 必须提供 `provider`、`profile`、`apiKey`
+- `--create-profile` 可在 profile 缺失时一并创建目标 profile
+- direct provider 创建新 profile 时需要同时给出 `--model` 与 `--base-url`
+- Copilot provider 创建新 profile 时需要 `--create-profile` 与 `--model`
+- `--copilot` 下禁止 `--api-key`，应使用 `--bridge-api-key`
+- `add --copilot` 不再负责安装 SDK 或触发登录，应先执行 `codexs login copilot`
+- `--install-copilot-sdk` 现在只保留为 rejected compatibility flag
 
 交互模式：
 
-- direct provider 缺少 `provider`、`profile`、`apiKey` 时，会在 TTY 中补问
-- direct provider 的 API key 隐藏输入会做二次确认
-- Copilot provider 会先做固定 preflight：检查 SDK、必要时立即安装、检查 GitHub Copilot 登录态、必要时执行官方 `copilot login`，全部通过后才进入专用输入流
-- Copilot provider 的专用输入流只采集 provider/profile/model、note/tags 和 bridge 参数
-- Copilot provider 不会提示 `API key`、`Confirm API key` 或输出 `API key is required.`
-- 若官方 `copilot login` 无法启动，会回退为人工提示：运行 `copilot login`，完成 GitHub 官方 device/browser 流程后执行一次明确 recheck
-- `add --copilot --json` 永远不会启动登录流程；若 auth 未就绪，直接返回 `COPILOT_AUTH_REQUIRED`，并提示手动运行 `copilot login`
+- direct provider 缺少必填项时会在 TTY 中补问
+- Copilot provider 的交互流不会要求 direct API key
+- tags 交互使用 preset multi-select
 
-非交互模式：
-
-- direct provider 必须显式传入所有必填字段
-- `add --copilot` 必须显式传入 `<provider>` 和 `--profile`
-- `add --copilot --json` 不会进入任何 prompt；若 SDK 缺失且未传 `--install-copilot-sdk`，直接失败；若 auth 未就绪，也直接返回 `COPILOT_AUTH_REQUIRED`
-
-### 5.5 `edit`
+### 5.6 `edit`
 
 编辑单个 provider 的字段。
 
 ```bash
 codexs edit <provider> [--profile <name>] [--api-key <key>] [--base-url <url>] [--note <text>] [--tag <tag> ...] [--json] [--codex-dir <path>]
+codexs edit <provider> --profile <name> --create-profile --model <name> --base-url <url>
 ```
 
-示例：
+说明：
 
-```bash
-codexs edit packycode --note primary
-codexs edit packycode --api-key sk-new --base-url https://example.com/v1
-codexs edit packycode --tag daily --tag paid
-```
-
-行为说明：
-
-- 只会更新你显式传入的字段
-- 未传入的字段保持不变
+- 只更新显式传入的字段
 - `--tag` 会替换整组标签，而不是追加单个 tag
-- 写入前会备份 `providers.json`
+- 当目标 profile 不存在时，可配合 `--create-profile`、`--model`、`--base-url` 完成重绑定
 
-交互模式：
-
-- 如果没有传任何可编辑字段，TTY 下会进入交互编辑
-
-非交互模式：
-
-- 至少要提供一个需要修改的字段
-
-### 5.6 `switch`
+### 5.7 `switch`
 
 切换当前使用的 provider/profile。
 
@@ -388,57 +330,55 @@ codexs edit packycode --tag daily --tag paid
 codexs switch <provider> [--json] [--codex-dir <path>]
 ```
 
-示例：
-
-```bash
-codexs switch freemodel
-codexs switch freemodel --json
-codexs switch
-```
-
 行为说明：
 
 - 根据 `providers.json` 找到目标 provider
-- 更新相关运行态配置
-- direct provider 会切换当前 active profile，并将 `auth.json` 重写为 `auth_mode = "apikey"` 和 `OPENAI_API_KEY = <provider.apiKey>`
-- Copilot bridge provider 不写 `OPENAI_API_KEY`，而是维护本地 bridge 路由
-- 备份 `config.toml`，并在 direct provider 切换时一并备份 `auth.json`
+- direct provider 会切换 active profile，并将 `auth.json` 重写为 `auth_mode=apikey` 与 `OPENAI_API_KEY=<provider.apiKey>`
+- Copilot bridge provider 会维护本地 bridge 路由，并将认证投影写到本地 bridge secret
+- Copilot bridge provider 会在切换前检查 SDK 和上游登录状态
+- 切换前会备份 `config.toml` 与 `auth.json`
 
-交互模式：
+### 5.8 `bridge start`
 
-- 如果没有传 `<provider>`，TTY 下会弹出 provider 选择器
-- 如果已经传了 `<provider>`，则直接执行，不再额外确认
+启动或复用受管 Copilot bridge。
 
-### 5.7 `remove`
+```bash
+codexs bridge start [provider] [--json] [--codex-dir <path>]
+```
+
+说明：
+
+- 可通过显式 provider、当前 active provider、唯一 provider 或 TTY 选择来解析目标
+- 如果预期端口被占用，会自动寻找新的 5 位端口并持久化
+
+### 5.9 `bridge stop`
+
+停止受管 Copilot bridge。
+
+```bash
+codexs bridge stop [provider] [--json] [--codex-dir <path>]
+```
+
+说明：
+
+- 不修改 `providers.json`
+- 在没有运行中的受管 bridge 时保持幂等
+
+### 5.10 `remove`
 
 删除一个 provider 记录。
 
 ```bash
-codexs remove <provider> [--force] [--json] [--codex-dir <path>]
+codexs remove <provider> [--force] [--switch-to <profile>] [--json] [--codex-dir <path>]
 ```
 
-示例：
-
-```bash
-codexs remove freemodel
-codexs remove freemodel --force --json
-```
-
-行为说明：
+说明：
 
 - 删除的是 `providers.json` 中的记录
-- 删除前会备份 `providers.json`
+- 如果删除的 provider 是当前 active profile 的最后一个绑定项，可先传 `--switch-to`
+- 非交互模式下必须同时传入 `<provider>` 和 `--force`
 
-交互模式：
-
-- 如果没传 provider，可以在 TTY 中选择
-- 无论是否显式传入 provider，交互模式下都会要求确认删除
-
-非交互模式：
-
-- 必须同时传入 `<provider>` 和 `--force`
-
-### 5.8 `import`
+### 5.11 `import`
 
 从外部 JSON 文件导入 provider 配置。
 
@@ -446,30 +386,7 @@ codexs remove freemodel --force --json
 codexs import <file> [--merge] [--json] [--codex-dir <path>]
 ```
 
-示例：
-
-```bash
-codexs import ./providers.json
-codexs import ./providers.json --merge
-codexs import ./providers.json --merge --json
-```
-
-行为说明：
-
-- 默认会用导入文件替换当前 `providers.json`
-- 加上 `--merge` 后，会按 provider 名称做浅合并
-- 冲突时，以导入文件中的 provider 记录为准
-
-交互模式：
-
-- 会在写入前确认是替换还是合并结果
-
-非交互模式：
-
-- 不会弹出路径向导或确认框
-- 会先验证输入文件，再执行写入
-
-### 5.9 `export`
+### 5.12 `export`
 
 导出当前 `providers.json` 到指定文件。
 
@@ -477,22 +394,9 @@ codexs import ./providers.json --merge --json
 codexs export <file> [--force] [--json] [--codex-dir <path>]
 ```
 
-示例：
+说明：
 
-```bash
-codexs export ./providers-backup.json
-codexs export ./providers-backup.json --force
-```
-
-行为说明：
-
-- 将当前受管理 provider 注册表导出为外部 JSON 文件
-
-覆盖规则：
-
-- 如果目标文件不存在，直接导出
-- 如果目标文件已存在，交互模式下会询问是否覆盖
-- 非交互模式下必须显式传 `--force`
+- 目标文件已存在时，非交互模式下必须显式传 `--force`
 
 ## 6. 诊断与恢复
 
@@ -504,19 +408,13 @@ codexs export ./providers-backup.json --force
 codexs doctor [--json] [--codex-dir <path>]
 ```
 
-示例：
-
-```bash
-codexs doctor
-codexs doctor --json
-```
-
 通常会检查：
 
 - 必要文件是否存在
 - provider/profile 映射是否一致
 - 当前运行态是否有漂移
 - Codex CLI 是否可用
+- Copilot SDK、登录状态和 bridge runtime 是否健康
 
 ### 6.2 `rollback`
 
@@ -525,27 +423,6 @@ codexs doctor --json
 ```bash
 codexs rollback [<backup-id>] [--json] [--codex-dir <path>]
 ```
-
-示例：
-
-```bash
-codexs rollback
-codexs rollback 20260511-221457-switch
-codexs rollback 20260511-221457-switch --json
-```
-
-行为说明：
-
-- 不带参数时，默认回滚最近一次受管备份
-- 传入 `<backup-id>` 时，回滚到指定备份
-
-交互模式：
-
-- 会先展示目标备份和受影响文件，再要求确认
-
-非交互模式：
-
-- 直接执行，不会二次确认
 
 ## 7. JSON 输出与自动化建议
 
@@ -560,17 +437,8 @@ codexs <command> --json
 - 始终显式传入必需参数，不依赖交互输入
 - 使用 `--json` 获取稳定输出
 - 对危险命令显式传入控制参数，例如 `--force`、`--merge`、`--overwrite`
-- 对多环境调试使用 `--codex-dir <path>`，避免误改默认 `~/.codex`
-
-适合自动化的例子：
-
-```bash
-codexs list --json
-codexs show packycode --json
-codexs switch packycode --json
-codexs export ./providers.snapshot.json --force --json
-codexs rollback 20260511-221457-switch --json
-```
+- 对多环境调试使用 `--codex-dir <path>` 和 `CODEXS_HOME`
+- 不要在自动化环境中调用 `login copilot`
 
 ## 8. 典型使用流程
 
@@ -583,7 +451,7 @@ codexs list
 codexs doctor
 ```
 
-### 8.2 新增并切换到一个 provider
+### 8.2 新增并切换到一个 direct provider
 
 ```bash
 codexs add my-provider --profile my-provider --api-key sk-xxx
@@ -591,25 +459,27 @@ codexs switch my-provider
 codexs current
 ```
 
-### 8.3 批量迁移 provider 配置
+### 8.3 接入 GitHub Copilot provider
 
 ```bash
-codexs export ./providers.backup.json
-codexs import ./team.providers.json --merge
-codexs doctor
+codexs login copilot
+codexs add copilot-main --copilot --profile copilot-main
+codexs switch copilot-main
+codexs bridge status copilot-main
 ```
 
-### 8.4 出现错误后恢复
+### 8.4 检查 config profile 与受管态映射
+
+```bash
+codexs config list-profiles
+codexs config show
+```
+
+### 8.5 出现错误后恢复
 
 ```bash
 codexs backups list
 codexs rollback
-```
-
-或者：
-
-```bash
-codexs rollback <backup-id>
 ```
 
 ## 9. 危险命令说明
@@ -621,6 +491,7 @@ codexs rollback <backup-id>
 - `add`
 - `edit`
 - `switch`
+- `bridge start`
 - `remove`
 - `import`
 - `export`（目标文件已存在时）
@@ -630,7 +501,7 @@ codexs rollback <backup-id>
 
 - 人工操作先执行 `backups list`
 - 自动化操作统一加 `--json`
-- 在测试目录中先用 `--codex-dir <path>` 验证流程
+- 在测试目录中先用 `--codex-dir <path>` 与 `CODEXS_HOME` 验证流程
 
 ## 10. 查看命令帮助
 
@@ -644,10 +515,10 @@ codexs --help
 
 ```bash
 codexs help init
-codexs help migrate
-codexs help setup
+codexs help login
+codexs help bridge
+codexs help config
 codexs help add
 codexs help switch
-codexs help backups
 codexs help rollback
 ```

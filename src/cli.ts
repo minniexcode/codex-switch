@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { CommandExecutionContext } from "./commands/types";
-import { executeCommand } from "./commands/dispatch";
 import { parseArgs } from "./commands/args";
 import { buildHelpText, getKnownCommandNames, isKnownCommandNameForHelp } from "./commands/help";
 import { cliError, normalizeError } from "./domain/errors";
@@ -60,7 +59,8 @@ export function main(): void {
     options: parsed.globalOptions,
   };
 
-  executeCommand(ctx, parsed)
+  import("./commands/dispatch")
+    .then(({ executeCommand }) => executeCommand(ctx, parsed))
     .then((result) => {
       outputSuccess(ctx, result);
     })
