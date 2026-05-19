@@ -65,8 +65,12 @@ export type CopilotBridgeStartResult = {
 /**
  * Returns the last known Copilot bridge runtime status.
  */
-export async function probeCopilotBridgeRuntime(provider: ProviderRecord | null, persistedState?: CopilotBridgeState | null): Promise<RuntimeAvailability> {
-  const state = persistedState === undefined ? readCopilotBridgeState() : persistedState;
+export async function probeCopilotBridgeRuntime(
+  provider: ProviderRecord | null,
+  persistedState?: CopilotBridgeState | null,
+  runtimeDir?: string
+): Promise<RuntimeAvailability> {
+  const state = persistedState === undefined ? readCopilotBridgeState(runtimeDir) : persistedState;
   if (state && (!provider || !isCopilotBridgeProvider(provider))) {
     return {
       ok: false,
@@ -126,7 +130,7 @@ export async function probeCopilotBridgeRuntime(provider: ProviderRecord | null,
   writeCopilotBridgeState({
     ...state,
     lastHealthcheckAt: new Date().toISOString(),
-  });
+  }, runtimeDir);
   return {
     ok: true,
     runtime: "copilot-bridge",
@@ -137,14 +141,14 @@ export async function probeCopilotBridgeRuntime(provider: ProviderRecord | null,
 /**
  * Starts or reuses a Copilot bridge worker, then verifies its health before returning.
  */
-export async function ensureCopilotBridge(providerName: string, provider: ProviderRecord): Promise<CopilotBridgeStartResult> {
-  return startOrReuseCopilotBridge(providerName, provider);
+export async function ensureCopilotBridge(providerName: string, provider: ProviderRecord, runtimeDir?: string): Promise<CopilotBridgeStartResult> {
+  return startOrReuseCopilotBridge(providerName, provider, runtimeDir);
 }
 
 /**
  * Starts or reuses a Copilot bridge worker and reports the chosen port.
  */
-export async function startOrReuseCopilotBridge(providerName: string, provider: ProviderRecord): Promise<CopilotBridgeStartResult> {
+export async function startOrReuseCopilotBridge(providerName: string, provider: ProviderRecord, runtimeDir?: string): Promise<CopilotBridgeStartResult> {
   if (!isCopilotBridgeProvider(provider)) {
     throw cliError("RUNTIME_PROVIDER_INVALID", "Provider is not backed by a Copilot bridge runtime.", {
       provider: providerName,
@@ -157,7 +161,7 @@ export async function startOrReuseCopilotBridge(providerName: string, provider: 
     });
   }
   const expectedBaseUrl = buildCopilotBridgeBaseUrl(runtime);
-  const current = readCopilotBridgeState();
+  const current = readCopilotBridgeState(runtimeDir);
   let replaced = false;
   if (current && current.provider === providerName && current.baseUrl === expectedBaseUrl) {
     const healthy = await healthcheckCopilotBridge(current.host, current.port);
@@ -178,7 +182,7 @@ export async function startOrReuseCopilotBridge(providerName: string, provider: 
   }
 
   if (current && current.provider !== providerName) {
-    stopCopilotBridge();
+    stopCopilotBridge(runtimeDir);
     replaced = true;
   }
 
@@ -213,7 +217,7 @@ export async function startOrReuseCopilotBridge(providerName: string, provider: 
   const startedAt = new Date().toISOString();
   const healthy = await waitForCopilotBridgeStartup(child, runtime.bridgeHost, selectedPort, 15, 200);
   if (!healthy.ok) {
-    clearCopilotBridgeState();
+    clearCopilotBridgeState(runtimeDir);
     if (healthy.reason === "start-failed") {
       throw cliError("BRIDGE_START_FAILED", "Copilot bridge worker exited before becoming healthy.", {
         provider: providerName,
@@ -239,7 +243,7 @@ export async function startOrReuseCopilotBridge(providerName: string, provider: 
     startedAt,
     lastHealthcheckAt: new Date().toISOString(),
   };
-  writeCopilotBridgeState(state);
+  writeCopilotBridgeState(state, runtimeDir);
 
   return {
     baseUrl: selectedBaseUrl,
@@ -350,8 +354,8 @@ export async function waitForCopilotBridgeHealth(host: string, port: number, att
 /**
  * Stops the currently persisted Copilot bridge worker when possible.
  */
-export function stopCopilotBridge(): void {
-  const state = readCopilotBridgeState();
+export function stopCopilotBridge(runtimeDir?: string): void {
+  const state = readCopilotBridgeState(runtimeDir);
   if (state?.pid) {
     try {
       process.kill(state.pid);
@@ -359,7 +363,7 @@ export function stopCopilotBridge(): void {
       // Ignore best-effort bridge cleanup failures.
     }
   }
-  clearCopilotBridgeState();
+  clearCopilotBridgeState(runtimeDir);
 }
 
 async function checkPortAvailability(host: string, port: number): Promise<{ ok: true } | { ok: false; cause: string }> {

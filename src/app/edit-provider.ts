@@ -17,6 +17,7 @@ import { CommandResult } from "./types";
  */
 export function editProvider(args: {
   codexDir: string;
+  lockPath: string;
   backupsDir: string;
   latestBackupPath: string;
   providersPath: string;
@@ -133,7 +134,7 @@ export function editProvider(args: {
   });
 
   return runMutation({
-    codexDir: args.codexDir,
+    lockPath: args.lockPath,
     backupsDir: args.backupsDir,
     latestBackupPath: args.latestBackupPath,
     operation: "edit",

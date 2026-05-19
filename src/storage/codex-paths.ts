@@ -2,24 +2,54 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 export const CODEX_DIR_ENV_NAME = "CODEXS_CODEX_DIR";
+export const TOOL_HOME_ENV_NAME = "CODEXS_HOME";
 const DEVELOPMENT_DEFAULT_CODEX_DIR = path.resolve(process.cwd(), "dev-codex", "local-sandbox");
 
 /**
- * Absolute paths used by codex-switch inside the Codex home directory.
+ * Absolute paths used by codex-switch across its tool home and the target Codex directory.
  */
 export type CodexPaths = {
-  codexDir: string;
-  configPath: string;
+  toolHomeDir: string;
+  toolConfigPath: string;
   providersPath: string;
-  authPath: string;
   backupsDir: string;
   latestBackupPath: string;
+  lockPath: string;
+  runtimeDir: string;
+  runtimesDir: string;
+  codexDir: string;
+  configPath: string;
+  authPath: string;
 };
 
 /**
- * Resolves the working Codex directory, defaulting to `~/.codex`.
+ * Stored tool-level configuration for codex-switch.
  */
-export function resolveCodexDir(codexDir?: string): string {
+export type CodexSwitchConfig = {
+  version: string;
+  defaultCodexDir?: string;
+};
+
+/**
+ * Resolves the tool home directory, defaulting to `~/.config/codex-switch`.
+ */
+export function resolveCodexSwitchHome(toolHomeDir?: string): string {
+  if (toolHomeDir) {
+    return path.resolve(toolHomeDir);
+  }
+
+  const envToolHome = process.env[TOOL_HOME_ENV_NAME];
+  if (envToolHome) {
+    return path.resolve(envToolHome);
+  }
+
+  return path.join(os.homedir(), ".config", "codex-switch");
+}
+
+/**
+ * Resolves the working Codex directory using the documented precedence order.
+ */
+export function resolveCodexDir(codexDir?: string, toolConfig?: CodexSwitchConfig | null): string {
   if (codexDir) {
     return path.resolve(codexDir);
   }
@@ -27,6 +57,10 @@ export function resolveCodexDir(codexDir?: string): string {
   const envCodexDir = process.env[CODEX_DIR_ENV_NAME];
   if (envCodexDir) {
     return path.resolve(envCodexDir);
+  }
+
+  if (toolConfig?.defaultCodexDir) {
+    return path.resolve(toolConfig.defaultCodexDir);
   }
 
   if (process.env.NODE_ENV === "development") {
@@ -37,15 +71,23 @@ export function resolveCodexDir(codexDir?: string): string {
 }
 
 /**
- * Expands a Codex home directory into the file paths used by the CLI.
+ * Expands the tool home and Codex runtime into the file paths used by the CLI.
  */
-export function createCodexPaths(codexDir: string): CodexPaths {
+export function createCodexPaths(args: { codexDir: string; toolHomeDir?: string } | string): CodexPaths {
+  const input = typeof args === "string" ? { codexDir: args } : args;
+  const toolHomeDir = resolveCodexSwitchHome(input.toolHomeDir);
+  const codexDir = path.resolve(input.codexDir);
   return {
+    toolHomeDir,
+    toolConfigPath: path.join(toolHomeDir, "codex-switch.json"),
+    providersPath: path.join(toolHomeDir, "providers.json"),
+    backupsDir: path.join(toolHomeDir, "backups"),
+    latestBackupPath: path.join(toolHomeDir, "backups", "latest.json"),
+    lockPath: path.join(toolHomeDir, ".codex-switch.lock"),
+    runtimeDir: path.join(toolHomeDir, "runtime"),
+    runtimesDir: path.join(toolHomeDir, "runtimes"),
     codexDir,
     configPath: path.join(codexDir, "config.toml"),
-    providersPath: path.join(codexDir, "providers.json"),
     authPath: path.join(codexDir, "auth.json"),
-    backupsDir: path.join(codexDir, "backups"),
-    latestBackupPath: path.join(codexDir, "backups", "latest.json"),
   };
 }

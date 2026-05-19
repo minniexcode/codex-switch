@@ -21,6 +21,8 @@ export async function runDoctor(args: {
   configPath: string;
   providersPath: string;
   authPath: string;
+  runtimeDir?: string;
+  runtimesDir?: string;
 }): Promise<CommandResult> {
   const issues: Array<Record<string, unknown>> = [];
   let currentProfile: string | null = null;
@@ -74,7 +76,7 @@ export async function runDoctor(args: {
   }
 
   const authState = readAuthFileState(args.authPath);
-  const runtimeStateInspection = inspectCopilotBridgeState();
+  const runtimeStateInspection = inspectCopilotBridgeState(args.runtimeDir);
   const runtimeState = runtimeStateInspection.state;
   if (authState.exists && !authState.valid) {
     issues.push({
@@ -95,7 +97,7 @@ export async function runDoctor(args: {
     if (matches.length === 1) {
       const activeProvider = providers.providers[matches[0]];
       if (isCopilotBridgeProvider(activeProvider)) {
-        const installStatus = probeCopilotSdkInstall();
+        const installStatus = probeCopilotSdkInstall(args.runtimesDir);
         if (!installStatus.installed) {
           issues.push({
             code: "COPILOT_SDK_MISSING",
@@ -105,7 +107,7 @@ export async function runDoctor(args: {
           });
         }
         try {
-          await readCopilotAuthState();
+          await readCopilotAuthState(args.runtimesDir);
         } catch (error: unknown) {
           const normalized = normalizeError(error);
           issues.push({
@@ -114,7 +116,7 @@ export async function runDoctor(args: {
             ...(normalized.details ?? {}),
           });
         }
-        const bridge = await probeCopilotBridgeRuntime(activeProvider, runtimeState);
+        const bridge = await probeCopilotBridgeRuntime(activeProvider, runtimeState, args.runtimeDir);
         if (!bridge.ok) {
           issues.push({
             code: mapBridgeDiagnosticCode(bridge.cause),
@@ -174,7 +176,14 @@ export async function runDoctor(args: {
       healthy: issues.length === 0,
       issues,
       codexDir: args.codexDir,
-      storage: getStorageRoles(),
+      storage: getStorageRoles({
+        codexDir: args.codexDir,
+        providersPath: args.providersPath,
+        configPath: args.configPath,
+        authPath: args.authPath,
+        runtimeDir: args.runtimeDir,
+        runtimesDir: args.runtimesDir,
+      }),
       liveState: drift,
       auth: authState,
     },

@@ -18,11 +18,14 @@ import { CommandResult } from "./types";
  */
 export async function switchProvider(args: {
   codexDir: string;
+  lockPath: string;
   backupsDir: string;
   latestBackupPath: string;
   configPath: string;
   providersPath: string;
   authPath: string;
+  runtimeDir?: string;
+  runtimesDir?: string;
   providerName: string;
 }): Promise<CommandResult> {
   const providers = readProvidersFile(args.providersPath);
@@ -35,15 +38,15 @@ export async function switchProvider(args: {
 
   const document = ensureProfileExists(args.configPath, provider.profile, args.providerName);
   if (isCopilotBridgeProvider(provider)) {
-    const installStatus = probeCopilotSdkInstall();
+    const installStatus = probeCopilotSdkInstall(args.runtimesDir);
     if (!installStatus.installed) {
       throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed.", {
         installDir: installStatus.installDir,
         packageName: installStatus.packageName,
       });
     }
-    await readCopilotAuthState();
-    const bridge = await ensureCopilotBridge(args.providerName, provider);
+    await readCopilotAuthState(args.runtimesDir);
+    const bridge = await ensureCopilotBridge(args.providerName, provider, args.runtimeDir);
     const nextProvider = bridge.portChanged
       ? cleanProviderRecord({
           ...provider,
@@ -56,7 +59,7 @@ export async function switchProvider(args: {
       : provider;
     try {
       return runMutation({
-        codexDir: args.codexDir,
+        lockPath: args.lockPath,
         backupsDir: args.backupsDir,
         latestBackupPath: args.latestBackupPath,
         operation: "switch",
@@ -94,13 +97,13 @@ export async function switchProvider(args: {
       });
     } catch (error: unknown) {
       if (!bridge.reused) {
-        stopCopilotBridge();
+        stopCopilotBridge(args.runtimeDir);
       }
       throw error;
     }
   }
   return runMutation({
-    codexDir: args.codexDir,
+    lockPath: args.lockPath,
     backupsDir: args.backupsDir,
     latestBackupPath: args.latestBackupPath,
     operation: "switch",

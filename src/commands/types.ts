@@ -3,7 +3,7 @@
  */
 export type GlobalOptions = {
   json: boolean;
-  codexDir: string;
+  codexDir: string | null;
   codexDirExplicit?: boolean;
 };
 
@@ -17,6 +17,7 @@ export type CommandId =
   | "bridge-stop"
   | "bridge-status"
   | "init"
+  | "login"
   | "migrate"
   | "list"
   | "show"

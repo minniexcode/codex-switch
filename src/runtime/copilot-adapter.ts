@@ -17,8 +17,8 @@ type CopilotSessionOptions = {
 /**
  * Probes whether the optional Copilot SDK runtime is installed and loadable.
  */
-export function probeCopilotSdkRuntime(): RuntimeAvailability {
-  const status = probeCopilotSdkInstall();
+export function probeCopilotSdkRuntime(runtimesDir?: string): RuntimeAvailability {
+  const status = probeCopilotSdkInstall(runtimesDir);
   if (!status.installed) {
     return {
       ok: false,
@@ -45,19 +45,19 @@ export function probeCopilotSdkRuntime(): RuntimeAvailability {
 /**
  * Loads the lazily installed Copilot SDK and returns the module.
  */
-export async function requireCopilotSdk(): Promise<unknown> {
-  return loadCopilotSdk();
+export async function requireCopilotSdk(runtimesDir?: string): Promise<unknown> {
+  return loadCopilotSdk(runtimesDir);
 }
 
 /**
  * Probes whether the lazily installed Copilot SDK can create a usable session.
  */
-export async function readCopilotAuthState(): Promise<{ ready: boolean; source: string; mode: string }> {
-  const runtime = probeCopilotSdkRuntime();
+export async function readCopilotAuthState(runtimesDir?: string): Promise<{ ready: boolean; source: string; mode: string }> {
+  const runtime = probeCopilotSdkRuntime(runtimesDir);
   if (!runtime.ok) {
     throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed.", runtime.details);
   }
-  const { client, session } = await createCopilotSession();
+  const { client, session } = await createCopilotSession(runtimesDir);
   await stopCopilotClient(client);
   return {
     ready: Boolean(session),
@@ -72,8 +72,9 @@ export async function readCopilotAuthState(): Promise<{ ready: boolean; source: 
 export async function sendCopilotChatCompletion(args: {
   provider: string;
   payload: Record<string, unknown>;
+  runtimesDir?: string;
 }): Promise<Record<string, unknown>> {
-  const { client, session, sdk } = await createCopilotSession();
+  const { client, session, sdk } = await createCopilotSession(args.runtimesDir);
   try {
     const sendAndWait = resolveCallable(session, "sendAndWait") ?? resolveCallable(sdk, "sendAndWait");
     if (!sendAndWait) {
@@ -123,12 +124,12 @@ export async function sendCopilotChatCompletion(args: {
   }
 }
 
-async function createCopilotSession(): Promise<{
+async function createCopilotSession(runtimesDir?: string): Promise<{
   sdk: CopilotSdkModule;
   client: CopilotClientLike | null;
   session: CopilotSessionLike;
 }> {
-  const sdk = (await requireCopilotSdk()) as CopilotSdkModule;
+  const sdk = (await requireCopilotSdk(runtimesDir)) as CopilotSdkModule;
   const client = createCopilotClient(sdk);
   const createSession =
     resolveCallable(client ? (client as Record<string, unknown>) : null, "createSession") ?? resolveCallable(sdk, "createSession");

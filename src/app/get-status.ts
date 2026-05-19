@@ -14,7 +14,13 @@ import { CommandResult } from "./types";
 /**
  * Reports the current on-disk runtime state and how it maps back to managed providers.
  */
-export async function getStatus(codexDir: string, configPath: string, providersPath: string, authPath: string): Promise<CommandResult> {
+export async function getStatus(
+  codexDir: string,
+  configPath: string,
+  providersPath: string,
+  authPath: string,
+  options?: { runtimeDir?: string; runtimesDir?: string }
+): Promise<CommandResult> {
   const configExists = fs.existsSync(configPath);
   const providersExists = fs.existsSync(providersPath);
   let currentProfile: string | null = null;
@@ -38,8 +44,8 @@ export async function getStatus(codexDir: string, configPath: string, providersP
   const activeProviderCandidates = currentProfile && providers ? findProvidersByProfile(providers, currentProfile) : [];
   const activeProvider =
     activeProviderCandidates.length === 1 && providers ? providers.providers[activeProviderCandidates[0]] : null;
-  const copilotInstall = probeCopilotSdkInstall();
-  const runtimeStateInspection = inspectCopilotBridgeState();
+  const copilotInstall = probeCopilotSdkInstall(options?.runtimesDir);
+  const runtimeStateInspection = inspectCopilotBridgeState(options?.runtimeDir);
   const runtimeState = runtimeStateInspection.state;
   const runtimeStateProvider = runtimeState && providers ? providers.providers[runtimeState.provider] ?? null : null;
   const bridgeProbeTarget =
@@ -56,7 +62,7 @@ export async function getStatus(codexDir: string, configPath: string, providersP
         cause: runtimeStateInspection.parseError ?? "Failed to parse Copilot bridge runtime state.",
       }
     : bridgeProbeTarget
-      ? await probeCopilotBridgeRuntime(bridgeProbeTarget, runtimeState)
+      ? await probeCopilotBridgeRuntime(bridgeProbeTarget, runtimeState, options?.runtimeDir)
       : runtimeState
         ? {
             ok: false,
@@ -68,7 +74,7 @@ export async function getStatus(codexDir: string, configPath: string, providersP
         : null;
   const copilotAuth =
     activeProvider && isCopilotBridgeProvider(activeProvider)
-      ? await readCopilotAuthState().catch((error: unknown) => ({
+      ? await readCopilotAuthState(options?.runtimesDir).catch((error: unknown) => ({
           ready: false,
           source: "official-sdk",
           mode: "session",
@@ -85,12 +91,19 @@ export async function getStatus(codexDir: string, configPath: string, providersP
 
   return {
     warnings,
-    data: {
-      codexDir,
-      storage: getStorageRoles(),
-      configExists,
-      providersExists,
-      currentProfile,
+      data: {
+        codexDir,
+        storage: getStorageRoles({
+          codexDir,
+          providersPath,
+          configPath,
+          authPath,
+          runtimeDir: options?.runtimeDir,
+          runtimesDir: options?.runtimesDir,
+        }),
+        configExists,
+        providersExists,
+        currentProfile,
       currentProfileMapped: liveState.profileMapped,
       provider: liveState.mappedProvider,
       activeProviderResolvable: activeProviderCandidates.length === 1,

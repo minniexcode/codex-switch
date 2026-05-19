@@ -14,6 +14,7 @@ import { CommandResult } from "./types";
  */
 export function importProviders(args: {
   codexDir: string;
+  lockPath: string;
   backupsDir: string;
   latestBackupPath: string;
   providersPath: string;
@@ -36,7 +37,7 @@ export function importProviders(args: {
   ensureDir(args.codexDir);
   const document = readStructuredConfig(args.configPath);
   return runMutation({
-    codexDir: args.codexDir,
+    lockPath: args.lockPath,
     backupsDir: args.backupsDir,
     latestBackupPath: args.latestBackupPath,
     operation: "import",

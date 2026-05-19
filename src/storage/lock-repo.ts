@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
 import { cliError } from "../domain/errors";
 import { ensureDir } from "./fs-utils";
 
@@ -15,9 +14,8 @@ type LockRecord = {
 /**
  * Executes a mutation while holding an exclusive codex-switch lock file.
  */
-export function withCodexLock<T>(codexDir: string, operation: string, run: () => T): T {
-  ensureDir(codexDir);
-  const lockPath = path.join(codexDir, ".codex-switch.lock");
+export function withCodexLock<T>(lockPath: string, operation: string, run: () => T): T {
+  ensureDir(require("node:path").dirname(lockPath));
   acquireLock(lockPath, operation);
   try {
     return run();

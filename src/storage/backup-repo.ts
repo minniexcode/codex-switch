@@ -9,7 +9,6 @@ import { ensureDir, writeTextFileAtomic } from "./fs-utils";
  * Creates a point-in-time backup for the managed files involved in a mutation.
  */
 export function createBackup(
-  codexDir: string,
   backupsDir: string,
   reason: string,
   files: Array<{ absolutePath: string; relativePath: string }>
@@ -30,6 +29,7 @@ export function createBackup(
 
       entries.push({
         relativePath: file.relativePath,
+        restorePath: file.absolutePath,
         existed: exists,
         backupFileName,
       });
@@ -39,7 +39,6 @@ export function createBackup(
       version: 1,
       createdAt: new Date().toISOString(),
       reason,
-      rootDir: codexDir,
       backupDir,
       files: entries,
     };
@@ -54,11 +53,11 @@ export function createBackup(
 }
 
 /**
- * Restores all files described by a backup manifest back into the Codex directory.
+ * Restores all files described by a backup manifest back into their original paths.
  */
 export function restoreManifest(manifest: BackupManifest): void {
   for (const entry of manifest.files) {
-    const targetPath = path.join(manifest.rootDir, entry.relativePath);
+    const targetPath = entry.restorePath;
     if (!entry.existed) {
       if (fs.existsSync(targetPath)) {
         // Remove files that were created by the failed mutation but were absent before it.

@@ -1,13 +1,39 @@
+import * as path from "node:path";
 import { ProvidersFile } from "./providers";
 
 /**
  * Documents how codex-switch splits managed state across configuration files.
  */
+export type StorageLocation = {
+  scope: "toolHome" | "targetRuntime";
+  path: string;
+};
+
 export type StorageRoles = {
-  managementSSOT: "providers.json";
-  runtimeMirrors: ["config.toml"];
-  authStateFile: "auth.json";
-  rollbackState: "backups/latest.json";
+  toolHome: {
+    root: string;
+    toolConfig: string;
+    providers: string;
+    backupsDir: string;
+    latestBackup: string;
+    runtimeStateDir: string;
+    runtimeInstallDir: string;
+  };
+  targetRuntime: {
+    root: string;
+    config: string;
+    auth: string;
+  };
+  managementSSOT: StorageLocation;
+  runtimeMirrors: [StorageLocation];
+  authStateFile: StorageLocation;
+  rollbackState: StorageLocation;
+  runtimeState: StorageLocation & {
+    managedBackup: false;
+  };
+  runtimeInstall: StorageLocation & {
+    managedBackup: false;
+  };
 };
 
 /**
@@ -29,12 +55,61 @@ export type LiveStateDrift = {
 /**
  * Returns the stable storage contract used by the CLI.
  */
-export function getStorageRoles(): StorageRoles {
+export function getStorageRoles(args: {
+  codexDir: string;
+  providersPath: string;
+  configPath: string;
+  authPath: string;
+  runtimeDir?: string;
+  runtimesDir?: string;
+}): StorageRoles {
+  const toolHomeDir = path.dirname(path.resolve(args.providersPath));
+  const backupsDir = path.join(toolHomeDir, "backups");
+  const runtimeDir = args.runtimeDir ? path.resolve(args.runtimeDir) : path.join(toolHomeDir, "runtime");
+  const runtimesDir = args.runtimesDir ? path.resolve(args.runtimesDir) : path.join(toolHomeDir, "runtimes");
   return {
-    managementSSOT: "providers.json",
-    runtimeMirrors: ["config.toml"],
-    authStateFile: "auth.json",
-    rollbackState: "backups/latest.json",
+    toolHome: {
+      root: toolHomeDir,
+      toolConfig: path.join(toolHomeDir, "codex-switch.json"),
+      providers: path.resolve(args.providersPath),
+      backupsDir,
+      latestBackup: path.join(backupsDir, "latest.json"),
+      runtimeStateDir: runtimeDir,
+      runtimeInstallDir: runtimesDir,
+    },
+    targetRuntime: {
+      root: path.resolve(args.codexDir),
+      config: path.resolve(args.configPath),
+      auth: path.resolve(args.authPath),
+    },
+    managementSSOT: {
+      scope: "toolHome",
+      path: path.resolve(args.providersPath),
+    },
+    runtimeMirrors: [
+      {
+        scope: "targetRuntime",
+        path: path.resolve(args.configPath),
+      },
+    ],
+    authStateFile: {
+      scope: "targetRuntime",
+      path: path.resolve(args.authPath),
+    },
+    rollbackState: {
+      scope: "toolHome",
+      path: path.join(backupsDir, "latest.json"),
+    },
+    runtimeState: {
+      scope: "toolHome",
+      path: runtimeDir,
+      managedBackup: false,
+    },
+    runtimeInstall: {
+      scope: "toolHome",
+      path: runtimesDir,
+      managedBackup: false,
+    },
   };
 }
 

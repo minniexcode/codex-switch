@@ -34,9 +34,6 @@ export function validateBackupManifest(input: unknown): BackupManifest {
   if (typeof manifest.reason !== "string" || manifest.reason.trim() === "") {
     throw new Error("Backup manifest is missing reason.");
   }
-  if (typeof manifest.rootDir !== "string" || manifest.rootDir.trim() === "") {
-    throw new Error("Backup manifest is missing rootDir.");
-  }
   if (typeof manifest.backupDir !== "string" || manifest.backupDir.trim() === "") {
     throw new Error("Backup manifest is missing backupDir.");
   }
@@ -49,7 +46,12 @@ export function validateBackupManifest(input: unknown): BackupManifest {
       throw new Error("Backup manifest contains an invalid file entry.");
     }
 
-    if (typeof entry.relativePath !== "string" || typeof entry.existed !== "boolean") {
+    if (
+      typeof entry.relativePath !== "string" ||
+      typeof entry.restorePath !== "string" ||
+      entry.restorePath.trim() === "" ||
+      typeof entry.existed !== "boolean"
+    ) {
       throw new Error("Backup manifest contains an invalid file entry.");
     }
 

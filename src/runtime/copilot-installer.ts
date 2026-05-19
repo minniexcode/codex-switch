@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { cliError } from "../domain/errors";
+import { resolveCodexSwitchHome } from "../storage/codex-paths";
 import { OptionalRuntimeInstallStatus } from "./types";
 
 const COPILOT_SDK_PACKAGE = "@github/copilot-sdk";
@@ -27,14 +27,15 @@ export function resetCopilotInstallerSpawnImplementation(): void {
 }
 
 /**
- * Returns the user-level runtime directory used to lazily install the Copilot SDK.
+ * Returns the tool-home runtime directory used to lazily install the Copilot SDK.
  */
-export function getCopilotRuntimeInstallDir(): string {
+export function getCopilotRuntimeInstallDir(runtimesDir?: string): string {
   const override = process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR;
   if (override && override.trim() !== "") {
     return path.resolve(override);
   }
-  return path.join(os.homedir(), ".codex-switch", "runtimes", "copilot");
+  const baseRuntimesDir = runtimesDir ? path.resolve(runtimesDir) : path.join(resolveCodexSwitchHome(), "runtimes");
+  return path.join(baseRuntimesDir, "copilot");
 }
 
 /**
@@ -47,8 +48,8 @@ export function getCopilotSdkPackageName(): string {
 /**
  * Reports whether the optional Copilot SDK runtime is currently installed.
  */
-export function probeCopilotSdkInstall(): OptionalRuntimeInstallStatus {
-  const installDir = getCopilotRuntimeInstallDir();
+export function probeCopilotSdkInstall(runtimesDir?: string): OptionalRuntimeInstallStatus {
+  const installDir = getCopilotRuntimeInstallDir(runtimesDir);
   const packageJsonPath = path.join(installDir, "node_modules", "@github", "copilot-sdk", "package.json");
   if (!fs.existsSync(packageJsonPath)) {
     return {
@@ -70,8 +71,8 @@ export function probeCopilotSdkInstall(): OptionalRuntimeInstallStatus {
 /**
  * Installs the optional Copilot SDK into the user-level runtime directory.
  */
-export function installCopilotSdk(): OptionalRuntimeInstallStatus {
-  const installDir = getCopilotRuntimeInstallDir();
+export function installCopilotSdk(runtimesDir?: string): OptionalRuntimeInstallStatus {
+  const installDir = getCopilotRuntimeInstallDir(runtimesDir);
   fs.mkdirSync(installDir, { recursive: true });
   const packageJsonPath = path.join(installDir, "package.json");
   if (!fs.existsSync(packageJsonPath)) {
@@ -111,7 +112,7 @@ export function installCopilotSdk(): OptionalRuntimeInstallStatus {
     });
   }
 
-  return probeCopilotSdkInstall();
+  return probeCopilotSdkInstall(runtimesDir);
 }
 
 /**

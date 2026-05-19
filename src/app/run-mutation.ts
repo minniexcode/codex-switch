@@ -16,15 +16,17 @@ type MutationContext = {
  * Runs a write operation under a lock with automatic backup and rollback handling.
  */
 export function runMutation<TData extends Record<string, unknown>>(args: {
-  codexDir: string;
+  codexDir?: string;
+  lockPath?: string;
   backupsDir: string;
   latestBackupPath: string;
   operation: string;
   files: ManagedFile[];
   mutate: (context: MutationContext) => TData;
 }): { data: TData & { backupPath: string; managedState: Record<string, unknown> } } {
-  return withCodexLock(args.codexDir, args.operation, () => {
-    const backup = createBackup(args.codexDir, args.backupsDir, args.operation, args.files);
+  const lockPath = args.lockPath ?? require("node:path").join(args.codexDir ?? process.cwd(), ".codex-switch.lock");
+  return withCodexLock(lockPath, args.operation, () => {
+    const backup = createBackup(args.backupsDir, args.operation, args.files);
     try {
       const data = args.mutate({ backup });
       // Record the successful backup only after the mutation completes.

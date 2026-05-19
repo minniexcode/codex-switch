@@ -20,6 +20,12 @@ Follow the existing TypeScript style: 2-space indentation, semicolons, double-qu
 
 Implementation files under `src/` must include English JSDoc comments for exported functions, complex private helpers, and exported types that carry non-obvious contract meaning. Add concise intent comments only where control flow, mutation ordering, rollback safety, config precedence, or parsing assumptions are not self-evident, and avoid comments that merely restate obvious code. Pure re-export or barrel files should carry a short module-level comment instead of redundant per-symbol comments.
 
+## Development Version Policy
+
+Until the user explicitly declares a real release, this repository should be treated as development-version software, including versions named `0.1.0`. Do not add automatic migration, backward-compatibility shims, dual-read/dual-write paths, or other upgrade-preservation logic unless the user explicitly asks for them in the current task. Prefer the minimum clean implementation for current requirements, and treat old local state as something the user may handle manually by cleanup, copying files, or re-adding providers.
+
+Command-surface errors do not need to be forced into `src/domain/errors.ts` or a single shared error-code union. When a command-specific interactive or integration flow needs its own error family, it may define and organize those errors separately as long as the public command contract stays explicit and consistent.
+
 ## Testing Guidelines
 
 Tests are plain Node-based specs, not Jest/Vitest. Add coverage by extending `tests/*.spec.js` and wiring new suites through `tests/run-tests.js` when needed. Prefer focused fixture-driven tests using `dev-codex/local-sandbox/` or a new isolated fixture directory. Name tests after the feature area they cover, for example `switch-provider` behavior in `app.spec.js` or argument parsing in `cli.spec.js`.

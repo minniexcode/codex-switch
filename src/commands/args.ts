@@ -8,7 +8,7 @@ import { resolveCommandFromArgv } from "./registry";
  */
 export function parseArgs(argv: string[]): ParsedCommand {
   let json = false;
-  let codexDir = resolveCodexDir();
+  let codexDir: string | null = null;
   let codexDirExplicit = false;
   const remaining: string[] = [];
 
@@ -112,7 +112,7 @@ function defaultParsed(
   command: CommandId | null,
   overrides?: {
     json?: boolean;
-    codexDir?: string;
+    codexDir?: string | null;
     helpRequested?: boolean;
     helpTarget?: string | null;
     versionRequested?: boolean;
@@ -123,7 +123,7 @@ function defaultParsed(
     positionals: [],
     globalOptions: {
       json: overrides?.json ?? false,
-      codexDir: overrides?.codexDir ?? resolveCodexDir(),
+      codexDir: overrides?.codexDir ?? null,
       codexDirExplicit: false,
     },
     commandOptions: new Map<string, string[]>(),

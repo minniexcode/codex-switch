@@ -23,9 +23,12 @@ const MIN_CODEX_VERSION = "0.0.1";
 export async function migrateCodex(args: {
   codexDirOption?: string | null;
   codexDir: string;
+  lockPath: string;
   configPath: string;
   providersPath: string;
   authPath: string;
+  runtimeDir?: string;
+  runtimesDir?: string;
   backupsDir: string;
   latestBackupPath: string;
   strategy: "merge" | "overwrite";
@@ -122,7 +125,7 @@ export async function migrateCodex(args: {
   const finalProviders = args.strategy === "merge" ? mergeProviders(currentProviders, nextProviders) : nextProviders;
 
   const result = runMutation({
-    codexDir: args.codexDir,
+    lockPath: args.lockPath,
     backupsDir: args.backupsDir,
     latestBackupPath: args.latestBackupPath,
     operation: "migrate",
@@ -156,6 +159,8 @@ export async function migrateCodex(args: {
     configPath: args.configPath,
     providersPath: args.providersPath,
     authPath: args.authPath,
+    runtimeDir: args.runtimeDir,
+    runtimesDir: args.runtimesDir,
   });
 
   return {

@@ -27,7 +27,6 @@ import {
   chooseCodexDir,
   chooseSetupProfiles,
   chooseSetupStrategy,
-  confirmCreateCodexDir,
   collectEditInput,
   collectSetupProviderDetails,
   confirmExportOverwrite,
@@ -55,6 +54,10 @@ export async function handleRegisteredCommand(
   parsed: ParsedCommand,
   runtime = createPromptRuntime()
 ): Promise<import("../app/types").CommandResult> {
+  const packageVersion = (require("../../package.json") as { version?: string }).version ?? "0.0.0";
+  if (!ctx.options.codexDir) {
+    throw cliError("CODEX_DIR_NOT_FOUND", "No Codex directory could be resolved.");
+  }
   let setupPaths = createCodexPaths(ctx.options.codexDir);
   const paths = setupPaths;
 
@@ -79,12 +82,17 @@ export async function handleRegisteredCommand(
     case "current":
       return getCurrentProfile(paths.configPath);
     case "status":
-      return getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath);
+      return getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath, {
+        runtimeDir: paths.runtimeDir,
+        runtimesDir: paths.runtimesDir,
+      });
     case "bridge-start": {
       const providerName = parsed.positionals[0] ?? null;
       return startBridge({
         providersPath: paths.providersPath,
         configPath: paths.configPath,
+        runtimeDir: paths.runtimeDir,
+        runtimesDir: paths.runtimesDir,
         providerName,
         runtime,
         json: ctx.options.json,
@@ -95,6 +103,8 @@ export async function handleRegisteredCommand(
       return stopBridge({
         providersPath: paths.providersPath,
         configPath: paths.configPath,
+        runtimeDir: paths.runtimeDir,
+        runtimesDir: paths.runtimesDir,
         providerName,
         runtime,
         json: ctx.options.json,
@@ -105,57 +115,98 @@ export async function handleRegisteredCommand(
       return statusBridge({
         providersPath: paths.providersPath,
         configPath: paths.configPath,
+        runtimeDir: paths.runtimeDir,
+        runtimesDir: paths.runtimesDir,
         providerName,
         runtime,
         json: ctx.options.json,
       });
     }
     case "init": {
-      let codexDir = ctx.options.codexDir;
-      const candidates = findCodexDirCandidates(ctx.options.codexDirExplicit ? ctx.options.codexDir : null);
-      if (!ctx.options.codexDirExplicit) {
-        if (candidates.length > 1) {
-          if (!canPrompt(runtime, ctx.options.json)) {
-            throw cliError("CODEX_DIR_AMBIGUOUS", "Multiple Codex directories were found.", {
-              candidates,
-            });
-          }
-          codexDir = await chooseCodexDir(runtime, candidates);
-        } else if (candidates.length === 0) {
-          if (!canPrompt(runtime, ctx.options.json)) {
-            throw cliError("CODEX_DIR_NOT_FOUND", "No Codex directory could be found.", {
-              codexDir: ctx.options.codexDir,
-            });
-          }
-          codexDir = await chooseCodexDir(runtime, candidates);
-        } else {
-          codexDir = candidates[0];
-        }
-      }
-
-      setupPaths = createCodexPaths(codexDir);
-      let createCodexDir = false;
-      if (!fs.existsSync(setupPaths.codexDir)) {
-        if (!canPrompt(runtime, ctx.options.json)) {
-          throw cliError("CODEX_DIR_NOT_FOUND", "The requested Codex directory does not exist.", {
-            codexDir: setupPaths.codexDir,
-          });
-        }
-        createCodexDir = await confirmCreateCodexDir(runtime, setupPaths.codexDir);
-        if (!createCodexDir) {
-          throw cliError("CODEX_DIR_NOT_FOUND", "The requested Codex directory does not exist.", {
-            codexDir: setupPaths.codexDir,
-          });
-        }
-      }
-
       return initCodex({
-        codexDir: setupPaths.codexDir,
+        toolHomeDir: setupPaths.toolHomeDir,
+        toolConfigPath: setupPaths.toolConfigPath,
         providersPath: setupPaths.providersPath,
-        configPath: setupPaths.configPath,
-        authPath: setupPaths.authPath,
-        createCodexDir,
+        version: packageVersion,
+        defaultCodexDir: ctx.options.codexDirExplicit ? setupPaths.codexDir : null,
       });
+    }
+    case "login": {
+      const upstream = (parsed.positionals[0] ?? "").toLowerCase();
+      if (ctx.options.json || !runtime.isInteractive()) {
+        throw cliError("COPILOT_LOGIN_REQUIRES_TTY", "login requires an interactive TTY and does not support --json.");
+      }
+      if (upstream !== "copilot" && upstream !== "github-copilot") {
+        throw cliError("INVALID_ARGUMENT", `Unsupported upstream "${parsed.positionals[0] ?? ""}".`, {
+          supportedUpstreams: ["copilot", "github-copilot"],
+        });
+      }
+      const installed = probeCopilotSdkInstall(paths.runtimesDir);
+      let installedNow = false;
+      if (!installed.installed) {
+        const confirmInstall = await runtime.confirmAction("The Copilot SDK runtime is not installed. Install it now?", {
+          defaultValue: true,
+        });
+        if (!confirmInstall) {
+          throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed.", {
+            installDir: installed.installDir,
+            packageName: installed.packageName,
+          });
+        }
+        runtime.writeLine("Installing Copilot SDK runtime...");
+        installCopilotSdkRuntime(paths.runtimesDir);
+        installedNow = true;
+      }
+      try {
+        await readCopilotAuthState(paths.runtimesDir);
+        return {
+          data: {
+            upstream: "github-copilot",
+            sdkInstalled: true,
+            sdkInstalledNow: installedNow,
+            authReady: true,
+            loginLaunched: false,
+          },
+        };
+      } catch (error: unknown) {
+        const normalized = normalizeError(error);
+        if (normalized.code !== "COPILOT_AUTH_REQUIRED") {
+          throw error;
+        }
+      }
+      const availability = checkCopilotCliAvailable();
+      if (!availability.ok) {
+        throw cliError("COPILOT_CLI_MISSING", "The system copilot CLI is required to complete GitHub Copilot login.", {
+          cause: availability.cause,
+        });
+      }
+      try {
+        runCopilotLogin();
+      } catch (error: unknown) {
+        throw cliError("COPILOT_LOGIN_LAUNCH_FAILED", "Failed to launch `copilot login`.", {
+          cause: error instanceof Error ? error.message : String(error),
+        });
+      }
+      try {
+        await readCopilotAuthState(paths.runtimesDir);
+      } catch (error: unknown) {
+        const normalized = normalizeError(error);
+        if (normalized.code === "COPILOT_AUTH_REQUIRED") {
+          throw cliError("COPILOT_LOGIN_RECHECK_FAILED", "Copilot login completed but auth readiness recheck still failed.", {
+            ...(normalized.details ?? {}),
+          });
+        }
+        throw error;
+      }
+      return {
+        data: {
+          upstream: "github-copilot",
+          sdkInstalled: true,
+          sdkInstalledNow: installedNow,
+          authReady: true,
+          loginLaunched: true,
+        },
+      };
     }
     case "config-show":
       return showConfig({
@@ -178,16 +229,21 @@ export async function handleRegisteredCommand(
         throw cliError("PROVIDER_NOT_FOUND", "Missing provider name for switch command.");
       }
       if (hasFlag(parsed.commandOptions, "--install-copilot-sdk")) {
-        throw cliError("INVALID_ARGUMENT", "--install-copilot-sdk is only supported with add --copilot.");
+        throw cliError("INVALID_ARGUMENT", "--install-copilot-sdk is no longer supported with switch. Run `codexs login copilot` instead.", {
+          suggestion: "Run `codexs login copilot` first, then rerun switch without --install-copilot-sdk.",
+        });
       }
 
       return switchProvider({
         codexDir: paths.codexDir,
+        lockPath: paths.lockPath,
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
         configPath: paths.configPath,
         providersPath: paths.providersPath,
         authPath: paths.authPath,
+        runtimeDir: paths.runtimeDir,
+        runtimesDir: paths.runtimesDir,
         providerName,
       });
     }
@@ -212,6 +268,7 @@ export async function handleRegisteredCommand(
 
       return importProviders({
         codexDir: paths.codexDir,
+        lockPath: paths.lockPath,
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
@@ -254,21 +311,19 @@ export async function handleRegisteredCommand(
       let bridgeHost = getSingleOption(parsed.commandOptions, "--bridge-host", false);
       const bridgePortValue = getSingleOption(parsed.commandOptions, "--bridge-port", false);
       let bridgeApiKey = getSingleOption(parsed.commandOptions, "--bridge-api-key", false);
-      let installCopilotSdk = hasFlag(parsed.commandOptions, "--install-copilot-sdk");
+      const installCopilotSdk = hasFlag(parsed.commandOptions, "--install-copilot-sdk");
       let bridgePort = bridgePortValue ? Number(bridgePortValue) : null;
 
       if (copilot && apiKey) {
         throw cliError("INVALID_ARGUMENT", "--copilot does not allow --api-key. Use --bridge-api-key for the local bridge secret.");
       }
+      if (copilot && installCopilotSdk) {
+        throw cliError("INVALID_ARGUMENT", "--install-copilot-sdk is no longer supported with add --copilot. Run `codexs login copilot` instead.", {
+          suggestion: "Run `codexs login copilot` first, then rerun add --copilot.",
+        });
+      }
       if (bridgePortValue && (!Number.isInteger(bridgePort) || bridgePort === null || bridgePort <= 0)) {
         throw cliError("INVALID_ARGUMENT", "--bridge-port must be a positive integer.");
-      }
-      if (copilot) {
-        installCopilotSdk = await ensureCopilotReadyForAdd({
-          runtime,
-          json: ctx.options.json,
-          installCopilotSdk,
-        });
       }
 
       if (!providerName || !profile || (!apiKey && !copilot)) {
@@ -334,6 +389,9 @@ export async function handleRegisteredCommand(
 
       return addProvider({
         codexDir: paths.codexDir,
+        toolHomeDir: paths.toolHomeDir,
+        lockPath: paths.lockPath,
+        runtimesDir: paths.runtimesDir,
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
@@ -351,8 +409,6 @@ export async function handleRegisteredCommand(
         bridgeHost,
         bridgePort,
         bridgeApiKey,
-        installCopilotSdk,
-        interactive: canPrompt(runtime, ctx.options.json),
       });
     }
     case "edit": {
@@ -402,6 +458,7 @@ export async function handleRegisteredCommand(
 
       return editProvider({
         codexDir: paths.codexDir,
+        lockPath: paths.lockPath,
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
@@ -441,6 +498,7 @@ export async function handleRegisteredCommand(
 
       return removeProvider({
         codexDir: paths.codexDir,
+        lockPath: paths.lockPath,
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
@@ -455,6 +513,8 @@ export async function handleRegisteredCommand(
         configPath: paths.configPath,
         providersPath: paths.providersPath,
         authPath: paths.authPath,
+        runtimeDir: paths.runtimeDir,
+        runtimesDir: paths.runtimesDir,
       });
     case "migrate": {
       let codexDir = ctx.options.codexDir;
@@ -563,9 +623,12 @@ export async function handleRegisteredCommand(
       return migrateCodex({
         codexDirOption: ctx.options.codexDir,
         codexDir: setupPaths.codexDir,
+        lockPath: setupPaths.lockPath,
         configPath: setupPaths.configPath,
         providersPath: setupPaths.providersPath,
         authPath: setupPaths.authPath,
+        runtimeDir: setupPaths.runtimeDir,
+        runtimesDir: setupPaths.runtimesDir,
         backupsDir: setupPaths.backupsDir,
         latestBackupPath: setupPaths.latestBackupPath,
         strategy: strategy ?? "overwrite",
@@ -593,135 +656,5 @@ export async function handleRegisteredCommand(
       });
     default:
       throw cliError("UNKNOWN_COMMAND", `Unknown command: ${ctx.command}`);
-  }
-}
-
-/**
- * Runs the deterministic Copilot onboarding preflight before any provider persistence.
- */
-async function ensureCopilotReadyForAdd(args: {
-  runtime: CliPromptRuntime;
-  json: boolean;
-  installCopilotSdk: boolean;
-}): Promise<boolean> {
-  let installCopilotSdk = args.installCopilotSdk;
-
-  const interactive = canPrompt(args.runtime, args.json);
-  if (interactive) {
-    args.runtime.writeLine("Checking Copilot SDK runtime...");
-  }
-  if (!probeCopilotSdkInstall().installed) {
-    if (!interactive) {
-      if (!installCopilotSdk) {
-        const installStatus = probeCopilotSdkInstall();
-        throw cliError(
-          "COPILOT_SDK_INSTALL_REQUIRES_TTY",
-          "The optional Copilot SDK runtime is not installed. Pass --install-copilot-sdk when running non-interactively.",
-          {
-            installDir: installStatus.installDir,
-            packageName: installStatus.packageName,
-          }
-        );
-      }
-      installCopilotSdkRuntime();
-    } else {
-      if (!installCopilotSdk) {
-        installCopilotSdk = await args.runtime.confirmAction("The optional Copilot SDK runtime is not installed. Install it now?");
-      }
-      if (!installCopilotSdk) {
-        const installStatus = probeCopilotSdkInstall();
-        throw cliError(
-          "COPILOT_SDK_MISSING",
-          "The optional Copilot SDK runtime is not installed. Re-run with --install-copilot-sdk or confirm installation interactively.",
-          {
-            installDir: installStatus.installDir,
-            packageName: installStatus.packageName,
-          }
-        );
-      }
-      if (interactive) {
-        args.runtime.writeLine("Installing Copilot SDK runtime...");
-      }
-      installCopilotSdkRuntime();
-      if (interactive) {
-        args.runtime.writeLine("Copilot SDK runtime installed.");
-      }
-    }
-  }
-
-  if (interactive) {
-    args.runtime.writeLine("Checking GitHub Copilot login...");
-  }
-  try {
-    await readCopilotAuthState();
-    return installCopilotSdk;
-  } catch (error: unknown) {
-    const normalized = normalizeError(error);
-    if (normalized.code !== "COPILOT_AUTH_REQUIRED") {
-      throw error;
-    }
-
-    if (!interactive) {
-      throw cliError(
-        "COPILOT_AUTH_REQUIRED",
-        "Copilot authentication is required before the local bridge can be added.",
-        {
-          ...(normalized.details ?? {}),
-          manualLoginCommand: "copilot login",
-          suggestion: "Run `copilot login` manually or provide supported Copilot SDK credentials, then rerun add --copilot.",
-        }
-      );
-    }
-
-    args.runtime.writeLine("GitHub Copilot login is required. Starting official copilot login...");
-    let loginLaunchCause: string | undefined;
-    try {
-      const availability = checkCopilotCliAvailable();
-      if (!availability.ok) {
-        throw new Error(availability.cause ?? "copilot CLI is unavailable");
-      }
-      runCopilotLogin();
-    } catch (launchError: unknown) {
-      loginLaunchCause = launchError instanceof Error ? launchError.message : String(launchError);
-      args.runtime.writeLine("Unable to launch the official Copilot login automatically.");
-      args.runtime.writeLine("Run this command in the current terminal: copilot login");
-      args.runtime.writeLine("GitHub's official device flow should open the browser or show the verification URL and code.");
-    }
-
-    args.runtime.writeLine("GitHub Copilot login completed. Rechecking session...");
-    const retry = await args.runtime.confirmAction("Recheck GitHub Copilot login now?", {
-      defaultValue: true,
-    });
-    if (!retry) {
-      throw cliError(
-        "COPILOT_AUTH_REQUIRED",
-        "Copilot authentication is required before the local bridge can be added.",
-        {
-          ...(normalized.details ?? {}),
-          manualLoginCommand: "copilot login",
-          loginLaunchCause,
-          suggestion: "Complete GitHub Copilot login with the official tooling, then rerun add --copilot.",
-        }
-      );
-    }
-    try {
-      await readCopilotAuthState();
-      return installCopilotSdk;
-    } catch (recheckError: unknown) {
-      const rechecked = normalizeError(recheckError);
-      if (rechecked.code !== "COPILOT_AUTH_REQUIRED") {
-        throw recheckError;
-      }
-      throw cliError(
-        "COPILOT_AUTH_REQUIRED",
-        "Copilot authentication is required before the local bridge can be added.",
-        {
-          ...(rechecked.details ?? {}),
-          manualLoginCommand: "copilot login",
-          loginLaunchCause,
-          suggestion: "Complete GitHub Copilot login with the official tooling, then rerun add --copilot.",
-        }
-      );
-    }
   }
 }

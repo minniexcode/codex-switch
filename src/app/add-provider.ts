@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import { validateManagedProfileCreation } from "../domain/config";
 import { buildCopilotBridgeBaseUrl, cleanProviderRecord, ProviderRuntime } from "../domain/providers";
-import { cliError } from "../domain/errors";
+import { cliError, normalizeError } from "../domain/errors";
 import {
   applyConfigMutation,
   createConfigMutationPlan,
@@ -10,15 +10,19 @@ import {
 } from "../storage/config-repo";
 import { ensureDir } from "../storage/fs-utils";
 import { readProvidersFileIfExists, writeProvidersFile } from "../storage/providers-repo";
-import { installCopilotSdk, probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import { readCopilotAuthState } from "../runtime/copilot-adapter";
+import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 
 /**
  * Adds a new provider record to the managed providers registry.
  */
-export function addProvider(args: {
+export async function addProvider(args: {
   codexDir: string;
+  toolHomeDir: string;
+  lockPath: string;
+  runtimesDir: string;
   backupsDir: string;
   latestBackupPath: string;
   providersPath: string;
@@ -36,9 +40,7 @@ export function addProvider(args: {
   bridgeHost?: string | null;
   bridgePort?: number | null;
   bridgeApiKey?: string | null;
-  installCopilotSdk?: boolean;
-  interactive?: boolean;
-}): CommandResult {
+}): Promise<CommandResult> {
   ensureDir(args.codexDir);
   const providers = readProvidersFileIfExists(args.providersPath);
   if (providers.providers[args.providerName]) {
@@ -59,21 +61,25 @@ export function addProvider(args: {
       }
     : undefined;
   if (args.copilot) {
-    const installStatus = probeCopilotSdkInstall();
+    const installStatus = probeCopilotSdkInstall(args.runtimesDir);
     if (!installStatus.installed) {
-      if (!args.installCopilotSdk) {
-        throw cliError(
-          args.interactive ? "COPILOT_SDK_MISSING" : "COPILOT_SDK_INSTALL_REQUIRES_TTY",
-          args.interactive
-            ? "The optional Copilot SDK runtime is not installed. Re-run with --install-copilot-sdk or confirm installation interactively."
-            : "The optional Copilot SDK runtime is not installed. Pass --install-copilot-sdk when running non-interactively.",
-          {
-            installDir: installStatus.installDir,
-            packageName: installStatus.packageName,
-          }
-        );
+      throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed. Run `codexs login copilot` first.", {
+        installDir: installStatus.installDir,
+        packageName: installStatus.packageName,
+        suggestion: "Run `codexs login copilot` to install the Copilot SDK and complete login.",
+      });
+    }
+    try {
+      await readCopilotAuthState(args.runtimesDir);
+    } catch (error: unknown) {
+      const normalized = normalizeError(error);
+      if (normalized.code === "COPILOT_AUTH_REQUIRED") {
+        throw cliError("COPILOT_AUTH_REQUIRED", "Copilot authentication is required before a Copilot provider can be added.", {
+          ...(normalized.details ?? {}),
+          suggestion: "Run `codexs login copilot` to complete GitHub Copilot login.",
+        });
       }
-      installCopilotSdk();
+      throw error;
     }
   }
   const document = readStructuredConfig(args.configPath);
@@ -121,7 +127,7 @@ export function addProvider(args: {
   };
 
   return runMutation({
-    codexDir: args.codexDir,
+    lockPath: args.lockPath,
     backupsDir: args.backupsDir,
     latestBackupPath: args.latestBackupPath,
     operation: "add",

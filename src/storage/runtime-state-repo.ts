@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { normalizeError } from "../domain/errors";
+import { resolveCodexSwitchHome } from "./codex-paths";
 import { ensureDir, writeTextFileAtomic } from "./fs-utils";
 
 /**
@@ -25,21 +25,22 @@ export type CopilotBridgeStateInspection = {
 };
 
 /**
- * Returns the user-level runtime state file used by Copilot bridge helpers.
+ * Returns the tool-home runtime state file used by Copilot bridge helpers.
  */
-export function getCopilotBridgeStatePath(): string {
+export function getCopilotBridgeStatePath(runtimeDir?: string): string {
   const override = process.env.CODEX_SWITCH_RUNTIME_STATE_DIR;
   if (override && override.trim() !== "") {
     return path.join(path.resolve(override), "copilot-bridge-state.json");
   }
-  return path.join(os.homedir(), ".codex-switch", "runtime", "copilot-bridge-state.json");
+  const baseRuntimeDir = runtimeDir ? path.resolve(runtimeDir) : path.join(resolveCodexSwitchHome(), "runtime");
+  return path.join(baseRuntimeDir, "copilot-bridge-state.json");
 }
 
 /**
  * Reads the Copilot bridge state manifest when present.
  */
-export function readCopilotBridgeState(): CopilotBridgeState | null {
-  const statePath = getCopilotBridgeStatePath();
+export function readCopilotBridgeState(runtimeDir?: string): CopilotBridgeState | null {
+  const statePath = getCopilotBridgeStatePath(runtimeDir);
   if (!fs.existsSync(statePath)) {
     return null;
   }
@@ -49,8 +50,8 @@ export function readCopilotBridgeState(): CopilotBridgeState | null {
 /**
  * Safely inspects the runtime-state file for status/doctor style read paths.
  */
-export function inspectCopilotBridgeState(): CopilotBridgeStateInspection {
-  const statePath = getCopilotBridgeStatePath();
+export function inspectCopilotBridgeState(runtimeDir?: string): CopilotBridgeStateInspection {
+  const statePath = getCopilotBridgeStatePath(runtimeDir);
   if (!fs.existsSync(statePath)) {
     return {
       exists: false,
@@ -65,7 +66,7 @@ export function inspectCopilotBridgeState(): CopilotBridgeStateInspection {
       exists: true,
       valid: true,
       parseError: null,
-      state: readCopilotBridgeState(),
+       state: readCopilotBridgeState(runtimeDir),
     };
   } catch (error: unknown) {
     return {
@@ -80,8 +81,8 @@ export function inspectCopilotBridgeState(): CopilotBridgeStateInspection {
 /**
  * Persists the Copilot bridge state manifest.
  */
-export function writeCopilotBridgeState(state: CopilotBridgeState): void {
-  const statePath = getCopilotBridgeStatePath();
+export function writeCopilotBridgeState(state: CopilotBridgeState, runtimeDir?: string): void {
+  const statePath = getCopilotBridgeStatePath(runtimeDir);
   ensureDir(path.dirname(statePath));
   writeTextFileAtomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
 }
@@ -89,8 +90,8 @@ export function writeCopilotBridgeState(state: CopilotBridgeState): void {
 /**
  * Deletes the Copilot bridge state manifest when present.
  */
-export function clearCopilotBridgeState(): void {
-  const statePath = getCopilotBridgeStatePath();
+export function clearCopilotBridgeState(runtimeDir?: string): void {
+  const statePath = getCopilotBridgeStatePath(runtimeDir);
   if (fs.existsSync(statePath)) {
     fs.rmSync(statePath, { force: true });
   }

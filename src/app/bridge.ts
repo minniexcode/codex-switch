@@ -28,6 +28,8 @@ type BridgeTarget = {
 export async function startBridge(args: {
   providersPath: string;
   configPath: string;
+  runtimeDir: string;
+  runtimesDir: string;
   providerName?: string | null;
   runtime: CliPromptRuntime;
   json: boolean;
@@ -37,14 +39,15 @@ export async function startBridge(args: {
     requestedProviderName: args.providerName ?? null,
     providers,
     configPath: args.configPath,
+    runtimeDir: args.runtimeDir,
     runtime: args.runtime,
     json: args.json,
     commandName: "start",
     preferRuntimeState: false,
   });
 
-  await requireBridgeRuntimeReadiness();
-  const bridge = await ensureCopilotBridge(target.providerName, target.provider);
+  await requireBridgeRuntimeReadiness(args.runtimesDir);
+  const bridge = await ensureCopilotBridge(target.providerName, target.provider, args.runtimeDir);
   const nextProvider = bridge.portChanged ? rewriteBridgeProviderPort(target.provider, bridge.port) : target.provider;
 
   if (bridge.portChanged) {
@@ -59,7 +62,7 @@ export async function startBridge(args: {
       });
     } catch (error: unknown) {
       if (!bridge.reused) {
-        stopCopilotBridge();
+        stopCopilotBridge(args.runtimeDir);
       }
       throw error;
     }
@@ -85,12 +88,14 @@ export async function startBridge(args: {
 export async function stopBridge(args: {
   providersPath: string;
   configPath: string;
+  runtimeDir: string;
+  runtimesDir: string;
   providerName?: string | null;
   runtime: CliPromptRuntime;
   json: boolean;
 }): Promise<CommandResult> {
   const providers = readProvidersFile(args.providersPath);
-  const state = readCopilotBridgeState();
+  const state = readCopilotBridgeState(args.runtimeDir);
   if (!state && !args.providerName) {
     return {
       data: {
@@ -116,6 +121,7 @@ export async function stopBridge(args: {
     requestedProviderName: args.providerName ?? null,
     providers,
     configPath: args.configPath,
+    runtimeDir: args.runtimeDir,
     runtime: args.runtime,
     json: args.json,
     commandName: "stop",
@@ -129,7 +135,7 @@ export async function stopBridge(args: {
     });
   }
 
-  stopCopilotBridge();
+  stopCopilotBridge(args.runtimeDir);
   return {
     data: {
       provider: target.providerName,
@@ -145,23 +151,26 @@ export async function stopBridge(args: {
 export async function statusBridge(args: {
   providersPath: string;
   configPath: string;
+  runtimeDir: string;
+  runtimesDir: string;
   providerName?: string | null;
   runtime: CliPromptRuntime;
   json: boolean;
 }): Promise<CommandResult> {
   const providers = readProvidersFile(args.providersPath);
-  const state = readCopilotBridgeState();
+  const state = readCopilotBridgeState(args.runtimeDir);
   const target = await resolveBridgeTarget({
     requestedProviderName: args.providerName ?? null,
     providers,
     configPath: args.configPath,
+    runtimeDir: args.runtimeDir,
     runtime: args.runtime,
     json: args.json,
     commandName: "status",
     preferRuntimeState: true,
   });
   const provider = target.provider;
-  const runtimeStatus = await probeCopilotBridgeRuntime(provider);
+  const runtimeStatus = await probeCopilotBridgeRuntime(provider, state, args.runtimeDir);
   const expectedBaseUrl = buildCopilotBridgeBaseUrl(provider.runtime!);
 
   if (args.providerName && state?.provider && state.provider !== args.providerName) {
@@ -191,6 +200,7 @@ async function resolveBridgeTarget(args: {
   requestedProviderName: string | null;
   providers: ProvidersFile;
   configPath: string;
+  runtimeDir: string;
   runtime: CliPromptRuntime;
   json: boolean;
   commandName: "start" | "stop" | "status";
@@ -201,7 +211,7 @@ async function resolveBridgeTarget(args: {
   }
 
   if (args.preferRuntimeState) {
-    const runtimeState = readCopilotBridgeState();
+    const runtimeState = readCopilotBridgeState(args.runtimeDir);
     if (runtimeState?.provider && args.providers.providers[runtimeState.provider]) {
       return resolveNamedBridgeProvider(args.providers, runtimeState.provider);
     }
@@ -301,15 +311,15 @@ async function promptForCopilotBridgeSelection(
 /**
  * Verifies that the local Copilot bridge prerequisites are available before startup.
  */
-async function requireBridgeRuntimeReadiness(): Promise<void> {
-  const installStatus = probeCopilotSdkInstall();
+async function requireBridgeRuntimeReadiness(runtimesDir: string): Promise<void> {
+  const installStatus = probeCopilotSdkInstall(runtimesDir);
   if (!installStatus.installed) {
     throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed.", {
       installDir: installStatus.installDir,
       packageName: installStatus.packageName,
     });
   }
-  await readCopilotAuthState();
+  await readCopilotAuthState(runtimesDir);
 }
 
 /**

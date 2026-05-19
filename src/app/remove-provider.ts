@@ -10,6 +10,7 @@ import { CommandResult } from "./types";
  */
 export function removeProvider(args: {
   codexDir: string;
+  lockPath: string;
   backupsDir: string;
   latestBackupPath: string;
   providersPath: string;
@@ -43,7 +44,7 @@ export function removeProvider(args: {
   });
 
   return runMutation({
-    codexDir: args.codexDir,
+    lockPath: args.lockPath,
     backupsDir: args.backupsDir,
     latestBackupPath: args.latestBackupPath,
     operation: "remove",
