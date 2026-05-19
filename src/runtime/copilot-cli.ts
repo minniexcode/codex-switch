@@ -1,4 +1,7 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { getCopilotRuntimeInstallDir } from "./copilot-installer";
 
 type SpawnLike = typeof spawnSync;
 
@@ -19,58 +22,112 @@ export function resetCopilotCliSpawnImplementation(): void {
 }
 
 /**
- * Checks whether the GitHub Copilot CLI is available on PATH.
+ * Checks whether the GitHub Copilot CLI is available either from the bundled runtime or on PATH.
  */
-export function checkCopilotCliAvailable(): { ok: boolean; cause?: string } {
-  const invocation = getCopilotInvocation(["--help"]);
+export function checkCopilotCliAvailable(runtimesDir?: string): {
+  ok: boolean;
+  cause?: string;
+  source?: "bundled" | "path";
+  command?: string;
+} {
+  const invocation = getCopilotInvocation(["--help"], runtimesDir);
   const result = spawnImplementation(invocation.command, invocation.args, {
     stdio: "pipe",
     encoding: "utf8",
-    shell: false,
+    shell: invocation.shell,
   });
 
   if (result.error || result.status !== 0) {
     return {
       ok: false,
       cause: result.error?.message ?? (result.stderr.trim() || "Unknown failure"),
+      source: invocation.source,
+      command: formatInvocation(invocation),
     };
   }
 
-  return { ok: true };
+  return {
+    ok: true,
+    source: invocation.source,
+    command: formatInvocation(invocation),
+  };
 }
 
 /**
  * Launches the official `copilot login` flow in the current terminal.
  */
-export function runCopilotLogin(options?: { host?: string }): void {
+export function runCopilotLogin(options?: { host?: string; runtimesDir?: string }): void {
   const args = ["login"];
   if (options?.host) {
     args.push("--hostname", options.host);
   }
-  const invocation = getCopilotInvocation(args);
+  const invocation = getCopilotInvocation(args, options?.runtimesDir);
   const result = spawnImplementation(invocation.command, invocation.args, {
     stdio: "inherit",
-    shell: false,
+    shell: invocation.shell,
   });
 
   if (result.error || result.status !== 0) {
-    throw new Error(result.error?.message ?? `copilot login exited with status ${String(result.status)}`);
+    throw new Error(
+      result.error?.message ??
+        `${formatInvocation(invocation)} exited with status ${String(result.status)}`
+    );
   }
 }
 
 /**
  * Resolves a cross-platform invocation for the Copilot CLI.
  */
-function getCopilotInvocation(args: string[]): { command: string; args: string[] } {
+function getCopilotInvocation(
+  args: string[],
+  runtimesDir?: string
+): { command: string; args: string[]; source: "bundled" | "path"; shell: boolean } {
+  const bundledCommand = resolveBundledCopilotCommand(runtimesDir);
+  const executable = bundledCommand ?? "copilot";
   if (process.platform === "win32") {
     return {
-      command: process.env.ComSpec || "cmd.exe",
-      args: ["/d", "/s", "/c", ["copilot", ...args].join(" ")],
+      command: executable,
+      args,
+      source: bundledCommand ? "bundled" : "path",
+      shell: true,
     };
   }
 
   return {
-    command: "copilot",
+    command: executable,
     args,
+    source: bundledCommand ? "bundled" : "path",
+    shell: false,
   };
+}
+
+/**
+ * Resolves the bundled Copilot CLI shim installed alongside the optional runtime.
+ */
+function resolveBundledCopilotCommand(runtimesDir?: string): string | null {
+  const installDir = getCopilotRuntimeInstallDir(runtimesDir);
+  const candidates =
+    process.platform === "win32"
+      ? [path.join(installDir, "node_modules", ".bin", "copilot.cmd")]
+      : [path.join(installDir, "node_modules", ".bin", "copilot")];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Renders the invocation into a short human-readable string for diagnostics.
+ */
+function formatInvocation(invocation: {
+  command: string;
+  args: string[];
+  source: "bundled" | "path";
+  shell: boolean;
+}): string {
+  return invocation.command === "copilot"
+    ? ["copilot", ...invocation.args].join(" ")
+    : [invocation.command, ...invocation.args].join(" ");
 }

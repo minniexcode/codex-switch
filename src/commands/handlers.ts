@@ -174,14 +174,16 @@ export async function handleRegisteredCommand(
           throw error;
         }
       }
-      const availability = checkCopilotCliAvailable();
+      const availability = checkCopilotCliAvailable(paths.runtimesDir);
       if (!availability.ok) {
-        throw cliError("COPILOT_CLI_MISSING", "The system copilot CLI is required to complete GitHub Copilot login.", {
+        throw cliError("COPILOT_CLI_MISSING", "The official Copilot CLI could not be resolved from the installed runtime or PATH.", {
           cause: availability.cause,
+          source: availability.source ?? null,
+          command: availability.command ?? null,
         });
       }
       try {
-        runCopilotLogin();
+        runCopilotLogin({ runtimesDir: paths.runtimesDir });
       } catch (error: unknown) {
         throw cliError("COPILOT_LOGIN_LAUNCH_FAILED", "Failed to launch `copilot login`.", {
           cause: error instanceof Error ? error.message : String(error),

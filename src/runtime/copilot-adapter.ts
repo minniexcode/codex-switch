@@ -208,11 +208,11 @@ function resolveCallable(target: Record<string, unknown> | null, name: string): 
   }
   const direct = target[name];
   if (typeof direct === "function") {
-    return direct as (...args: unknown[]) => unknown;
+    return (direct as (...args: unknown[]) => unknown).bind(target);
   }
   const nestedDefault = target.default as Record<string, unknown> | undefined;
   if (nestedDefault && typeof nestedDefault[name] === "function") {
-    return nestedDefault[name] as (...args: unknown[]) => unknown;
+    return (nestedDefault[name] as (...args: unknown[]) => unknown).bind(nestedDefault);
   }
   return null;
 }

@@ -1,5 +1,9 @@
 import { cliError } from "../domain/errors";
-import { buildCopilotBridgeBaseUrl, cleanProviderRecord, isCopilotBridgeProvider } from "../domain/providers";
+import {
+  buildCopilotModelProviderProjection,
+  cleanProviderRecord,
+  isCopilotBridgeProvider,
+} from "../domain/providers";
 import {
   applyConfigMutation,
   createConfigMutationPlan,
@@ -64,19 +68,16 @@ export async function switchProvider(args: {
         latestBackupPath: args.latestBackupPath,
         operation: "switch",
         files: [
+          { absolutePath: args.authPath, relativePath: "auth.json" },
           { absolutePath: args.providersPath, relativePath: "providers.json" },
           { absolutePath: args.configPath, relativePath: "config.toml" },
         ],
         mutate: () => {
           const configPlan = createConfigMutationPlan(document, {
             setActiveProfile: provider.profile,
-            upsertModelProviders: bridge.portChanged
-              ? {
-                  [provider.profile]: {
-                    baseUrl: buildCopilotBridgeBaseUrl(nextProvider.runtime!),
-                  },
-                }
-              : undefined,
+            upsertModelProviders: {
+              [provider.profile]: buildCopilotModelProviderProjection(nextProvider.runtime!),
+            },
           });
           if (bridge.portChanged) {
             writeProvidersFile(args.providersPath, {
@@ -87,6 +88,7 @@ export async function switchProvider(args: {
             });
           }
           applyConfigMutation(args.configPath, document, configPlan);
+          writeOpenAiApiKeyAuth(args.authPath, provider.apiKey);
           return {
             provider: args.providerName,
             profile: nextProvider.profile,

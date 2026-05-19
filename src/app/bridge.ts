@@ -1,5 +1,12 @@
 import { cliError } from "../domain/errors";
-import { buildCopilotBridgeBaseUrl, cleanProviderRecord, isCopilotBridgeProvider, ProviderRecord, ProvidersFile } from "../domain/providers";
+import {
+  buildCopilotBridgeBaseUrl,
+  buildCopilotModelProviderProjection,
+  cleanProviderRecord,
+  isCopilotBridgeProvider,
+  ProviderRecord,
+  ProvidersFile,
+} from "../domain/providers";
 import {
   applyConfigMutation,
   createConfigMutationPlan,
@@ -365,9 +372,7 @@ function persistRecoveredBridgePort(args: {
     const document = readStructuredConfig(args.configPath);
     const configPlan = createConfigMutationPlan(document, {
       upsertModelProviders: {
-        [args.provider.profile]: {
-          baseUrl: buildCopilotBridgeBaseUrl(args.provider.runtime!),
-        },
+        [args.provider.profile]: buildCopilotModelProviderProjection(args.provider.runtime!),
       },
     });
     applyConfigMutation(args.configPath, document, configPlan);

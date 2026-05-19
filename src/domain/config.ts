@@ -12,6 +12,9 @@ export type ManagedProfileFields = {
  */
 export type ManagedModelProviderFields = {
   baseUrl: string;
+  name: string;
+  requiresOpenAiAuth: boolean;
+  wireApi: string;
 };
 
 export type ManagedProfileView = {
@@ -59,8 +62,15 @@ export type ModelProviderSectionRef = {
   name: string;
   sectionStart: number;
   sectionEnd: number;
+  managedFieldInsertIndex: number;
   baseUrlValueRange: ValueRange | null;
   baseUrl: string | null;
+  nameValueRange: ValueRange | null;
+  providerName: string | null;
+  requiresOpenAiAuthValueRange: ValueRange | null;
+  requiresOpenAiAuth: boolean | null;
+  wireApiValueRange: ValueRange | null;
+  wireApi: string | null;
 };
 
 export type ParsedConfigDocument = {
@@ -168,8 +178,15 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
         name: modelProviderHeaderMatch[1],
         sectionStart: line.start,
         sectionEnd: configContent.length,
+        managedFieldInsertIndex: configContent.length,
         baseUrlValueRange: null,
         baseUrl: null,
+        nameValueRange: null,
+        providerName: null,
+        requiresOpenAiAuthValueRange: null,
+        requiresOpenAiAuth: null,
+        wireApiValueRange: null,
+        wireApi: null,
       };
       modelProviders.push(currentModelProvider);
       inRoot = false;
@@ -228,6 +245,30 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
           end: line.start + baseUrlMatch.valueEnd,
         };
       }
+      const nameMatch = matchKeyValueLine(line.content, "name");
+      if (nameMatch) {
+        currentModelProvider.providerName = nameMatch.value;
+        currentModelProvider.nameValueRange = {
+          start: line.start + nameMatch.valueStart,
+          end: line.start + nameMatch.valueEnd,
+        };
+      }
+      const requiresOpenAiAuthMatch = matchBooleanKeyValueLine(line.content, "requires_openai_auth");
+      if (requiresOpenAiAuthMatch) {
+        currentModelProvider.requiresOpenAiAuth = requiresOpenAiAuthMatch.value;
+        currentModelProvider.requiresOpenAiAuthValueRange = {
+          start: line.start + requiresOpenAiAuthMatch.valueStart,
+          end: line.start + requiresOpenAiAuthMatch.valueEnd,
+        };
+      }
+      const wireApiMatch = matchKeyValueLine(line.content, "wire_api");
+      if (wireApiMatch) {
+        currentModelProvider.wireApi = wireApiMatch.value;
+        currentModelProvider.wireApiValueRange = {
+          start: line.start + wireApiMatch.valueStart,
+          end: line.start + wireApiMatch.valueEnd,
+        };
+      }
     }
   }
 
@@ -240,7 +281,10 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
       ...profile,
       managedFieldInsertIndex: findManagedFieldInsertIndex(configContent, profile.sectionStart, profile.sectionEnd),
     })),
-    modelProviders,
+    modelProviders: modelProviders.map((provider) => ({
+      ...provider,
+      managedFieldInsertIndex: findManagedFieldInsertIndex(configContent, provider.sectionStart, provider.sectionEnd),
+    })),
   };
 }
 
@@ -547,6 +591,7 @@ export function planConfigMutation(
     const section = modelProviderSectionMap.get(profileName);
     if (!section) {
       const baseUrl = fields.baseUrl?.trim() ?? "";
+      const providerName = fields.name?.trim() ?? "";
       if (!baseUrl) {
         throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${profileName}" requires base_url.`, {
           profile: profileName,
@@ -559,12 +604,17 @@ export function planConfigMutation(
       const prefix = document.rawText.length > 0 && !document.rawText.endsWith(document.lineEnding)
         ? document.lineEnding
         : "";
+      const requiresOpenAiAuth = fields.requiresOpenAiAuth;
+      const wireApi = fields.wireApi?.trim() ?? "";
       operations.push({
         kind: "insert-at",
         index: document.rawText.length,
         text:
           `${prefix}[model_providers.${profileName}]${document.lineEnding}` +
-          `base_url = ${JSON.stringify(baseUrl)}${document.lineEnding}`,
+          `base_url = ${JSON.stringify(baseUrl)}${document.lineEnding}` +
+          (providerName ? `name = ${JSON.stringify(providerName)}${document.lineEnding}` : "") +
+          (requiresOpenAiAuth !== undefined ? `requires_openai_auth = ${String(requiresOpenAiAuth)}${document.lineEnding}` : "") +
+          (wireApi ? `wire_api = ${JSON.stringify(wireApi)}${document.lineEnding}` : ""),
       });
       createdModelProviderSections.push(profileName);
       continue;
@@ -661,7 +711,7 @@ function planSectionFieldMutation(
 }
 
 /**
- * Plans base_url updates for one model_providers section.
+ * Plans managed field updates for one model_providers section.
  */
 function planModelProviderFieldMutation(
   section: ModelProviderSectionRef,
@@ -670,6 +720,9 @@ function planModelProviderFieldMutation(
 ): boolean {
   let updated = false;
   const baseUrlText = fields.baseUrl !== undefined ? JSON.stringify(fields.baseUrl) : null;
+  const nameText = fields.name !== undefined ? JSON.stringify(fields.name) : null;
+  const requiresOpenAiAuthText = fields.requiresOpenAiAuth !== undefined ? String(fields.requiresOpenAiAuth) : null;
+  const wireApiText = fields.wireApi !== undefined ? JSON.stringify(fields.wireApi) : null;
   const inserts: string[] = [];
 
   if (baseUrlText !== null && section.baseUrlValueRange) {
@@ -684,15 +737,60 @@ function planModelProviderFieldMutation(
     }
   } else if (baseUrlText !== null) {
     inserts.push(`base_url = ${baseUrlText}`);
+    updated = true;
+  }
+
+  if (nameText !== null && section.nameValueRange) {
+    if (section.providerName !== fields.name) {
+      operations.push({
+        kind: "replace-range",
+        start: section.nameValueRange.start,
+        end: section.nameValueRange.end,
+        text: nameText,
+      });
+      updated = true;
+    }
+  } else if (nameText !== null) {
+    inserts.push(`name = ${nameText}`);
+    updated = true;
+  }
+
+  if (requiresOpenAiAuthText !== null && section.requiresOpenAiAuthValueRange) {
+    if (section.requiresOpenAiAuth !== fields.requiresOpenAiAuth) {
+      operations.push({
+        kind: "replace-range",
+        start: section.requiresOpenAiAuthValueRange.start,
+        end: section.requiresOpenAiAuthValueRange.end,
+        text: requiresOpenAiAuthText,
+      });
+      updated = true;
+    }
+  } else if (requiresOpenAiAuthText !== null) {
+    inserts.push(`requires_openai_auth = ${requiresOpenAiAuthText}`);
+    updated = true;
+  }
+
+  if (wireApiText !== null && section.wireApiValueRange) {
+    if (section.wireApi !== fields.wireApi) {
+      operations.push({
+        kind: "replace-range",
+        start: section.wireApiValueRange.start,
+        end: section.wireApiValueRange.end,
+        text: wireApiText,
+      });
+      updated = true;
+    }
+  } else if (wireApiText !== null) {
+    inserts.push(`wire_api = ${wireApiText}`);
+    updated = true;
   }
 
   if (inserts.length > 0) {
     operations.push({
       kind: "insert-at",
-      index: section.sectionEnd,
+      index: section.managedFieldInsertIndex,
       text: `${inserts.join("\n")}\n`,
     });
-    updated = true;
   }
 
   return updated;
@@ -735,6 +833,25 @@ function matchKeyValueLine(line: string, key: string): { value: string; valueSta
   }
   const valueStart = openingQuoteIndex;
   const valueEnd = openingQuoteIndex + match[1].length + value.length + match[1].length;
+  return {
+    value,
+    valueStart,
+    valueEnd,
+  };
+}
+
+function matchBooleanKeyValueLine(line: string, key: string): { value: boolean; valueStart: number; valueEnd: number } | null {
+  const match = line.match(new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(true|false)\\s*(#.*)?$`));
+  if (!match || match.index === undefined) {
+    return null;
+  }
+
+  const value = match[1] === "true";
+  const valueStart = line.indexOf(match[1], match.index);
+  if (valueStart === -1) {
+    return null;
+  }
+  const valueEnd = valueStart + match[1].length;
   return {
     value,
     valueStart,

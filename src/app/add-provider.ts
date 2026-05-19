@@ -1,6 +1,11 @@
 import * as crypto from "node:crypto";
 import { validateManagedProfileCreation } from "../domain/config";
-import { buildCopilotBridgeBaseUrl, cleanProviderRecord, ProviderRuntime } from "../domain/providers";
+import {
+  buildCopilotBridgeBaseUrl,
+  buildCopilotModelProviderProjection,
+  cleanProviderRecord,
+  ProviderRuntime,
+} from "../domain/providers";
 import { cliError, normalizeError } from "../domain/errors";
 import {
   applyConfigMutation,
@@ -99,13 +104,18 @@ export async function addProvider(args: {
         }),
       }
     : undefined;
-  const upsertModelProviders = !existingModelProvider && args.createProfile
-    ? {
-        [args.profile]: {
-          baseUrl: args.copilot ? buildCopilotBridgeBaseUrl(runtime as ProviderRuntime) : args.baseUrl ?? undefined,
-        },
-      }
-    : undefined;
+  const upsertModelProviders =
+    args.copilot
+      ? {
+          [args.profile]: buildCopilotModelProviderProjection(runtime as ProviderRuntime),
+        }
+      : !existingModelProvider && args.createProfile
+        ? {
+            [args.profile]: {
+              baseUrl: args.baseUrl ?? undefined,
+            },
+          }
+        : undefined;
   if (existingProfile) {
     requireManagedProfileRuntime(document, providers, args.profile);
   }

@@ -15,6 +15,7 @@ export type CopilotBridgeState = {
   baseUrl: string;
   startedAt: string;
   lastHealthcheckAt: string;
+  workerBuildId?: string;
 };
 
 export type CopilotBridgeStateInspection = {

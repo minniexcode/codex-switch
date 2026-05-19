@@ -12,6 +12,13 @@ export type ProviderRuntime = {
   sdkInstallMode: "lazy";
 };
 
+export type CopilotModelProviderProjection = {
+  baseUrl: string;
+  name: "copilot";
+  requiresOpenAiAuth: true;
+  wireApi: "responses";
+};
+
 /**
  * Provider definition stored in providers.json.
  */
@@ -192,6 +199,18 @@ export function isCopilotBridgeProvider(provider: ProviderRecord): boolean {
  */
 export function buildCopilotBridgeBaseUrl(runtime: ProviderRuntime): string {
   return `http://${runtime.bridgeHost}:${runtime.bridgePort}${runtime.bridgePath}`;
+}
+
+/**
+ * Builds the Codex-facing custom model_provider projection for the managed Copilot bridge.
+ */
+export function buildCopilotModelProviderProjection(runtime: ProviderRuntime): CopilotModelProviderProjection {
+  return {
+    baseUrl: buildCopilotBridgeBaseUrl(runtime),
+    name: "copilot",
+    requiresOpenAiAuth: true,
+    wireApi: "responses",
+  };
 }
 
 /**

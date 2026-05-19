@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import * as net from "node:net";
 import { spawn } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { buildCopilotBridgeBaseUrl, isCopilotBridgeProvider, ProviderRecord } from "../domain/providers";
 import { cliError } from "../domain/errors";
@@ -15,6 +16,7 @@ import { RuntimeAvailability } from "./types";
 type SpawnLike = typeof spawn;
 
 let spawnImplementation: SpawnLike = spawn;
+let cachedBridgeWorkerBuildId: string | null = null;
 
 /**
  * Overrides the spawn implementation for bridge runtime tests.
@@ -43,6 +45,33 @@ type ChatCompletionResponse = {
     };
     finish_reason?: string | null;
   }>;
+};
+
+type ResponseInputTextItem = {
+  type: "input_text";
+  text: string;
+};
+
+type ResponseTextItem = {
+  type: "text" | "output_text";
+  text: string;
+};
+
+type ResponseInputMessage = {
+  role?: string;
+  content?: unknown;
+};
+
+type ResponsesRequestPayload = {
+  model?: unknown;
+  input?: unknown;
+  stream?: unknown;
+};
+
+type NormalizedResponsesRequest = {
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  stream: boolean;
 };
 
 type BridgeRequestContext = {
@@ -162,22 +191,34 @@ export async function startOrReuseCopilotBridge(providerName: string, provider: 
   }
   const expectedBaseUrl = buildCopilotBridgeBaseUrl(runtime);
   const current = readCopilotBridgeState(runtimeDir);
+  const workerBuildId = getCopilotBridgeWorkerBuildId();
   let replaced = false;
   if (current && current.provider === providerName && current.baseUrl === expectedBaseUrl) {
-    const healthy = await healthcheckCopilotBridge(current.host, current.port);
-    if (healthy.ok) {
-      writeCopilotBridgeState({
-        ...current,
-        lastHealthcheckAt: new Date().toISOString(),
-      });
-      return {
-        baseUrl: expectedBaseUrl,
-        host: current.host,
-        port: current.port,
-        reused: true,
-        portChanged: false,
-        replaced: false,
-      };
+    if (current.workerBuildId === workerBuildId) {
+      const healthy = await healthcheckCopilotBridge(current.host, current.port);
+      if (healthy.ok) {
+        const compatible = await verifyCopilotBridgeAuthorization(current.host, current.port, provider.apiKey);
+        if (compatible.ok) {
+          writeCopilotBridgeState({
+            ...current,
+            lastHealthcheckAt: new Date().toISOString(),
+            workerBuildId,
+          }, runtimeDir);
+          return {
+            baseUrl: expectedBaseUrl,
+            host: current.host,
+            port: current.port,
+            reused: true,
+            portChanged: false,
+            replaced: false,
+          };
+        }
+      }
+      stopCopilotBridge(runtimeDir);
+      replaced = true;
+    } else {
+      stopCopilotBridge(runtimeDir);
+      replaced = true;
     }
   }
 
@@ -242,6 +283,7 @@ export async function startOrReuseCopilotBridge(providerName: string, provider: 
     baseUrl: selectedBaseUrl,
     startedAt,
     lastHealthcheckAt: new Date().toISOString(),
+    workerBuildId,
   };
   writeCopilotBridgeState(state, runtimeDir);
 
@@ -280,34 +322,371 @@ export function createCopilotBridgeRequestHandler(context: BridgeRequestContext)
         response.end(JSON.stringify({ object: "list", data: [] }));
         return;
       }
-      if (method !== "POST" || url !== "/v1/chat/completions") {
+      if (method === "POST" && url === "/v1/chat/completions") {
+        const body = await readJsonBody(request);
+        const stream = Boolean(body.stream);
+        const payload = await context.executeChatCompletion(body);
+        if (stream) {
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+            connection: "keep-alive",
+          });
+          response.write(`data: ${JSON.stringify(payload)}\n\n`);
+          response.write("data: [DONE]\n\n");
+          response.end();
+          return;
+        }
+
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify(payload));
+        return;
+      }
+
+      if (method === "POST" && url === "/v1/responses") {
+        const body = await readJsonBody(request);
+        const normalized = normalizeResponsesRequest(body);
+        const payload = await context.executeChatCompletion({
+          model: normalized.model,
+          messages: normalized.messages,
+        });
+        if (normalized.stream) {
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+            connection: "keep-alive",
+          });
+          writeResponsesStream(response, payload);
+          response.end();
+          return;
+        }
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify(buildResponsesPayload(payload)));
+        return;
+      }
+
+      if (method !== "POST") {
         response.writeHead(404, { "content-type": "application/json" });
         response.end(JSON.stringify({ error: { message: "Not found" } }));
         return;
       }
-
-      const body = await readJsonBody(request);
-      const stream = Boolean(body.stream);
-      const payload = await context.executeChatCompletion(body);
-      if (stream) {
-        response.writeHead(200, {
-          "content-type": "text/event-stream",
-          "cache-control": "no-cache",
-          connection: "keep-alive",
-        });
-        response.write(`data: ${JSON.stringify(payload)}\n\n`);
-        response.write("data: [DONE]\n\n");
-        response.end();
-        return;
-      }
-
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify(payload));
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "Not found" } }));
     } catch (error: unknown) {
-      response.writeHead(500, { "content-type": "application/json" });
+      const statusCode = isCliError(error) && error.code === "BRIDGE_UNSUPPORTED_REQUEST" ? 400 : 500;
+      response.writeHead(statusCode, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : String(error) } }));
     }
   };
+}
+
+/**
+ * Converts one minimal Responses API payload into the existing chat-completions bridge call shape.
+ */
+function normalizeResponsesRequest(body: Record<string, unknown>): NormalizedResponsesRequest {
+  const payload = body as ResponsesRequestPayload;
+  if (typeof payload.model !== "string" || payload.model.trim() === "") {
+    throw cliError("BRIDGE_UNSUPPORTED_REQUEST", "Copilot bridge /v1/responses requires a non-empty string model.");
+  }
+
+  const messages = normalizeResponsesInput(payload.input);
+  if (messages.length === 0) {
+    throw cliError("BRIDGE_UNSUPPORTED_REQUEST", "Copilot bridge /v1/responses requires at least one input message.");
+  }
+
+  return {
+    model: payload.model,
+    messages,
+    stream: payload.stream === true,
+  };
+}
+
+function normalizeResponsesInput(input: unknown): Array<{ role: string; content: string }> {
+  if (typeof input === "string") {
+    return [{ role: "user", content: input }];
+  }
+
+  if (!Array.isArray(input)) {
+    throw cliError("BRIDGE_UNSUPPORTED_REQUEST", "Copilot bridge /v1/responses expects input as a string or message array.");
+  }
+
+  if (input.length === 0) {
+    return [];
+  }
+
+  const entryKinds = input.map(classifyResponsesInputEntry);
+  const hasMessages = entryKinds.includes("message");
+  const hasContentItems = entryKinds.includes("content-item");
+  if (hasMessages && hasContentItems) {
+    throw cliError(
+      "BRIDGE_UNSUPPORTED_REQUEST",
+      "Copilot bridge /v1/responses input array must contain either message objects or content items, not both."
+    );
+  }
+
+  if (hasContentItems) {
+    return [
+      {
+        role: "user",
+        content: extractResponsesTextContent(input, 0),
+      },
+    ];
+  }
+
+  return input.map((entry, index) => normalizeResponsesMessage(entry, index));
+}
+
+function normalizeResponsesMessage(entry: unknown, index: number): { role: string; content: string } {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw cliError("BRIDGE_UNSUPPORTED_REQUEST", `Copilot bridge /v1/responses input[${String(index)}] must be an object message.`);
+  }
+
+  const message = entry as ResponseInputMessage;
+  const role = typeof message.role === "string" && message.role.trim() !== "" ? message.role : "user";
+  const content = extractResponsesTextContent(message.content, index);
+  return { role, content };
+}
+
+/**
+ * Classifies one top-level Responses input entry so mixed array shapes can be rejected clearly.
+ */
+function classifyResponsesInputEntry(entry: unknown): "message" | "content-item" {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw cliError("BRIDGE_UNSUPPORTED_REQUEST", "Copilot bridge /v1/responses input entries must be objects.");
+  }
+
+  const record = entry as Record<string, unknown>;
+  if ("content" in record || "role" in record) {
+    return "message";
+  }
+  if (typeof record.type === "string") {
+    return "content-item";
+  }
+
+  throw cliError(
+    "BRIDGE_UNSUPPORTED_REQUEST",
+    "Copilot bridge /v1/responses input entries must be message objects or typed content items."
+  );
+}
+
+function extractResponsesTextContent(content: unknown, index: number): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    throw cliError(
+      "BRIDGE_UNSUPPORTED_REQUEST",
+      `Copilot bridge /v1/responses input[${String(index)}].content must be a string or content item array.`
+    );
+  }
+
+  const parts = content.map((item, itemIndex) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw cliError(
+        "BRIDGE_UNSUPPORTED_REQUEST",
+        `Copilot bridge /v1/responses input[${String(index)}].content[${String(itemIndex)}] must be an object item.`
+      );
+    }
+    return renderResponsesContentItem(item as Record<string, unknown>);
+  });
+
+  return parts.join("\n");
+}
+
+/**
+ * Converts one Responses content item into the text-only prompt representation required by the Copilot SDK bridge.
+ */
+function renderResponsesContentItem(item: Record<string, unknown>): string {
+  const type = typeof item.type === "string" ? item.type : null;
+  const text = typeof item.text === "string" ? item.text : null;
+  if ((type === "input_text" || type === "text" || type === "output_text") && text !== null) {
+    return text;
+  }
+  if (type === "input_image") {
+    return buildResponsesPlaceholder("input_image", item.image_url, item.file_id);
+  }
+  if (type === "input_file") {
+    return buildResponsesPlaceholder("input_file", item.filename, item.file_id);
+  }
+  if (type !== null) {
+    return `[unsupported content type: ${type}]`;
+  }
+  throw cliError("BRIDGE_UNSUPPORTED_REQUEST", "Copilot bridge /v1/responses content items must declare a string type.");
+}
+
+/**
+ * Builds a readable placeholder for non-text Responses content items preserved as text-only context.
+ */
+function buildResponsesPlaceholder(type: string, ...candidates: unknown[]): string {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim() !== "") {
+      return `[${type}: ${candidate}]`;
+    }
+  }
+  return `[${type} omitted]`;
+}
+
+/**
+ * Converts the existing chat-completions response into a minimal Responses API payload.
+ */
+function buildResponsesPayload(payload: ChatCompletionResponse): Record<string, unknown> {
+  const firstChoice = Array.isArray(payload.choices) ? payload.choices[0] : null;
+  const outputText = firstChoice?.message?.content ?? "";
+  return {
+    id: payload.id ?? `resp_${Date.now()}`,
+    object: "response",
+    created_at: payload.created ?? Math.floor(Date.now() / 1000),
+    model: payload.model ?? "copilot",
+    status: "completed",
+    output: [
+      {
+        type: "message",
+        id: `${payload.id ?? "resp"}_msg_0`,
+        role: "assistant",
+        content: [
+          {
+            type: "output_text",
+            text: outputText,
+          },
+        ],
+      },
+    ],
+    output_text: outputText,
+  };
+}
+
+/**
+ * Emits a minimal OpenAI-compatible Responses API event stream.
+ */
+function writeResponsesStream(response: http.ServerResponse, payload: ChatCompletionResponse): void {
+  const responsePayload = buildResponsesPayload(payload);
+  const responseId = typeof responsePayload.id === "string" ? responsePayload.id : `resp_${Date.now()}`;
+  const messageId = buildResponsesMessageId(responseId);
+  const outputText = typeof responsePayload.output_text === "string" ? responsePayload.output_text : "";
+
+  const inProgressResponse = {
+    ...responsePayload,
+    status: "in_progress",
+    output: [],
+  };
+
+  const completedMessage = {
+    id: messageId,
+    type: "message",
+    status: "completed",
+    role: "assistant",
+    content: [
+      {
+        type: "output_text",
+        text: outputText,
+        annotations: [],
+      },
+    ],
+  };
+
+  writeSseEvent(response, "response.created", {
+    type: "response.created",
+    response: inProgressResponse,
+  });
+  writeSseEvent(response, "response.in_progress", {
+    type: "response.in_progress",
+    response: inProgressResponse,
+  });
+  writeSseEvent(response, "response.output_item.added", {
+    type: "response.output_item.added",
+    output_index: 0,
+    item: {
+      id: messageId,
+      type: "message",
+      status: "in_progress",
+      role: "assistant",
+      content: [],
+    },
+  });
+  writeSseEvent(response, "response.content_part.added", {
+    type: "response.content_part.added",
+    item_id: messageId,
+    output_index: 0,
+    content_index: 0,
+    part: {
+      type: "output_text",
+      text: "",
+      annotations: [],
+    },
+  });
+  writeSseEvent(response, "response.output_text.delta", {
+    type: "response.output_text.delta",
+    item_id: messageId,
+    output_index: 0,
+    content_index: 0,
+    delta: outputText,
+  });
+  writeSseEvent(response, "response.output_text.done", {
+    type: "response.output_text.done",
+    item_id: messageId,
+    output_index: 0,
+    content_index: 0,
+    text: outputText,
+  });
+  writeSseEvent(response, "response.content_part.done", {
+    type: "response.content_part.done",
+    item_id: messageId,
+    output_index: 0,
+    content_index: 0,
+    part: {
+      type: "output_text",
+      text: outputText,
+      annotations: [],
+    },
+  });
+  writeSseEvent(response, "response.output_item.done", {
+    type: "response.output_item.done",
+    output_index: 0,
+    item: completedMessage,
+  });
+  writeSseEvent(response, "response.completed", {
+    type: "response.completed",
+    response: {
+      ...responsePayload,
+      output: [completedMessage],
+    },
+  });
+}
+
+/**
+ * Formats and writes one server-sent event frame.
+ */
+function writeSseEvent(response: http.ServerResponse, eventName: string, data: Record<string, unknown>): void {
+  response.write(`event: ${eventName}\n`);
+  response.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+/**
+ * Derives a stable message identifier for synthesized Responses output items.
+ */
+function buildResponsesMessageId(responseId: string): string {
+  if (responseId.startsWith("resp_")) {
+    return `msg_${responseId.slice("resp_".length)}_0`;
+  }
+  return `${responseId}_msg_0`;
+}
+
+function isCliError(error: unknown): error is { code: string } {
+  return Boolean(error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string");
+}
+
+/**
+ * Returns a stable build identifier for the compiled bridge worker bundle.
+ */
+function getCopilotBridgeWorkerBuildId(): string {
+  if (cachedBridgeWorkerBuildId) {
+    return cachedBridgeWorkerBuildId;
+  }
+  const workerPath = path.join(__dirname, "copilot-bridge-worker.js");
+  const stats = fs.statSync(workerPath);
+  cachedBridgeWorkerBuildId = `${stats.size}:${stats.mtimeMs}`;
+  return cachedBridgeWorkerBuildId;
 }
 
 /**
@@ -489,6 +868,51 @@ async function healthcheckCopilotBridge(host: string, port: number): Promise<{ o
     });
     request.on("timeout", () => {
       request.destroy(new Error("Health endpoint timed out."));
+    });
+    request.end();
+  });
+}
+
+/**
+ * Checks whether a healthy bridge still accepts the provider's current bearer secret.
+ */
+async function verifyCopilotBridgeAuthorization(
+  host: string,
+  port: number,
+  apiKey: string
+): Promise<{ ok: true } | { ok: false; cause: string }> {
+  return new Promise((resolve) => {
+    const request = http.request(
+      {
+        host,
+        port,
+        method: "GET",
+        path: "/v1/models",
+        timeout: 1000,
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+        },
+      },
+      (response) => {
+        response.resume();
+        if (response.statusCode === 200) {
+          resolve({ ok: true });
+          return;
+        }
+        resolve({
+          ok: false,
+          cause: `Authorization probe returned status ${String(response.statusCode ?? 0)}.`,
+        });
+      }
+    );
+    request.on("error", (error) => {
+      resolve({
+        ok: false,
+        cause: error.message,
+      });
+    });
+    request.on("timeout", () => {
+      request.destroy(new Error("Authorization probe timed out."));
     });
     request.end();
   });
