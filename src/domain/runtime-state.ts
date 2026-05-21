@@ -42,10 +42,13 @@ export type StorageRoles = {
 export type LiveStateDrift = {
   currentProfile: string | null;
   mappedProvider: string | null;
+  mappedProviders: string[];
   profileMapped: boolean;
+  providerResolvable: boolean;
   canBackfillActiveProvider: boolean;
   reason:
     | "ok"
+    | "shared-profile"
     | "config-missing"
     | "profile-missing"
     | "providers-missing"
@@ -124,7 +127,9 @@ export function inspectLiveStateDrift(
     return {
       currentProfile,
       mappedProvider: null,
+      mappedProviders: [],
       profileMapped: false,
+      providerResolvable: false,
       canBackfillActiveProvider: false,
       reason: providers ? "profile-missing" : "config-missing",
     };
@@ -134,29 +139,51 @@ export function inspectLiveStateDrift(
     return {
       currentProfile,
       mappedProvider: null,
+      mappedProviders: [],
       profileMapped: false,
+      providerResolvable: false,
       canBackfillActiveProvider: false,
       reason: "providers-missing",
     };
   }
 
+  const mappedProviders: string[] = [];
   for (const [name, provider] of Object.entries(providers.providers)) {
-    // A direct profile match means the runtime state is still managed.
     if (provider.profile === currentProfile) {
-      return {
-        currentProfile,
-        mappedProvider: name,
-        profileMapped: true,
-        canBackfillActiveProvider: false,
-        reason: "ok",
-      };
+      mappedProviders.push(name);
     }
+  }
+
+  if (mappedProviders.length === 1) {
+    return {
+      currentProfile,
+      mappedProvider: mappedProviders[0],
+      mappedProviders,
+      profileMapped: true,
+      providerResolvable: true,
+      canBackfillActiveProvider: false,
+      reason: "ok",
+    };
+  }
+
+  if (mappedProviders.length > 1) {
+    return {
+      currentProfile,
+      mappedProvider: null,
+      mappedProviders,
+      profileMapped: true,
+      providerResolvable: false,
+      canBackfillActiveProvider: false,
+      reason: "shared-profile",
+    };
   }
 
   return {
     currentProfile,
     mappedProvider: null,
+    mappedProviders: [],
     profileMapped: false,
+    providerResolvable: false,
     canBackfillActiveProvider: true,
     reason: "provider-unmapped",
   };

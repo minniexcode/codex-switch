@@ -30,6 +30,8 @@ Command-surface errors do not need to be forced into `src/domain/errors.ts` or a
 
 Tests are plain Node-based specs, not Jest/Vitest. Add coverage by extending `tests/*.spec.js` and wiring new suites through `tests/run-tests.js` when needed. Prefer focused fixture-driven tests using `dev-codex/local-sandbox/` or a new isolated fixture directory. Name tests after the feature area they cover, for example `switch-provider` behavior in `app.spec.js` or argument parsing in `cli.spec.js`.
 
+When touching `status` or `doctor` diagnostics, keep optional Copilot runtime checks scoped to Copilot workflows only. A missing Copilot SDK must not turn a pure direct-provider workspace into a runtime-health failure.
+
 ## Commit & Pull Request Guidelines
 
 Recent history uses short, imperative subjects, often with Conventional Commit prefixes such as `feat:`. Keep commit messages concise and scoped to one change. Pull requests should describe the user-visible behavior, note any CLI command changes, mention backup/config migration impact, and include terminal output or screenshots when interactive prompts change. Link the relevant issue or design doc in `docs/` when applicable.

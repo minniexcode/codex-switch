@@ -104,12 +104,24 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       if (providers.length === 0) {
         lines.push("No providers configured.");
       } else {
+        const currentProfile = typeof data?.currentProfile === "string" ? data.currentProfile : null;
+        const activeProviderResolvable = data?.activeProviderResolvable !== false;
+        const activeCandidates = Array.isArray(data?.activeProviderCandidates) ? (data?.activeProviderCandidates as string[]) : [];
+        if (currentProfile) {
+          lines.push(`Current profile: ${currentProfile}`);
+          if (!activeProviderResolvable && activeCandidates.length > 1) {
+            lines.push(`Current provider: ambiguous (${activeCandidates.join(", ")})`);
+          }
+        }
         for (const provider of providers) {
           const tags = Array.isArray(provider.tags) && provider.tags.length > 0
             ? ` tags=${(provider.tags as string[]).join(",")}`
             : "";
           const note = provider.note ? ` note=${provider.note}` : "";
-          lines.push(`${provider.name} -> ${provider.profile}${tags}${note}`);
+          const current = provider.isActive ? " current" : "";
+          lines.push(
+            `${provider.name} [${String(provider.providerType ?? "direct")}]${current} -> ${provider.profile}${tags}${note}`
+          );
         }
       }
       break;
@@ -134,17 +146,15 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`Current profile: ${String(data?.profile ?? "")}`);
       break;
     case "status":
-      lines.push(`codexDir: ${String(data?.codexDir ?? "")}`);
-      lines.push(`configExists: ${String(data?.configExists ?? false)}`);
-      lines.push(`providersExists: ${String(data?.providersExists ?? false)}`);
-      lines.push(`currentProfile: ${String(data?.currentProfile ?? "")}`);
-      lines.push(`mappedProvider: ${String(data?.provider ?? "")}`);
-      lines.push(`activeProviderResolvable: ${String(data?.activeProviderResolvable ?? false)}`);
-      const auth = (data?.auth as Record<string, unknown>) ?? {};
-      lines.push(`authExists: ${String(auth.exists ?? false)}`);
-      lines.push(`authValid: ${String(auth.valid ?? false)}`);
-      lines.push(`authMode: ${String(auth.authMode ?? "")}`);
-      lines.push(`issues: ${Array.isArray(data?.issues) ? (data?.issues as Array<unknown>).length : 0}`);
+      lines.push("Status summary:");
+      lines.push(`  target runtime: ${String(data?.codexDir ?? "")}`);
+      lines.push(`  tool home: ${String(((data?.storage as Record<string, unknown> | undefined)?.toolHome as Record<string, unknown> | undefined)?.root ?? "")}`);
+      lines.push(`  current profile: ${String(data?.currentProfile ?? "(none)")}`);
+      lines.push(`  mapped provider: ${renderStatusMappedProvider(data)}`);
+      lines.push(`  provider path: ${renderStatusProviderPath(data)}`);
+      lines.push(`  runtime health: ${renderStatusHealth(data)}`);
+      lines.push(`  warnings: ${warnings.length}`);
+      lines.push(`  next step: ${renderStatusNextStep(data, warnings)}`);
       break;
     case "config-show": {
       lines.push(`activeProfile: ${String(data?.activeProfile ?? "")}`);
@@ -176,10 +186,26 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`Exported providers to ${String(data?.exportedTo ?? "")}.`);
       break;
     case "init":
-      lines.push(`Initialized Codex directory ${String(data?.codexDir ?? "")}.`);
-      lines.push(`Created codexDir: ${String(data?.createdCodexDir ?? false)}`);
-      lines.push(`Created providers.json: ${String(data?.createdProvidersFile ?? false)}`);
-      lines.push(`providersAlreadyExisted: ${String(data?.providersAlreadyExisted ?? false)}`);
+      lines.push("Initialized codex-switch tool home.");
+      lines.push(`tool home: ${String(data?.toolHomeDir ?? "")}`);
+      lines.push(`tool config: ${String(data?.toolConfigPath ?? "")}`);
+      lines.push(`providers registry: ${String(data?.providersPath ?? "")}`);
+      lines.push(`tool home created: ${String(data?.createdToolHomeDir ?? false)}`);
+      lines.push(`tool config created: ${String(data?.createdToolConfigFile ?? false)}`);
+      lines.push(`providers registry created: ${String(data?.createdProvidersFile ?? false)}`);
+      lines.push("next step: run `codexs add ...` for a direct provider, or `codexs login copilot` before `add --copilot`.");
+      break;
+    case "login":
+      lines.push(`Copilot login ready: ${String(data?.authReady ?? false)}`);
+      lines.push(`upstream: ${String(data?.upstream ?? "")}`);
+      lines.push(`sdk installed: ${String(data?.sdkInstalled ?? false)}${data?.sdkInstalledNow ? " (installed now)" : ""}`);
+      lines.push(`copilot cli source: ${String(data?.cliSource ?? "not-needed")}`);
+      if (data?.cliCommand) {
+        lines.push(`copilot cli command: ${String(data?.cliCommand)}`);
+      }
+      lines.push(`login launched: ${String(data?.loginLaunched ?? false)}`);
+      lines.push(`auth ready: ${String(data?.authReady ?? false)}`);
+      lines.push("next step: run `codexs add <provider> --copilot --profile <name>` and then `codexs switch <provider>`.");
       break;
     case "migrate":
       lines.push(`Migrated providers in ${String(data?.codexDir ?? "")} using ${String(data?.strategy ?? "")}.`);
@@ -208,10 +234,12 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       break;
     case "doctor": {
       const healthy = Boolean(data?.healthy);
-      lines.push(healthy ? "No issues found." : "Issues found:");
       const issues = (data?.issues as Array<Record<string, unknown>>) ?? [];
+      lines.push(healthy ? "Doctor summary: healthy. No action required." : `Doctor summary: ${issues.length} issue(s) need attention.`);
+      lines.push(`target runtime: ${String(data?.codexDir ?? "")}`);
       for (const issue of issues) {
-        lines.push(`${issue.code}: ${issue.message}`);
+        lines.push(`- ${String(issue.code)}: ${String(issue.message)}`);
+        lines.push(`  next step: ${renderDoctorIssueNextStep(issue)}`);
       }
       break;
     }
@@ -236,6 +264,112 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
   }
 
   return lines;
+}
+
+/**
+ * Summarizes runtime health for the human-readable status output.
+ */
+function renderStatusHealth(data: Record<string, unknown> | null): string {
+  const configExists = Boolean(data?.configExists);
+  const providersExists = Boolean(data?.providersExists);
+  const auth = (data?.auth as Record<string, unknown> | undefined) ?? {};
+  const bridge = (data?.copilotBridge as Record<string, unknown> | null | undefined) ?? null;
+  const issues = Array.isArray(data?.issues) ? (data?.issues as Array<Record<string, unknown>>) : [];
+  const activeProviderResolvable = data?.activeProviderResolvable !== false;
+  const liveState = (data?.liveState as Record<string, unknown> | undefined) ?? {};
+  const copilotSdk = (data?.copilotSdk as Record<string, unknown> | undefined) ?? {};
+  const copilotAuth = (data?.copilotAuth as Record<string, unknown> | null | undefined) ?? null;
+  const runtimeProvider = typeof data?.runtimeProvider === "string" ? data.runtimeProvider : null;
+  const activePathUsesCopilot = runtimeProvider === "copilot-sdk-bridge";
+  if (!configExists || !providersExists) {
+    return "incomplete local state";
+  }
+  if (!activeProviderResolvable || liveState.reason === "shared-profile") {
+    return "active provider ambiguous";
+  }
+  if (issues.some((issue) => issue.code === "UNMANAGED_ACTIVE_PROFILE")) {
+    return "active profile unmanaged";
+  }
+  if (issues.some((issue) => issue.code === "ACTIVE_PROVIDER_UNRESOLVED")) {
+    return "active provider ambiguous";
+  }
+  if (activePathUsesCopilot && copilotSdk.installed === false) {
+    return "copilot sdk missing";
+  }
+  if (activePathUsesCopilot && copilotAuth && copilotAuth.ready === false) {
+    return "copilot auth required";
+  }
+  if (activePathUsesCopilot && bridge && bridge.ok === false) {
+    return "copilot runtime needs repair";
+  }
+  if (auth.exists === false) {
+    return "auth projection missing";
+  }
+  if (auth.valid === false) {
+    return "auth projection invalid";
+  }
+  return "ok";
+}
+
+/**
+ * Renders the mapped provider line without claiming a unique winner for shared profiles.
+ */
+function renderStatusMappedProvider(data: Record<string, unknown> | null): string {
+  if (typeof data?.provider === "string" && data.provider.length > 0) {
+    return data.provider;
+  }
+  const candidates = Array.isArray(data?.activeProviderCandidates) ? (data?.activeProviderCandidates as string[]) : [];
+  if (candidates.length > 1) {
+    return `(ambiguous: ${candidates.join(", ")})`;
+  }
+  return "(unmanaged or unresolved)";
+}
+
+/**
+ * Renders the active workflow path in status output.
+ */
+function renderStatusProviderPath(data: Record<string, unknown> | null): string {
+  return typeof data?.runtimeProvider === "string" && data.runtimeProvider === "copilot-sdk-bridge" ? "copilot" : "direct";
+}
+
+/**
+ * Suggests the next operator action for the human-readable status output.
+ */
+function renderStatusNextStep(data: Record<string, unknown> | null, warnings: string[]): string {
+  if (warnings.length > 0) {
+    return "run `codexs doctor` to inspect warnings before the next write command";
+  }
+  if (!data?.provider) {
+    return "run `codexs switch <provider>` after adding or adopting a managed provider";
+  }
+  return "run `codexs doctor` if you need a deeper diagnostic pass";
+}
+
+/**
+ * Turns structured doctor issue codes into repair-oriented next steps.
+ */
+function renderDoctorIssueNextStep(issue: Record<string, unknown>): string {
+  switch (issue.code) {
+    case "CONFIG_NOT_FOUND":
+      return "restore or create config.toml before switching providers";
+    case "PROVIDERS_NOT_FOUND":
+      return "run `codexs init` and then add or migrate providers";
+    case "COPILOT_SDK_MISSING":
+      return "run `codexs login copilot` to install the optional Copilot runtime";
+    case "COPILOT_AUTH_REQUIRED":
+      return "run `codexs login copilot` to complete upstream authentication";
+    case "BRIDGE_STATE_STALE":
+    case "BRIDGE_STATE_MISSING":
+    case "BRIDGE_HEALTHCHECK_FAILED":
+      return "reselect the provider with `codexs switch <provider>` or inspect bridge state";
+    case "UNMANAGED_ACTIVE_PROFILE":
+      return "switch to a managed provider or adopt the active profile with `codexs migrate`";
+    case "ACTIVE_PROVIDER_UNRESOLVED":
+    case "SHARED_PROFILE_REFERENCE":
+      return "make provider-to-profile mappings unique before relying on current-provider detection";
+    default:
+      return "inspect the issue details and rerun `codexs doctor` after fixing the state";
+  }
 }
 
 /**

@@ -63,11 +63,11 @@ export async function handleRegisteredCommand(
 
   switch (ctx.command) {
     case "list":
-      return listProviders(paths.providersPath);
+      return listProviders(paths.providersPath, paths.configPath);
     case "show": {
       let providerName = parsed.positionals[0] ?? null;
       if (!providerName && canPrompt(runtime, ctx.options.json)) {
-        providerName = await promptForProviderSelection(runtime, paths.providersPath, "Choose a provider to show");
+        providerName = await promptForProviderSelection(runtime, paths.providersPath, paths.configPath, "Choose a provider to show");
       }
 
       if (!providerName) {
@@ -157,6 +157,7 @@ export async function handleRegisteredCommand(
         installCopilotSdkRuntime(paths.runtimesDir);
         installedNow = true;
       }
+      const availability = checkCopilotCliAvailable(paths.runtimesDir);
       try {
         await readCopilotAuthState(paths.runtimesDir);
         return {
@@ -166,6 +167,8 @@ export async function handleRegisteredCommand(
             sdkInstalledNow: installedNow,
             authReady: true,
             loginLaunched: false,
+            cliSource: availability.ok ? availability.source ?? null : null,
+            cliCommand: availability.command ?? null,
           },
         };
       } catch (error: unknown) {
@@ -174,7 +177,6 @@ export async function handleRegisteredCommand(
           throw error;
         }
       }
-      const availability = checkCopilotCliAvailable(paths.runtimesDir);
       if (!availability.ok) {
         throw cliError("COPILOT_CLI_MISSING", "The official Copilot CLI could not be resolved from the installed runtime or PATH.", {
           cause: availability.cause,
@@ -207,6 +209,8 @@ export async function handleRegisteredCommand(
           sdkInstalledNow: installedNow,
           authReady: true,
           loginLaunched: true,
+          cliSource: availability.source ?? null,
+          cliCommand: availability.command ?? null,
         },
       };
     }
@@ -224,7 +228,7 @@ export async function handleRegisteredCommand(
     case "switch": {
       let providerName = parsed.positionals[0] ?? null;
       if (!providerName && canPrompt(runtime, ctx.options.json)) {
-        providerName = await promptForProviderSelection(runtime, paths.providersPath, "Choose a provider to switch to");
+        providerName = await promptForProviderSelection(runtime, paths.providersPath, paths.configPath, "Choose a provider to switch to");
       }
 
       if (!providerName) {
@@ -416,7 +420,7 @@ export async function handleRegisteredCommand(
     case "edit": {
       let providerName = parsed.positionals[0] ?? null;
       if (!providerName && canPrompt(runtime, ctx.options.json)) {
-        providerName = await promptForProviderSelection(runtime, paths.providersPath, "Choose a provider to edit");
+        providerName = await promptForProviderSelection(runtime, paths.providersPath, paths.configPath, "Choose a provider to edit");
       }
 
       if (!providerName) {
@@ -483,7 +487,7 @@ export async function handleRegisteredCommand(
       const switchToProfile = getSingleOption(parsed.commandOptions, "--switch-to", false) ?? undefined;
 
       if (!providerName && canPrompt(runtime, ctx.options.json)) {
-        providerName = await promptForProviderSelection(runtime, paths.providersPath, "Choose a provider to remove");
+        providerName = await promptForProviderSelection(runtime, paths.providersPath, paths.configPath, "Choose a provider to remove");
       }
 
       if (!providerName) {

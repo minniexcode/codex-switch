@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { buildManagedProfileViews, collectConfigConsistencyIssues } from "../domain/config";
 import { getStorageRoles, inspectLiveStateDrift } from "../domain/runtime-state";
-import { findProvidersByProfile, isCopilotBridgeProvider } from "../domain/providers";
+import { isCopilotBridgeProvider } from "../domain/providers";
 import { readStructuredConfig } from "../storage/config-repo";
 import { readProvidersFile } from "../storage/providers-repo";
 import { readAuthFileState } from "../storage/auth-repo";
@@ -41,9 +41,11 @@ export async function getStatus(
   }
 
   const liveState = inspectLiveStateDrift(currentProfile, providers);
-  const activeProviderCandidates = currentProfile && providers ? findProvidersByProfile(providers, currentProfile) : [];
+  const activeProviderCandidates = liveState.mappedProviders;
   const activeProvider =
-    activeProviderCandidates.length === 1 && providers ? providers.providers[activeProviderCandidates[0]] : null;
+    liveState.providerResolvable && providers && liveState.mappedProvider
+      ? providers.providers[liveState.mappedProvider]
+      : null;
   const copilotInstall = probeCopilotSdkInstall(options?.runtimesDir);
   const runtimeStateInspection = inspectCopilotBridgeState(options?.runtimeDir);
   const runtimeState = runtimeStateInspection.state;
@@ -85,6 +87,11 @@ export async function getStatus(
     // Surface unmanaged live state without mutating anything during a read-only status call.
     warnings.push("Current config profile is not mapped in providers.json. Backfill would be required before treating live state as managed.");
   }
+  if (liveState.reason === "shared-profile") {
+    warnings.push(
+      `Current config profile "${currentProfile}" is shared by multiple providers in providers.json, so the active provider cannot be resolved uniquely.`
+    );
+  }
   if (runtimeStateInspection.exists && !runtimeStateInspection.valid) {
     warnings.push(`Copilot bridge runtime state is unreadable: ${runtimeStateInspection.parseError ?? "unknown parse failure"}`);
   }
@@ -104,24 +111,24 @@ export async function getStatus(
         configExists,
         providersExists,
         currentProfile,
-      currentProfileMapped: liveState.profileMapped,
-      provider: liveState.mappedProvider,
-      activeProviderResolvable: activeProviderCandidates.length === 1,
-      activeProviderCandidates,
-      runtimeProvider: activeProvider && isCopilotBridgeProvider(activeProvider) ? activeProvider.runtime?.kind ?? null : null,
-      copilotSdk: {
-        installed: copilotInstall.installed,
-        installDir: copilotInstall.installDir,
-        packageName: copilotInstall.packageName,
-        packageVersion: copilotInstall.packageVersion ?? null,
+        currentProfileMapped: liveState.profileMapped,
+        provider: liveState.mappedProvider,
+        activeProviderResolvable: liveState.providerResolvable,
+        activeProviderCandidates,
+        runtimeProvider: activeProvider && isCopilotBridgeProvider(activeProvider) ? activeProvider.runtime?.kind ?? null : null,
+        copilotSdk: {
+          installed: copilotInstall.installed,
+          installDir: copilotInstall.installDir,
+          packageName: copilotInstall.packageName,
+          packageVersion: copilotInstall.packageVersion ?? null,
+        },
+        copilotAuth,
+        copilotBridge,
+        copilotRuntimeState: runtimeState,
+        liveState,
+        auth: authState,
+        configProfiles: configViews,
+        issues: consistencyIssues,
       },
-      copilotAuth,
-      copilotBridge,
-      copilotRuntimeState: runtimeState,
-      liveState,
-      auth: authState,
-      configProfiles: configViews,
-      issues: consistencyIssues,
-    },
   };
 }

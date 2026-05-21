@@ -256,7 +256,8 @@ export async function startOrReuseCopilotBridge(providerName: string, provider: 
   child.unref();
 
   const startedAt = new Date().toISOString();
-  const healthy = await waitForCopilotBridgeStartup(child, runtime.bridgeHost, selectedPort, 15, 200);
+  // The worker can take a little longer to become healthy on Windows or under loaded test runs.
+  const healthy = await waitForCopilotBridgeStartup(child, runtime.bridgeHost, selectedPort, 25, 200);
   if (!healthy.ok) {
     clearCopilotBridgeState(runtimeDir);
     if (healthy.reason === "start-failed") {

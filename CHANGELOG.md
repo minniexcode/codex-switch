@@ -2,6 +2,31 @@
 
 All notable changes to `@minniexcode/codex-switch` will be documented in this file.
 
+## 0.0.12 - 2026-05-21
+
+This release is a beta hardening release. It does not expand the top-level feature surface. It tightens the release narrative, help text, human-readable output, and verification contract around the existing direct-provider and Copilot workflows.
+
+本次版本是 beta hardening release，不是继续扩 feature surface 的版本。重点是收口主工作流、帮助文案、人类输出语义和发布验证边界。
+
+### Changed
+
+- Changed the public narrative so the primary direct workflow is `init -> add -> switch -> status -> doctor`.
+- Changed the Copilot workflow narrative so `login copilot` is the required onboarding step before `add --copilot` and `switch`.
+- Changed top-level help, command help, and human-readable output to reflect the tool-home-first dual-path model.
+
+### Docs
+
+- Updated `README.md`, `README.CN.md`, `README.AI.md`, `docs/cli-usage.md`, `docs/codex-switch-product-overview.md`, and `docs/Tests/testing.md` for `0.0.12`.
+- Added the `0.0.12` design document and aligned active documentation to the new PRD/design pair.
+- Marked long-lived architecture/command design docs as historical references instead of current release contracts.
+
+### Verification
+
+- `npm run build`
+- `npm test`
+- `npx tsc --noEmit`
+- `npm pack --dry-run`
+
 ## 0.0.11 - 2026-05-19
 
 This release separates codex-switch tool state from the target Codex runtime, formalizes interactive upstream onboarding for GitHub Copilot, and freezes the expanded public command surface around config inspection and managed bridge operations.

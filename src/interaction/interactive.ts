@@ -3,7 +3,10 @@ import * as path from "node:path";
 import { BackupManifest } from "../domain/backup";
 import { cliError } from "../domain/errors";
 import { getBackupId } from "../domain/backups";
+import { isCopilotBridgeProvider } from "../domain/providers";
+import { inspectLiveStateDrift } from "../domain/runtime-state";
 import { resolveCodexDir } from "../storage/codex-paths";
+import { readStructuredConfig } from "../storage/config-repo";
 import { readProvidersFile } from "../storage/providers-repo";
 import { loadLatestManifest, loadManifestById } from "../storage/backup-repo";
 import { promptTags } from "./add-interactive";
@@ -22,16 +25,25 @@ export function canPrompt(runtime: CliPromptRuntime, jsonMode: boolean): boolean
 export async function promptForProviderSelection(
   runtime: CliPromptRuntime,
   providersPath: string,
+  configPath: string,
   message: string
 ): Promise<string> {
   const providers = readProvidersFile(providersPath);
+  const currentProfile = fs.existsSync(configPath) ? readStructuredConfig(configPath).activeProfile : null;
+  const liveState = inspectLiveStateDrift(currentProfile, providers);
   const choices = Object.entries(providers.providers)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([providerName, provider]) => ({
-      value: providerName,
-      label: providerName,
-      hint: provider.profile,
-    }));
+    .map(([providerName, provider]) => {
+      const providerType = isCopilotBridgeProvider(provider) ? "copilot" : "direct";
+      const currentMarker = liveState.providerResolvable && liveState.mappedProvider === providerName ? " | current" : "";
+      const ambiguousMarker =
+        !liveState.providerResolvable && liveState.mappedProviders.includes(providerName) ? " | current=ambiguous" : "";
+      return {
+        value: providerName,
+        label: providerName,
+        hint: `profile=${provider.profile} | type=${providerType}${currentMarker}${ambiguousMarker}`,
+      };
+    });
 
   if (choices.length === 0) {
     throw cliError("PROVIDER_NOT_FOUND", "No providers are configured.");

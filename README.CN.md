@@ -1,24 +1,76 @@
 # @minniexcode/codex-switch
 
-`@minniexcode/codex-switch` 是一个本地优先的 CLI，用来安全地管理和切换 Codex 的 provider/profile 配置。
+`@minniexcode/codex-switch` 是一个本地优先的 CLI，用来安全地管理和切换 Codex 的 provider 与 profile 配置。
 
-从 `0.0.11` 开始，它不再把整个管理态都塞进 `~/.codex/`，而是把工具自己的状态拆到独立的 tool home 里，同时继续对目标 Codex runtime 做受控写入。
+它把 `codex-switch` 自己的工具状态和目标 Codex runtime 明确分开，让 provider 管理、备份与 runtime 投影有一套受管流程，而不是依赖手工改文件。
 
-## 这个仓库是做什么的
+## 版本定位
 
-这个仓库包含 `codex-switch` 的 CLI 实现、npm 包配置，以及相关产品和技术文档。
+当前包版本：`0.0.12`
 
-项目目标：
+当前仍处于开发版本阶段。这个版本的重点不是继续扩命令面，而是把主工作流、帮助文案和实际行为统一到同一套契约上。
 
-- 在本地完成 provider/profile 管理与切换
-- 写入前先备份
-- 出错时可回滚
-- 同时兼顾终端用户和 AI/自动化调用
-- 为 GitHub Copilot 这类交互式上游登录提供独立入口
+## 安装
 
-## 现在可以做什么
+```bash
+npm install -g @minniexcode/codex-switch
+```
 
-当前公开命令面如下：
+不全局安装时也可以直接运行：
+
+```bash
+npx @minniexcode/codex-switch --help
+```
+
+CLI 命令名：
+
+```bash
+codexs --help
+```
+
+## 主工作流
+
+Direct provider 主路径：
+
+```bash
+codexs init
+codexs add my-provider --profile my-provider --api-key sk-xxx
+codexs switch my-provider
+codexs status
+codexs doctor
+```
+
+GitHub Copilot 主路径：
+
+```bash
+codexs init
+codexs login copilot
+codexs add copilot-main --copilot --profile copilot-main
+codexs switch copilot-main
+codexs status
+codexs doctor
+```
+
+说明：
+
+- `init` 负责初始化 `codex-switch` 的 tool home 与受管状态文件。
+- `login copilot` 负责上游 Copilot onboarding 和登录可用性检查。
+- `add --copilot` 不负责替你登录，它假设上游 Copilot 已经 ready。
+- `status` 是切换后的主读取命令。
+- `doctor` 是主诊断命令，用于解释问题和下一步修复动作。
+
+## Advanced Adopt 路径
+
+如果你已经有现成的 Codex runtime 状态，希望把它 adopt 到受管 `providers.json`，再使用：
+
+```bash
+codexs init
+codexs migrate
+```
+
+`migrate` 是高级 adopt helper，不是 fresh install 的默认第一步。
+
+## 命令面
 
 ```bash
 codexs init
@@ -30,111 +82,24 @@ codexs current
 codexs status
 codexs config show [profile]
 codexs config list-profiles
+codexs add <provider> --profile <name> --api-key <key>
+codexs add <provider> --copilot --profile <name>
 codexs edit <provider>
 codexs switch <provider>
+codexs remove <provider> [--force] [--switch-to <profile>]
 codexs import <file>
-codexs export <file>
-codexs add <provider>
-codexs remove <provider>
+codexs export <file> [--force]
 codexs bridge start [provider]
 codexs bridge status [provider]
 codexs bridge stop [provider]
 codexs backups list
-codexs doctor
 codexs rollback [backup-id]
-codexs setup
+codexs doctor
 ```
 
-对应能力包括：
+`setup` 仍然存在，但只作为已弃用兼容入口，用来提示调用方改用 `init` 或 `migrate`。
 
-- 初始化独立的 tool home 与空的受管 `providers.json`
-- 从已有 `config.toml` adopt 可管理的 runtime profile
-- 查看本地已管理 provider
-- 查看结构化 config profile 视图
-- 编辑、切换、导入、导出、删除 provider
-- 为 GitHub Copilot 完成上游 SDK 安装与登录检查
-- 显式启动、查看和停止本地 Copilot bridge
-- 检查配置漂移和常见本地问题
-- 在变更前自动备份，并在失败时回滚
-- 保留 `setup` 作为弃用入口，并引导到 `init` / `migrate`
-
-## 简单用法
-
-全局安装：
-
-```bash
-npm install -g @minniexcode/codex-switch
-```
-
-或者直接执行：
-
-```bash
-npx @minniexcode/codex-switch --help
-```
-
-检查 CLI 是否可用：
-
-```bash
-codexs --help
-```
-
-典型使用方式：
-
-```bash
-codexs init
-codexs migrate
-codexs list
-codexs config show
-codexs add my-provider --profile my-provider --api-key sk-xxx
-codexs switch my-provider
-codexs status
-```
-
-GitHub Copilot 路径：
-
-```bash
-codexs login copilot
-codexs add copilot-main --copilot --profile copilot-main
-codexs bridge start copilot-main
-```
-
-给脚本或 AI 使用时建议加上：
-
-```bash
-codexs list --json
-codexs status --json
-codexs config list-profiles --json
-```
-
-通用参数：
-
-```bash
---json
---codex-dir <path>
-```
-
-环境变量：
-
-```bash
-CODEXS_HOME
-CODEXS_CODEX_DIR
-```
-
-## 交互式体验
-
-这个 CLI 同时支持显式命令和交互式终端流程。
-
-- `codexs add` 在 TTY 里会补问缺失的必填项
-- `codexs switch` 在未传 provider 时可以弹出选择列表
-- `codexs remove` 支持交互式选择和确认删除
-- `import`、`export`、`rollback` 在交互模式下会要求确认
-- `login copilot` 必须在真实 TTY 中执行
-- `migrate` 当前仍保留交互式 adopt 语义
-- `--json` 模式保持非交互，适合自动化
-
-## 管理哪些文件
-
-从 `0.0.11` 开始，`codex-switch` 使用双路径模型。
+## 双路径模型
 
 tool home：
 
@@ -155,38 +120,49 @@ tool home：
   auth.json
 ```
 
-存储模型：
+关键边界：
 
-- `providers.json` 是管理态的单一事实来源，位于 tool home
-- `codex-switch.json` 存放工具级配置，例如 `defaultCodexDir`
-- `config.toml` 是目标 Codex runtime 的受管路由文件
-- `auth.json` 是当前认证投影文件
-- `backups/latest.json` 记录最近一次可回滚窗口
-- `runtime/` 保存受管 bridge runtime state
-- `runtimes/` 用于存放可选本地 runtime，例如 Copilot SDK
+- `providers.json` 是受管 provider 注册表，位于 tool home。
+- `codex-switch.json` 保存工具级元数据，例如 `defaultCodexDir`。
+- `config.toml` 仍然是目标 runtime 里的活动路由文件。
+- `auth.json` 仍然是目标 runtime 里的活动认证投影文件。
+- Direct provider 切换会改写活动 runtime 中的 `OPENAI_API_KEY`。
+- Copilot provider 保持上游 GitHub 登录留在官方 Copilot runtime 中，`codex-switch` 只管理本地 bridge 状态与路由。
 
-注意：`providers.json` 可能包含 API key，本地使用时应视为敏感文件。
+路径控制：
 
-## 最近版本更新
+- `--codex-dir <path>` 显式指定目标 Codex runtime 目录。
+- `CODEXS_CODEX_DIR` 在未传 `--codex-dir` 时提供默认目标目录。
+- `CODEXS_HOME` 用于覆盖 tool home 位置。
 
-### 0.0.11
+## 自动化说明
 
-- 引入独立 tool home，正式把管理态从 `~/.codex` 中拆出
-- 新增 `login copilot`，把 GitHub Copilot 上游登录从 `add --copilot` 中解耦
-- 新增 `bridge start/status/stop` 与 `config show/list-profiles`
-- README、CLI usage 和发布元数据统一按新命令契约更新
+这个 CLI 同时支持人类终端使用和非交互自动化。
 
-### 0.0.10
+全局参数：
 
-- 正式拆分 `setup`：新增 `init` 和 `migrate`，`setup` 变为弃用命令
-- 收紧迁移、诊断、回滚和发布正确性边界
-- 清理 provider/runtime 管理语义，CLI 聚焦静态 profile 与 `base_url` 层配置
+```bash
+--json
+--codex-dir <path>
+--help
+--version
+```
 
-### 0.0.7
+当前实现边界：
 
-- 完成 command-surface 重构
-- 校正 env key / auth mirror 相关模型
-- 推进 `setup` 向 `init` + `migrate` 的拆分
+- `login copilot` 必须运行在真实 TTY 下，不支持 `--json`。
+- `migrate` 在当前版本仍然依赖交互式 profile 选择和 provider 细节补全。
+- 自动化调用应尽量显式传参，并优先使用 `--json`。
+
+## 本地开发
+
+```bash
+npm run build
+npm test
+npx tsc --noEmit
+node dist/cli.js --help
+npm pack --dry-run
+```
 
 ## 相关文档
 
@@ -194,21 +170,9 @@ tool home：
 - [AI README](./README.AI.md)
 - [详细 CLI 文档](./docs/cli-usage.md)
 - [产品概览](./docs/codex-switch-product-overview.md)
-- [产品调研](./docs/codex-switch-product-research.md)
-- [PRD 0.0.11](./docs/PRD/codex-switch-prd-v0.0.11.md)
-- [技术架构](./docs/codex-switch-technical-architecture.md)
-- [0.0.11 设计文档](./docs/Design/codex-switch-v0.0.11-design.md)
 - [测试说明](./docs/Tests/testing.md)
-
-## 本地开发
-
-```bash
-npm install
-npm run build
-npm test
-npx tsc --noEmit
-node dist/cli.js --help
-```
+- [PRD 0.0.12](./docs/PRD/codex-switch-prd-v0.0.12.md)
+- [Release Gate PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
 
 ## License
 

@@ -14,7 +14,7 @@ import {
   planConfigMutation,
 } from "../domain/config";
 import { cliError, normalizeError } from "../domain/errors";
-import { findProvidersByProfile, ProvidersFile } from "../domain/providers";
+import { ProvidersFile } from "../domain/providers";
 import { CODEX_DIR_ENV_NAME, resolveCodexDir } from "./codex-paths";
 import { readRequiredFile, writeTextFileAtomic } from "./fs-utils";
 
@@ -136,28 +136,6 @@ export function requireModelProviderRuntimeSection(document: ParsedConfigDocumen
       missingFields: ["base_url"],
     });
   }
-}
-
-/**
- * Resolves the current active provider and requires the mapping to be unique.
- */
-export function resolveActiveProviderName(document: ParsedConfigDocument, providers: ProvidersFile): string {
-  if (!document.activeProfile) {
-    throw cliError("PROFILE_NOT_FOUND", "No top-level profile is set in config.toml.");
-  }
-  const matches = findProvidersByProfile(providers, document.activeProfile);
-  if (matches.length === 0) {
-    throw cliError("UNMANAGED_ACTIVE_PROFILE", `Active profile "${document.activeProfile}" is not mapped by providers.json.`, {
-      profile: document.activeProfile,
-    });
-  }
-  if (matches.length > 1) {
-    throw cliError("ACTIVE_PROVIDER_UNRESOLVED", `Active profile "${document.activeProfile}" maps to multiple providers, so the active managed provider is ambiguous.`, {
-      profile: document.activeProfile,
-      providers: matches,
-    });
-  }
-  return matches[0];
 }
 
 /**

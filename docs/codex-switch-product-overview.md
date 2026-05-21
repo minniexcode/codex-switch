@@ -2,240 +2,85 @@
 
 ## 文档定位
 
-这份文档用于介绍 `codex-switch` 是什么、解决什么问题、适合谁用，以及它和现有方案相比的产品价值。
+这份文档介绍当前活跃产品事实源下的 `codex-switch` 产品定位。
 
-它不是实现规格文档，也不是研究笔记。
+当前 release contract 以这些文档为准：
 
-相关文档：
-
-- 研究输入稿：[`codex-switch-product-research.md`](./codex-switch-product-research.md)
-- 正式 PRD：[`PRD/codex-switch-prd.md`](./PRD/codex-switch-prd.md)
-- 技术架构设计：[`codex-switch-technical-architecture.md`](./codex-switch-technical-architecture.md)
-- 命令设计说明：[`codex-switch-command-design.md`](./codex-switch-command-design.md)
+- [`cli-usage.md`](./cli-usage.md)
+- [`PRD/codex-switch-prd-v0.0.12.md`](./PRD/codex-switch-prd-v0.0.12.md)
+- [`Design/codex-switch-v0.0.12-design.md`](./Design/codex-switch-v0.0.12-design.md)
 
 ## 产品概述
 
-`codex-switch` 是一个本地优先、默认安全、对 AI 友好的 CLI 工具，用于管理和切换本机 Codex 的 provider/profile 配置。
+`codex-switch` 是一个本地 provider 管理 CLI，用于管理和切换目标 Codex runtime 的 provider/profile 配置，同时把工具自己的管理态保存在独立 tool home 下。
 
-它的产品展示名是：
-
-```text
-codex-switch
-```
-
-它的命令名是：
-
-```text
-codexs
-```
-
-`codex-switch` 的核心目标不是做一个“大而全”的账号系统，也不是先做成桌面应用，而是提供一套轻量、稳定、可安装的命令行产品，让用户和 AI 都能可靠地管理本地 Codex 配置。
-
-## 为什么要做这个产品
-
-围绕 Codex 配置切换，当前常见方案通常有两个问题：
-
-- 太轻
-  - 单个脚本可以完成基本切换，但不够产品化，不适合长期维护，也不适合让 AI 稳定调用
-- 太重
-  - 一些方案偏桌面 GUI、偏多账号体系、偏代理层控制，不适合只想快速切换本地配置的场景
-
-`codex-switch` 填补的是这两者之间的空缺：
-
-- 比脚本更标准
-- 比重型工具更轻
-- 比手工改配置更安全
-- 比临时命令更适合 AI 自动化调用
-
-## 它解决什么问题
-
-`codex-switch` 主要解决以下问题：
-
-- 本机维护多个 provider / profile 时，切换过程繁琐
-- 手动修改 `~/.codex/config.toml` 风险高，容易改错
-- 切换后还需要同步处理登录状态或 API key
-- 缺少统一命令去查看当前状态、导入导出配置、做基础诊断
-- AI 代理难以稳定复用临时脚本或手工流程
-
-简单说，它把原本零散、不稳定、容易出错的本地切换流程，收敛成一套可预期的产品接口。
-
-## 目标用户
-
-### 1. 个人开发者
-
-这类用户会在同一台机器上使用多个 Codex provider 或多个 profile，希望快速切换，而不想反复手动编辑文件。
-
-### 2. 高频切换用户
-
-这类用户需要在不同 API key、不同环境配置、不同 provider 之间频繁切换，希望切换动作标准化。
-
-### 3. AI 代理使用者
-
-这类用户希望让 AI 直接执行：
-
-- 查看当前配置
-- 列出可用 provider
-- 切换 provider
-- 导入或导出配置
-- 诊断当前环境
-
-### 4. 重视配置安全的用户
-
-这类用户不接受“切换失败后手动修配置”的流程，希望所有写操作都先备份，失败后能回滚。
-
-## 产品形态
-
-`codex-switch` 当前明确采用 CLI-first 形态。
-
-这意味着：
-
-- 第一阶段只提供命令行接口
-- 所有核心功能都能通过命令完成
-- 重点优化稳定命令、明确输出和自动化兼容性
-- 不依赖 GUI，不依赖后台常驻服务
-
-这也是它和一些桌面切换器最大的区别：`codex-switch` 更强调自动化与可调用性，而不是可视化操作界面。
-
-## 核心价值
-
-### 1. 切换更简单
-
-用户不需要手动打开配置文件查找和修改 `profile`，只需要执行一条命令。
-
-### 2. 修改更安全
-
-所有关键写操作都围绕“先备份、后修改、失败回滚”的原则设计，降低误操作风险。
-
-### 3. 对 AI 更友好
-
-命令名、参数和输出结构保持稳定，AI 可以把它当成标准工具调用，而不是临时脚本。
-
-### 4. 产品边界更清晰
-
-它不试图一开始就处理账号全生命周期、可视化界面、复杂路由和远程同步，而是聚焦“本地 provider/profile 管理和切换”这一件事。
-
-## 核心能力
-
-MVP 的能力范围主要包括：
-
-- provider/profile 管理
-  - 查看、添加、删除本地 provider 记录
-- 当前状态查看
-  - 查看当前生效 profile
-  - 查看本地配置整体状态
-- provider 切换
-  - 切换到指定 provider
-  - 默认联动执行 `codex login --with-api-key`
-- 配置安全
-  - 修改前自动备份
-  - 失败时自动回滚
-- 配置迁移
-  - 导入和导出 `providers.json`
-- 环境诊断
-  - 检查配置文件、provider 映射和 CLI 可用性
+它不是旧 `setup` 小工具，也不是围绕单目录 `~/.codex` 组织全部状态的脚本集合。
 
 ## 产品工作方式
 
-`codex-switch` 的工作对象主要围绕 `~/.codex/` 目录：
+`codex-switch` 使用 dual-path model。
+
+tool home：
+
+```text
+~/.config/codex-switch/
+  codex-switch.json
+  providers.json
+  backups/
+  runtime/
+  runtimes/
+```
+
+target Codex runtime：
 
 ```text
 ~/.codex/
   config.toml
   auth.json
-  providers.json
-  backups/
 ```
 
-其中：
+说明：
 
-- `config.toml` 是主配置文件
-- `providers.json` 是 `codex-switch` 自身维护的 provider 清单
-- `auth.json` 是当前 active direct provider 的认证投影文件；切换 direct provider 时会刷新 `OPENAI_API_KEY`
-- `backups/` 用于保存历史备份
+- `providers.json` 不位于 `~/.codex`
+- `backups/` 不位于 `~/.codex`
+- tool home 承担管理态 SSOT
+- target runtime 承担受管运行态投影
 
-产品不会要求用户先理解全部内部实现，只暴露统一的命令接口。
+## 核心使用流程
 
-## 典型使用流程
+Direct 主路径：
 
-### 场景 1：查看当前状态
+```bash
+codexs init
+codexs add <provider> --profile <name> --api-key <key>
+codexs switch <provider>
+codexs status
+codexs doctor
+```
 
-用户可以先查看当前生效 profile，以及本地配置是否完整。
+Copilot 主路径：
 
-### 场景 2：列出所有 provider
+```bash
+codexs init
+codexs login copilot
+codexs add <provider> --copilot --profile <name>
+codexs switch <provider>
+codexs status
+codexs doctor
+```
 
-用户可以查看当前有哪些可切换 provider，以及它们分别映射到哪个 profile。
+Advanced adopt helper：
 
-### 场景 3：切换到目标 provider
+```bash
+codexs init
+codexs migrate
+```
 
-用户执行切换命令后，工具会完成校验、备份、修改运行态配置，并在 direct provider 场景下同步 `auth.json`。
+## 当前产品判断
 
-### 场景 4：出现异常时恢复
+`0.0.12` 的重点不是再加新命令，而是让用户在 README、help 和输出第一屏就能理解：
 
-如果切换失败，工具会自动回滚；如果用户需要手动恢复，也可以通过回滚命令恢复最近一次状态。
-
-### 场景 5：迁移到新机器
-
-用户可以导出 `providers.json`，在另一台机器上导入，再进行本地校验和切换。
-
-## 与其他方案的区别
-
-相较于临时脚本，`codex-switch` 的区别在于：
-
-- 有稳定命令集
-- 有统一输出格式
-- 有更清晰的产品边界
-- 更适合长期维护
-
-相较于 GUI 或重型账号工具，`codex-switch` 的区别在于：
-
-- 更轻量
-- 更适合自动化
-- 更适合 AI 调用
-- 聚焦本地 provider/profile，而不是扩展成完整账号平台
-
-## 当前明确不做的内容
-
-当前版本不做以下内容：
-
-- GUI / Desktop App
-- 常驻后台服务
-- 代理转发层
-- 复杂多账号体系
-- 自动智能路由
-- 远程同步
-
-这些方向不是永远不做，而是不属于当前产品的首要问题。
-
-## 为什么是 TypeScript / Node.js
-
-`codex-switch` 当前优先选择 TypeScript / Node.js，不是因为这个产品需要高性能计算，而是因为这条路线更符合它的产品形态：
-
-- npm 全局安装体验成熟
-- CLI 生态完善
-- 开发和迭代速度更快
-- 更方便后续扩展交互、JSON 输出和 AI 集成
-
-因此，当前阶段真正重要的不是“是否足够底层”，而是：
-
-- 命令是否稳定
-- 文件修改是否安全
-- 输出是否易于解析
-- 用户是否容易安装和使用
-
-## 成功标准
-
-如果 `codex-switch` 能做到以下几点，就说明这个产品方向成立：
-
-- 用户可以轻松安装并使用统一 CLI
-- 用户可以可靠地查看、切换和管理本地 provider
-- 切换失败时不会破坏本地配置
-- AI 可以稳定调用关键命令
-- 用户不需要再依赖手工改配置或维护零散脚本
-
-## 当前结论
-
-`codex-switch` 的产品定位可以概括为：
-
-> 一个轻量、可安装、默认安全、对 AI 友好的本地 Codex provider/profile 切换工具。
-
-它不是从 GUI 起步，也不是从复杂账号系统起步，而是从最有价值、最容易落地、最适合自动化调用的 CLI 能力起步。
+- fresh install 应先走什么
+- Copilot 路径和 direct 路径有什么区别
+- `migrate` 何时才该使用
+- `status` / `doctor` 如何帮助定位下一步
