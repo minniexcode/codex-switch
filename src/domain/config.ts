@@ -38,6 +38,14 @@ export type ConfigConsistencyIssue =
   | { code: "MODEL_PROVIDER_NAME_MISMATCH"; profile: string; modelProvider: string }
   | { code: "MODEL_PROVIDER_SECTION_MISSING"; profile: string; modelProvider: string }
   | { code: "MODEL_PROVIDER_BASE_URL_MISSING"; profile: string; modelProvider: string }
+  | {
+      code: "PROVIDER_BASE_URL_MISMATCH";
+      profile: string;
+      provider: string;
+      providerBaseUrl: string;
+      configBaseUrl: string;
+      providerType: "direct";
+    }
   | { code: "ACTIVE_PROVIDER_UNRESOLVED"; profile: string; providers: string[] }
   | { code: "DESTRUCTIVE_REMOVE_BLOCKED"; profile: string; provider: string; activeProfile: string; linkedProviders: string[] };
 
@@ -345,6 +353,8 @@ export function collectConfigConsistencyIssues(
   providers: ProvidersFile | null
 ): ConfigConsistencyIssue[] {
   const issues: ConfigConsistencyIssue[] = [];
+  const providerMap = providers?.providers ?? null;
+  const profileLinkMap = buildProfileLinkMap(providers);
   for (const view of buildManagedProfileViews(document, providers)) {
     if (view.source === "orphaned-reference") {
       issues.push({
@@ -393,13 +403,39 @@ export function collectConfigConsistencyIssues(
             profile: view.name,
             modelProvider: view.modelProvider,
           });
+        } else {
+          const profileLinkInfo = profileLinkMap.get(view.name);
+          if (
+            profileLinkInfo &&
+            profileLinkInfo.linkedProviders.length === 1 &&
+            providerMap
+          ) {
+            const providerName = profileLinkInfo.linkedProviders[0];
+            const provider = providerMap[providerName];
+            if (
+              provider &&
+              !provider.runtime &&
+              typeof provider.baseUrl === "string" &&
+              provider.baseUrl.trim() !== "" &&
+              provider.baseUrl !== modelProviderSection.baseUrl
+            ) {
+              issues.push({
+                code: "PROVIDER_BASE_URL_MISMATCH",
+                profile: view.name,
+                provider: providerName,
+                providerBaseUrl: provider.baseUrl,
+                configBaseUrl: modelProviderSection.baseUrl,
+                providerType: "direct",
+              });
+            }
+          }
         }
       }
     }
   }
 
   if (document.activeProfile) {
-    const activeLinkInfo = buildProfileLinkMap(providers).get(document.activeProfile);
+    const activeLinkInfo = profileLinkMap.get(document.activeProfile);
     if (!activeLinkInfo) {
       issues.push({
         code: "UNMANAGED_ACTIVE_PROFILE",

@@ -293,6 +293,9 @@ function renderStatusHealth(data: Record<string, unknown> | null): string {
   if (issues.some((issue) => issue.code === "ACTIVE_PROVIDER_UNRESOLVED")) {
     return "active provider ambiguous";
   }
+  if (issues.some((issue) => issue.code === "PROVIDER_BASE_URL_MISMATCH")) {
+    return "provider projection drift";
+  }
   if (activePathUsesCopilot && copilotSdk.installed === false) {
     return "copilot sdk missing";
   }
@@ -367,6 +370,8 @@ function renderDoctorIssueNextStep(issue: Record<string, unknown>): string {
     case "ACTIVE_PROVIDER_UNRESOLVED":
     case "SHARED_PROFILE_REFERENCE":
       return "make provider-to-profile mappings unique before relying on current-provider detection";
+    case "PROVIDER_BASE_URL_MISMATCH":
+      return "rerun `codexs edit <provider> --base-url <url>` or `codexs switch <provider>` to repair the runtime projection";
     default:
       return "inspect the issue details and rerun `codexs doctor` after fixing the state";
   }

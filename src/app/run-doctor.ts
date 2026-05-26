@@ -225,6 +225,10 @@ function renderConfigIssueMessage(issue: ConfigConsistencyIssue | Record<string,
       return `Model provider section "${issue.modelProvider}" for profile "${issue.profile}" is missing from config.toml.`;
     case "MODEL_PROVIDER_BASE_URL_MISSING":
       return `Model provider section "${issue.modelProvider}" for profile "${issue.profile}" is missing base_url.`;
+    case "PROVIDER_BASE_URL_MISMATCH":
+      return issue.providerType === "direct"
+        ? `Direct provider "${issue.provider}" baseUrl does not match config.toml model provider "${issue.profile}" base_url.`
+        : String((issue as { code?: string }).code ?? "UNKNOWN_ISSUE");
     case "ACTIVE_PROVIDER_UNRESOLVED":
       return `Active profile "${issue.profile}" maps to multiple providers, so the active managed provider cannot be resolved uniquely.`;
     case "AUTH_JSON_INVALID":

@@ -1,6 +1,6 @@
 import { cliError } from "../domain/errors";
 import { planProfileLifecycleOutcome, validateManagedProfileCreation } from "../domain/config";
-import { cleanProviderRecord } from "../domain/providers";
+import { buildDirectModelProviderProjection, cleanProviderRecord } from "../domain/providers";
 import {
   applyConfigMutation,
   createConfigMutationPlan,
@@ -69,12 +69,19 @@ export function editProvider(args: {
   const targetModelProviderSection = document.modelProviders.find((entry) => entry.name === newProfile) ?? null;
   const targetProfileExists = Boolean(targetSection);
   let upsertProfiles: Record<string, { model?: string; modelProvider?: string }> | undefined;
-  let upsertModelProviders: Record<string, { baseUrl?: string }> | undefined;
+  let upsertModelProviders: Record<string, { baseUrl?: string; name?: string; requiresOpenAiAuth?: boolean; wireApi?: string }> | undefined;
   if (!targetProfileExists) {
     if (!args.createProfile) {
       throw cliError("PROFILE_NOT_FOUND", `Profile "${newProfile}" does not exist in config.toml.`, {
         profile: newProfile,
         provider: args.providerName,
+      });
+    }
+    if (!args.baseUrl || args.baseUrl.trim() === "") {
+      throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${newProfile}" requires base_url.`, {
+        profile: newProfile,
+        modelProvider: newProfile,
+        missingFields: ["base_url"],
       });
     }
     upsertProfiles = {
@@ -84,12 +91,21 @@ export function editProvider(args: {
       }),
     };
     upsertModelProviders = {
-      [newProfile]: {
-        baseUrl: args.baseUrl ?? undefined,
-      },
+      [newProfile]: buildDirectModelProviderProjection(newProfile, args.baseUrl),
     };
   } else {
     requireManagedProfileRuntime(document, providers, newProfile);
+  }
+  if (
+    targetProfileExists &&
+    !current.runtime &&
+    args.baseUrl !== undefined &&
+    args.baseUrl !== null
+  ) {
+    upsertModelProviders = {
+      ...(upsertModelProviders ?? {}),
+      [newProfile]: buildDirectModelProviderProjection(newProfile, args.baseUrl),
+    };
   }
   const nextRecord = cleanProviderRecord({
     profile: newProfile,
