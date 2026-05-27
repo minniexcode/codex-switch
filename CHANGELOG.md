@@ -2,6 +2,32 @@
 
 All notable changes to `@minniexcode/codex-switch` will be documented in this file.
 
+## 0.1.0 - 2026-05-26
+
+This release is the first stable release line for codex-switch. It closes the release gate by aligning package metadata, public documentation, help text, and test coverage around the existing direct-provider, Copilot, and diagnostic workflows.
+
+本次版本是 codex-switch 的第一条稳定发布线。它通过对齐包元数据、公开文档、help 文案和测试覆盖，把 direct provider、Copilot 与诊断工作流收口到同一套发布合同。
+
+### Changed
+
+- Bumped the package and lockfile version to `0.1.0`.
+- Aligned README, CLI usage, product overview, and release docs to the stable release story.
+- Tightened the command help and human-readable output so `list`, `status`, and `doctor` surface provider type, ambiguity, tool home, target runtime, and next-step guidance more clearly.
+
+### Docs
+
+- Added the release testing guide under `docs/Tests/testing.md`.
+- Marked the long-lived command and architecture docs as historical references instead of current release contracts.
+
+### Verification
+
+- `npm run build`
+- `npm test`
+- `npx tsc --noEmit`
+- `npm pack --dry-run`
+- `node dist/cli.js --help`
+- `node dist/cli.js --version`
+
 ## 0.0.12 - 2026-05-21
 
 This release is a beta hardening release. It does not expand the top-level feature surface. It tightens the release narrative, help text, human-readable output, and verification contract around the existing direct-provider and Copilot workflows.

@@ -1,6 +1,6 @@
 # codex-switch CLI Usage
 
-This document describes the current CLI contract for `@minniexcode/codex-switch` at version `0.0.12`.
+This document describes the current CLI contract for `@minniexcode/codex-switch` at version `0.1.0`.
 
 Executable command name:
 
@@ -10,9 +10,9 @@ codexs
 
 ## 1. Version Context
 
-The current package version in this repository is `0.0.12`.
+The current package version in this repository is `0.1.0`.
 
-This is still a development-version release. The command surface already exists, but this version mainly focuses on keeping workflow guidance, help text, and implementation behavior aligned.
+This is the first stable release line. The command surface already exists, and this version focuses on keeping workflow guidance, help text, and implementation behavior aligned.
 
 ## 2. Primary Workflows
 
@@ -220,4 +220,4 @@ codexs rollback [backup-id]
 - [Chinese README](../README.CN.md)
 - [AI README](../README.AI.md)
 - [Product Overview](./codex-switch-product-overview.md)
-- [PRD 0.0.12](./PRD/codex-switch-prd-v0.0.12.md)
+- [Release PRD 0.1.0](./PRD/codex-switch-prd-v0.1.0.md)

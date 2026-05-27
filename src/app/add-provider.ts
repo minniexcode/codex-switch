@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import { validateManagedProfileCreation } from "../domain/config";
 import {
   buildCopilotBridgeBaseUrl,
+  buildDirectModelProviderProjection,
   buildCopilotModelProviderProjection,
   cleanProviderRecord,
   ProviderRuntime,
@@ -96,6 +97,7 @@ export async function addProvider(args: {
       provider: args.providerName,
     });
   }
+  const directBaseUrl = args.baseUrl;
   const upsertProfiles = !existingProfile && args.createProfile
     ? {
         [args.profile]: validateManagedProfileCreation(args.profile, {
@@ -104,18 +106,22 @@ export async function addProvider(args: {
         }),
       }
     : undefined;
-  const upsertModelProviders =
-    args.copilot
+  if (!args.copilot && !existingModelProvider && args.createProfile && (!directBaseUrl || directBaseUrl.trim() === "")) {
+    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${args.profile}" requires base_url.`, {
+      profile: args.profile,
+      modelProvider: args.profile,
+      missingFields: ["base_url"],
+    });
+  }
+  const upsertModelProviders = args.copilot
+    ? {
+        [args.profile]: buildCopilotModelProviderProjection(runtime as ProviderRuntime),
+      }
+    : !existingModelProvider && args.createProfile
       ? {
-          [args.profile]: buildCopilotModelProviderProjection(runtime as ProviderRuntime),
+          [args.profile]: buildDirectModelProviderProjection(args.profile, directBaseUrl as string),
         }
-      : !existingModelProvider && args.createProfile
-        ? {
-            [args.profile]: {
-              baseUrl: args.baseUrl ?? undefined,
-            },
-          }
-        : undefined;
+      : undefined;
   if (existingProfile) {
     requireManagedProfileRuntime(document, providers, args.profile);
   }

@@ -1,7 +1,7 @@
 # codex-switch 命令设计说明
 
 > 状态说明：这份文档是历史跨版本参考，不是当前 release contract。
-> 当前事实源请改看 [`docs/cli-usage.md`](./cli-usage.md)、[`docs/PRD/codex-switch-prd-v0.0.12.md`](./PRD/codex-switch-prd-v0.0.12.md)、[`docs/Design/codex-switch-v0.0.12-design.md`](./Design/codex-switch-v0.0.12-design.md)。
+> 当前事实源请改看 [`docs/cli-usage.md`](./cli-usage.md)、[`docs/PRD/codex-switch-prd-v0.1.0.md`](./PRD/codex-switch-prd-v0.1.0.md)、[`docs/Design/codex-switch-v0.1.0-design.md`](./Design/codex-switch-v0.1.0-design.md)。
 
 ## 文档信息
 

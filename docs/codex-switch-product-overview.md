@@ -7,8 +7,8 @@
 当前 release contract 以这些文档为准：
 
 - [`cli-usage.md`](./cli-usage.md)
-- [`PRD/codex-switch-prd-v0.0.12.md`](./PRD/codex-switch-prd-v0.0.12.md)
-- [`Design/codex-switch-v0.0.12-design.md`](./Design/codex-switch-v0.0.12-design.md)
+- [`PRD/codex-switch-prd-v0.1.0.md`](./PRD/codex-switch-prd-v0.1.0.md)
+- [`Design/codex-switch-v0.1.0-design.md`](./Design/codex-switch-v0.1.0-design.md)
 
 ## 产品概述
 
@@ -78,7 +78,7 @@ codexs migrate
 
 ## 当前产品判断
 
-`0.0.12` 的重点不是再加新命令，而是让用户在 README、help 和输出第一屏就能理解：
+`0.1.0` 的重点不是再加新命令，而是让用户在 README、help 和输出第一屏就能理解：
 
 - fresh install 应先走什么
 - Copilot 路径和 direct 路径有什么区别

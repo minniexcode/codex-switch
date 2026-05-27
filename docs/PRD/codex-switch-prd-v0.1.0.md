@@ -2,35 +2,40 @@
 
 ## 文档信息
 
-- 状态：Release Gate Draft
+- 状态：Release Gate
 - 产品名：`codex-switch`
 - CLI 命令名：`codexs`
-- 当前预发布基线：`0.0.12` beta
+- 当前稳定基线：`0.0.12`
 - 目标版本：`0.1.0`
-- 文档定位：定义 `codex-switch` 何时可以从 `0.0.x` 进入第一个正式稳定发布版本
+- 文档定位：定义 `codex-switch` 第一次稳定发布前必须满足的门槛
 - 关联 beta PRD：[`./codex-switch-prd-v0.0.12.md`](./codex-switch-prd-v0.0.12.md)
+- 关联实现约束设计：[`../Design/codex-switch-v0.1.0-design.md`](../Design/codex-switch-v0.1.0-design.md)
 - 关联长期演进稿：[`./codex-switch-prd-v0.0.5-to-v0.1.0.md`](./codex-switch-prd-v0.0.5-to-v0.1.0.md)
 
-## 一句话定义
+## 1. 定位
 
-`0.1.0` 不是“功能再多一点”的版本，而是 `codex-switch` 第一条可正式对外承诺的稳定产品线：命令入口稳定、输出契约稳定、主工作流清晰、恢复与诊断可信、文档与包内容一致。
+`0.1.0` 是 `codex-switch` 的第一条稳定发布线，不是继续扩 feature surface 的版本，也不是把 `0.0.12` 再包装一次。
 
-## 发布语义
+这个版本的判断标准只有一个：当前仓库已经足够稳定，能把命令面、输出契约、主工作流、诊断语义和文档事实对外固定下来，并且不需要再依赖开发期解释来“补全理解”。
 
-一旦进入 `0.1.0`，这个版本就不再只是“作者自己知道怎么用”的工具，而需要满足：
+## 2. 当前阻塞项
 
-- 新用户看 README 与 help 就能走通主路径
-- 自动化调用方可以信赖 `--json` 的稳定契约
-- direct provider 和 Copilot provider 都有明确、可解释、可恢复的工作流
-- 文档、包内容、help、测试和实际行为是同一套事实
+以下问题仍然阻止 `0.1.0` 成为真正可发布的稳定版本：
 
-`0.1.0` 不是自动升级目标。只有当 release gate 满足时，才允许发布。
+1. `tests/` 被忽略，导致测试无法被版本化和审阅。
+2. README 里仍有失效的 `docs/Tests/testing.md` 链接，用户会直接遇到死链。
+3. 版本叙事仍停留在 `0.0.12`，对外材料没有把 `0.1.0` 讲成稳定发布线。
+4. 发布故事和实现状态还没有完全对齐，尤其是主工作流、`migrate` 定位和 `setup` 定位。
 
-## `0.1.0` 必须稳定的内容
+这些阻塞项必须先被收口，`0.1.0` 才能成立。
 
-### 1. CLI 命令面
+## 3. `0.1.0` 的稳定合同
 
-以下命令面在 `0.1.0` 时视为稳定：
+`0.1.0` 必须把以下内容视为稳定合同，不再当作可随意重写的草案。
+
+### 3.1 命令面
+
+稳定命令面包括：
 
 - `init`
 - `login`
@@ -53,14 +58,14 @@
 - `backups list`
 - `rollback`
 
-说明：
+其中：
 
-- `setup` 可以继续保留为 deprecated entry
-- `migrate` 可以继续保留，但其“高级 adopt 工具”定位必须明确
+- `migrate` 只能是高级 adopt helper。
+- `setup` 只能是 deprecated entry。
 
-### 2. JSON Envelope
+### 3.2 `--json` envelope
 
-`--json` 顶层 envelope 在 `0.1.0` 前必须冻结为：
+`--json` 的顶层 envelope 必须保持不变：
 
 ```json
 {
@@ -72,15 +77,15 @@
 }
 ```
 
-要求：
+约束如下：
 
-- 顶层字段不改名
-- 顶层 shape 不重排
-- 新信息只允许追加到 `data`、`warnings` 或 `error.details`
+- 顶层字段名不变。
+- 顶层字段顺序和 shape 不变。
+- 新信息只能继续追加到 `data`、`warnings` 或 `error.details`。
 
-### 3. 双路径模型
+### 3.3 dual-path model
 
-`0.1.0` 前必须把以下边界视为正式产品 contract：
+`0.1.0` 必须把以下分层固定为正式合同：
 
 - tool home：
   - `codex-switch.json`
@@ -92,17 +97,15 @@
   - `config.toml`
   - `auth.json`
 
-其中：
+含义必须稳定：
 
-- `providers.json` 是管理态 SSOT
-- `config.toml` 是受管 runtime routing 文件
-- `auth.json` 是受管 auth projection 文件
+- `providers.json` 是管理态 SSOT。
+- `config.toml` 是受管 runtime routing 文件。
+- `auth.json` 是受管 auth projection 文件。
 
-### 4. 主工作流
+### 3.4 主工作流
 
-#### Direct Provider
-
-正式推荐路径必须清晰稳定：
+Direct provider 主路径：
 
 ```bash
 codexs init
@@ -112,9 +115,7 @@ codexs status
 codexs doctor
 ```
 
-#### Copilot Provider
-
-正式推荐路径必须清晰稳定：
+Copilot provider 主路径：
 
 ```bash
 codexs init
@@ -125,81 +126,92 @@ codexs status
 codexs doctor
 ```
 
-#### `migrate`
+`migrate` 的定位必须明确为：
 
-`migrate` 在 `0.1.0` 可以保留，但必须满足：
+- 面向已有 runtime state 的高级 adopt helper。
+- 不应与 fresh install 主路径混淆。
+- 不应被写成所有新用户都应先执行的默认步骤。
 
-- 产品定位明确为高级 adopt helper
-- 不与 fresh install 主路径混淆
-- 文档不把它写成所有用户都应先执行的默认第一步
+## 4. Release Gate
 
-## Release Gate
+只有以下条件全部满足，才允许发布 `0.1.0`。
 
-只有以下条件全部满足，才允许发布 `0.1.0`：
+### 4.1 工作流
 
-### A. 工作流可信
+- fresh tool home 下 direct provider 主路径可稳定走通。
+- fresh tool home 下 Copilot 主路径可稳定走通。
+- `switch` 的成功语义仍然等于 config 和 auth projection 都正确。
+- `rollback` 对受管写操作仍然可信。
 
-- direct provider 主路径可在 fresh tool home 下稳定走通
-- Copilot 主路径可在 fresh tool home 下稳定走通
-- `switch` 成功语义仍然等于 config + auth 投影都正确
-- `rollback` 对受管写操作仍然可信
+### 4.2 输出与语义
 
-### B. 输出可信
+- `--json` 读命令输出稳定。
+- 非交互模式不会意外触发 prompt。
+- 错误码和 issue code 对常见失败场景足够稳定。
+- `status` 与 `doctor` 能清楚说明下一步修复动作。
+- `list`、`status`、`doctor` 的人类可读输出和交互提示一致。
 
-- `--json` 读命令输出稳定
-- 非交互模式不会意外 prompt
-- 错误码和 issue code 对常见失败场景足够稳定
-- `status` 与 `doctor` 输出能解释下一步修复动作
+### 4.3 文档
 
-### C. 文档可信
+- README、README.CN、README.AI、CLI usage、product overview、PRD、design 和 changelog 与实际行为一致。
+- `docs/Tests/testing.md` 不能继续停留在忽略状态，测试回归必须落仓库并可版本化。
+- 主路径在所有面向用户的文档中必须一致。
+- `0.1.0` 的定位必须压过旧的 `0.0.12` 叙事。
 
-- README、README.CN、README.AI、CLI usage、product overview、PRD、changelog 与实际行为一致
-- 不再残留旧 `~/.codex/providers.json` / `backups/` 叙述
-- 主路径在所有面向用户的文档中一致
+### 4.4 包内容
 
-### D. 包内容可信
+- `npm pack --dry-run` 结果合理。
+- tarball 中包含正确的 README、LICENSE、docs、dist。
+- `codexs --help`、`codexs --version`、安装指引与 npm 包元数据一致。
 
-- `npm pack --dry-run` 结果合理
-- tarball 中包含正确的 README、LICENSE、docs、dist
-- `codexs --help`、`codexs --version`、安装指引与 npm 包元数据一致
+### 4.5 结构
 
-### E. 结构可信
+- 不再保留明显误导性的历史目录语义。
+- 稳定模块的边界说明足够清楚。
+- 新问题不再需要反复回到超大入口文件修补。
 
-- 不再保留明显误导性的历史目录语义
-- 关键稳定模块有足够 JSDoc 和边界说明
-- 新问题不再需要反复回到超大入口文件做修补
+## 5. 可执行验证清单
 
-## 明确不要求 `0.1.0` 完成的内容
+`0.1.0` 的发布前验证必须至少覆盖以下项目：
 
-以下内容不是 `0.1.0` 的发布前置条件：
+```bash
+npm run build
+npm test
+npx tsc --noEmit
+npm pack --dry-run
+node dist/cli.js --help
+node dist/cli.js --version
+```
 
-- 新 upstream
-- GUI / TUI
-- daemon / background supervisor
-- plugin system
-- 多账号平台
-- 自动迁移旧状态
-- `migrate` 的完整非交互产品化
-- 通用 `config.toml` 编辑器
+同时必须做以下行为验证：
 
-## 若 Release Gate 未通过
+- fresh direct provider flow。
+- fresh Copilot provider flow。
+- `list/status/doctor` 语义检查。
+- `--json` 输出检查。
+- `migrate` 作为高级 adopt helper 的检查。
+- `setup` 作为 deprecated entry 的检查。
 
-如果以下任一问题仍明显存在，则不应强行发布 `0.1.0`：
+## 6. 明确不在范围内
 
-- 文档和行为仍有明显漂移
-- `migrate` 与主路径仍然混淆
-- Copilot 路径仍需要过多背景知识才能理解
-- 回滚与诊断场景仍存在不稳定或不可解释行为
-- 包内容、安装体验或帮助页仍像开发中工具
+`0.1.0` 不要求完成以下内容：
 
-此时应继续发布：
+- 新 upstream。
+- GUI / TUI。
+- daemon。
+- plugin system。
+- auto migration。
+- 兼容层。
+- dual-read / dual-write。
+- `migrate` 的完整非交互产品化。
+- 旧状态的自动升级保留逻辑。
 
-- `0.0.13`
-- `0.0.14`
-- 其他后续 beta / rc 版本
+## 7. 若 Gate 未通过
 
-而不是为了版本号好看提前进入 `0.1.0`。
+如果任何阻塞项仍然存在，就不要强行发布 `0.1.0`。
 
-## 结论
+此时应继续发布 beta 或 rc 版本，而不是为了版本号好看提前进入稳定线。
 
-`0.1.0` 的意义，不在于“项目终于到 1.0 之前先过一个数字门槛”，而在于 `codex-switch` 首次具备了可以向外明确承诺的稳定产品边界。只有当工作流、输出、恢复、文档和包发布面都同时稳定时，这个版本号才成立。
+## 8. 结论
+
+`0.1.0` 的本质不是“功能更多”，而是“承诺更稳”。当命令面、输出契约、主工作流、诊断语义、包内容和文档事实完全一致时，这个版本号才成立。

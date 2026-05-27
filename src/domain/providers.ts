@@ -19,6 +19,13 @@ export type CopilotModelProviderProjection = {
   wireApi: "responses";
 };
 
+export type DirectModelProviderProjection = {
+  baseUrl: string;
+  name: string;
+  requiresOpenAiAuth: true;
+  wireApi: "responses";
+};
+
 /**
  * Provider definition stored in providers.json.
  */
@@ -208,6 +215,23 @@ export function buildCopilotModelProviderProjection(runtime: ProviderRuntime): C
   return {
     baseUrl: buildCopilotBridgeBaseUrl(runtime),
     name: "copilot",
+    requiresOpenAiAuth: true,
+    wireApi: "responses",
+  };
+}
+
+/**
+ * Builds the Codex-facing custom model_provider projection for a direct provider.
+ */
+export function buildDirectModelProviderProjection(profile: string, baseUrl: string): DirectModelProviderProjection {
+  const normalizedBaseUrl = baseUrl.trim();
+  if (!normalizedBaseUrl) {
+    throw new Error(`Direct model provider "${profile}" requires a non-empty base_url.`);
+  }
+
+  return {
+    baseUrl: normalizedBaseUrl,
+    name: profile.trim(),
     requiresOpenAiAuth: true,
     wireApi: "responses",
   };

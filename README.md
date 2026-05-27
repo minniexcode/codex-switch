@@ -8,9 +8,9 @@ Chinese version: [README.CN.md](./README.CN.md)
 
 ## Version
 
-Current package version: `0.0.12`
+Current package version: `0.1.0`
 
-This repository is still on a development-version line. The current release focuses on making the primary workflows, help text, and operational boundaries consistent with the implementation.
+This is the first stable release line. The current release focuses on keeping the primary workflows, help text, operational boundaries, and release docs aligned with the implementation.
 
 ## Install
 
@@ -155,7 +155,7 @@ Global flags:
 Operational limits:
 
 - `login copilot` requires a real TTY and does not support `--json`.
-- `migrate` still depends on interactive profile selection and provider-detail collection in this release.
+- `migrate` remains interactive when provider adoption requires human input.
 - Automation should pass explicit arguments and prefer `--json` for stable parsing.
 
 ## Local Development
@@ -175,7 +175,7 @@ npm pack --dry-run
 - [Detailed CLI Usage](./docs/cli-usage.md)
 - [Testing Guide](./docs/Tests/testing.md)
 - [Product Overview](./docs/codex-switch-product-overview.md)
-- [PRD 0.0.12](./docs/PRD/codex-switch-prd-v0.0.12.md)
+- [Release PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
 - [Release Gate PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
 
 ## License

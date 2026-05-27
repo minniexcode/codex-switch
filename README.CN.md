@@ -6,9 +6,9 @@
 
 ## 版本定位
 
-当前包版本：`0.0.12`
+当前包版本：`0.1.0`
 
-当前仍处于开发版本阶段。这个版本的重点不是继续扩命令面，而是把主工作流、帮助文案和实际行为统一到同一套契约上。
+这是第一条稳定发布线。这个版本的重点不是继续扩命令面，而是把主工作流、帮助文案、实际行为和发布文档统一到同一套契约上。
 
 ## 安装
 
@@ -151,7 +151,7 @@ tool home：
 当前实现边界：
 
 - `login copilot` 必须运行在真实 TTY 下，不支持 `--json`。
-- `migrate` 在当前版本仍然依赖交互式 profile 选择和 provider 细节补全。
+- `migrate` 在需要人工补齐 adopt 信息时仍然保持交互式语义。
 - 自动化调用应尽量显式传参，并优先使用 `--json`。
 
 ## 本地开发
@@ -171,7 +171,7 @@ npm pack --dry-run
 - [详细 CLI 文档](./docs/cli-usage.md)
 - [产品概览](./docs/codex-switch-product-overview.md)
 - [测试说明](./docs/Tests/testing.md)
-- [PRD 0.0.12](./docs/PRD/codex-switch-prd-v0.0.12.md)
+- [Release PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
 - [Release Gate PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
 
 ## License

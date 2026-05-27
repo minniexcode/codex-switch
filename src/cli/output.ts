@@ -111,6 +111,8 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
           lines.push(`Current profile: ${currentProfile}`);
           if (!activeProviderResolvable && activeCandidates.length > 1) {
             lines.push(`Current provider: ambiguous (${activeCandidates.join(", ")})`);
+          } else if (!activeProviderResolvable) {
+            lines.push("Current provider: unmanaged or unresolved");
           }
         }
         for (const provider of providers) {

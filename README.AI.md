@@ -6,8 +6,8 @@ This file summarizes the current operational contract for AI agents, automation 
 
 - Package: `@minniexcode/codex-switch`
 - CLI name: `codexs`
-- Current repository version: `0.0.12`
-- Version status: development-version software, not a stable `0.1.0` release yet
+- Current repository version: `0.1.0`
+- Version status: stable release line
 
 ## Product Role
 
@@ -99,7 +99,7 @@ Important behavioral constraints:
 - `login copilot` requires a real TTY and does not support `--json`.
 - `login copilot` currently installs the local Copilot SDK when needed, tries the bundled runtime CLI first, falls back to `PATH` when necessary, and rechecks auth readiness before reporting success.
 - `add --copilot` assumes SDK install and upstream Copilot auth are already ready.
-- `migrate` still depends on interactive profile selection and provider-detail collection in this release.
+- `migrate` remains interactive when provider adoption requires human input.
 - `status` is the main dual-path summary command.
 - `doctor` is the deeper repair-oriented diagnostic command.
 
