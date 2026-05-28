@@ -30,28 +30,38 @@ export type ManagedProfileView = {
 };
 
 export type ConfigConsistencyIssue =
-  | { code: "ORPHANED_PROFILE_REFERENCE"; profile: string; providers: string[] }
-  | { code: "UNMANAGED_ACTIVE_PROFILE"; profile: string }
-  | { code: "SHARED_PROFILE_REFERENCE"; profile: string; providers: string[] }
-  | { code: "ORPHANED_PROFILE_SECTION"; profile: string }
-  | { code: "MODEL_PROVIDER_MISSING"; profile: string }
-  | { code: "MODEL_PROVIDER_NAME_MISMATCH"; profile: string; modelProvider: string }
-  | { code: "MODEL_PROVIDER_SECTION_MISSING"; profile: string; modelProvider: string }
-  | { code: "MODEL_PROVIDER_BASE_URL_MISSING"; profile: string; modelProvider: string }
+  | { code: "MODEL_MISSING"; modelProvider: string }
+  | { code: "MODEL_PROVIDER_MISSING" }
+  | { code: "MODEL_PROVIDER_SECTION_MISSING"; modelProvider: string }
+  | { code: "MODEL_PROVIDER_BASE_URL_MISSING"; modelProvider: string }
+  | { code: "LEGACY_PROFILE_SELECTOR"; profile: string }
+  | { code: "LEGACY_PROFILE_SECTION"; profile: string }
+  | { code: "LEGACY_MODEL_PROVIDER_ENV_KEY"; modelProvider: string; envKey: string | null }
   | {
       code: "PROVIDER_BASE_URL_MISMATCH";
-      profile: string;
+      modelProvider: string;
       provider: string;
       providerBaseUrl: string;
       configBaseUrl: string;
       providerType: "direct";
     }
-  | { code: "ACTIVE_PROVIDER_UNRESOLVED"; profile: string; providers: string[] }
-  | { code: "DESTRUCTIVE_REMOVE_BLOCKED"; profile: string; provider: string; activeProfile: string; linkedProviders: string[] };
+  | {
+      code: "DESTRUCTIVE_REMOVE_BLOCKED";
+      modelProvider: string;
+      provider: string;
+      activeModelProvider: string;
+      linkedProviders: string[];
+    };
 
 export type ValueRange = {
   start: number;
   end: number;
+};
+
+export type RootFieldRef = {
+  value: string;
+  valueRange: ValueRange;
+  lineRange: ValueRange;
 };
 
 export type ProfileSectionRef = {
@@ -79,13 +89,26 @@ export type ModelProviderSectionRef = {
   requiresOpenAiAuth: boolean | null;
   wireApiValueRange: ValueRange | null;
   wireApi: string | null;
+  envKeyValueRange: ValueRange | null;
+  envKey: string | null;
+  envKeyInstructionsValueRange: ValueRange | null;
+  envKeyInstructions: string | null;
+  envKeyLineRange: ValueRange | null;
+  envKeyInstructionsLineRange: ValueRange | null;
 };
 
 export type ParsedConfigDocument = {
   rawText: string;
   lineEnding: "\n" | "\r\n";
-  activeProfile: string | null;
-  activeProfileRange: ValueRange | null;
+  currentModel: string | null;
+  currentModelRange: ValueRange | null;
+  currentModelLineRange: ValueRange | null;
+  currentModelProvider: string | null;
+  currentModelProviderRange: ValueRange | null;
+  currentModelProviderLineRange: ValueRange | null;
+  legacyProfile: string | null;
+  legacyProfileRange: ValueRange | null;
+  legacyProfileLineRange: ValueRange | null;
   profiles: ProfileSectionRef[];
   modelProviders: ModelProviderSectionRef[];
 };
@@ -111,24 +134,24 @@ type ProfileLinkInfo = {
 };
 
 /**
- * Reads the active top-level profile from config.toml content.
+ * Reads the legacy top-level profile selector from config.toml content.
  */
 export function parseTopLevelProfile(configContent: string): string | null {
-  return parseStructuredConfig(configContent).activeProfile;
+  return parseStructuredConfig(configContent).legacyProfile;
 }
 
 /**
- * Collects all named profile sections declared in config.toml content.
+ * Collects all named legacy profile sections declared in config.toml content.
  */
 export function parseProfileNames(configContent: string): Set<string> {
   return new Set(parseStructuredConfig(configContent).profiles.map((profile) => profile.name));
 }
 
 /**
- * Replaces or inserts the top-level profile assignment while preserving the rest of the file.
+ * Replaces or inserts the legacy top-level profile assignment while preserving the rest of the file.
  */
 export function replaceTopLevelProfile(configContent: string, profile: string): string {
-  const plan = planConfigMutation(parseStructuredConfig(configContent), { setActiveProfile: profile });
+  const plan = planConfigMutation(parseStructuredConfig(configContent), { setLegacyProfile: profile });
   return applyPatchOperations(configContent, plan.operations);
 }
 
@@ -138,12 +161,19 @@ export function replaceTopLevelProfile(configContent: string, profile: string): 
 export function parseStructuredConfig(configContent: string): ParsedConfigDocument {
   const lineEnding: "\n" | "\r\n" = configContent.includes("\r\n") ? "\r\n" : "\n";
   const lines = splitWithOffsets(configContent);
-  let activeProfile: string | null = null;
-  let activeProfileRange: ValueRange | null = null;
+  let currentModel: string | null = null;
+  let currentModelRange: ValueRange | null = null;
+  let currentModelLineRange: ValueRange | null = null;
+  let currentModelProvider: string | null = null;
+  let currentModelProviderRange: ValueRange | null = null;
+  let currentModelProviderLineRange: ValueRange | null = null;
+  let legacyProfile: string | null = null;
+  let legacyProfileRange: ValueRange | null = null;
+  let legacyProfileLineRange: ValueRange | null = null;
   const profiles: ProfileSectionRef[] = [];
   const modelProviders: ModelProviderSectionRef[] = [];
   let currentProfile: ProfileSectionRef | null = null;
-  let currentModelProvider: ModelProviderSectionRef | null = null;
+  let currentModelProviderSection: ModelProviderSectionRef | null = null;
   let inRoot = true;
 
   for (const line of lines) {
@@ -153,9 +183,9 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
       if (currentProfile) {
         currentProfile.sectionEnd = line.start;
       }
-      if (currentModelProvider) {
-        currentModelProvider.sectionEnd = line.start;
-        currentModelProvider = null;
+      if (currentModelProviderSection) {
+        currentModelProviderSection.sectionEnd = line.start;
+        currentModelProviderSection = null;
       }
       currentProfile = {
         name: headerMatch[1],
@@ -179,10 +209,10 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
         currentProfile.sectionEnd = line.start;
         currentProfile = null;
       }
-      if (currentModelProvider) {
-        currentModelProvider.sectionEnd = line.start;
+      if (currentModelProviderSection) {
+        currentModelProviderSection.sectionEnd = line.start;
       }
-      currentModelProvider = {
+      currentModelProviderSection = {
         name: modelProviderHeaderMatch[1],
         sectionStart: line.start,
         sectionEnd: configContent.length,
@@ -195,8 +225,14 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
         requiresOpenAiAuth: null,
         wireApiValueRange: null,
         wireApi: null,
+        envKeyValueRange: null,
+        envKey: null,
+        envKeyInstructionsValueRange: null,
+        envKeyInstructions: null,
+        envKeyLineRange: null,
+        envKeyInstructionsLineRange: null,
       };
-      modelProviders.push(currentModelProvider);
+      modelProviders.push(currentModelProviderSection);
       inRoot = false;
       continue;
     }
@@ -206,22 +242,32 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
         currentProfile.sectionEnd = line.start;
         currentProfile = null;
       }
-      if (currentModelProvider) {
-        currentModelProvider.sectionEnd = line.start;
-        currentModelProvider = null;
+      if (currentModelProviderSection) {
+        currentModelProviderSection.sectionEnd = line.start;
+        currentModelProviderSection = null;
       }
       inRoot = false;
       continue;
     }
 
     if (inRoot) {
+      const modelMatch = matchKeyValueLine(line.content, "model");
+      if (modelMatch && !currentModel) {
+        currentModel = modelMatch.value;
+        currentModelRange = toAbsoluteRange(line.start, modelMatch.valueStart, modelMatch.valueEnd);
+        currentModelLineRange = { start: line.start, end: line.end };
+      }
+      const modelProviderMatch = matchKeyValueLine(line.content, "model_provider");
+      if (modelProviderMatch && !currentModelProvider) {
+        currentModelProvider = modelProviderMatch.value;
+        currentModelProviderRange = toAbsoluteRange(line.start, modelProviderMatch.valueStart, modelProviderMatch.valueEnd);
+        currentModelProviderLineRange = { start: line.start, end: line.end };
+      }
       const profileMatch = matchKeyValueLine(line.content, "profile");
-      if (profileMatch && !activeProfile) {
-        activeProfile = profileMatch.value;
-        activeProfileRange = {
-          start: line.start + profileMatch.valueStart,
-          end: line.start + profileMatch.valueEnd,
-        };
+      if (profileMatch && !legacyProfile) {
+        legacyProfile = profileMatch.value;
+        legacyProfileRange = toAbsoluteRange(line.start, profileMatch.valueStart, profileMatch.valueEnd);
+        legacyProfileLineRange = { start: line.start, end: line.end };
       }
     }
 
@@ -229,53 +275,55 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
       const modelMatch = matchKeyValueLine(line.content, "model");
       if (modelMatch) {
         currentProfile.model = modelMatch.value;
-        currentProfile.modelValueRange = {
-          start: line.start + modelMatch.valueStart,
-          end: line.start + modelMatch.valueEnd,
-        };
+        currentProfile.modelValueRange = toAbsoluteRange(line.start, modelMatch.valueStart, modelMatch.valueEnd);
       }
       const modelProviderMatch = matchKeyValueLine(line.content, "model_provider");
       if (modelProviderMatch) {
         currentProfile.modelProvider = modelProviderMatch.value;
-        currentProfile.modelProviderValueRange = {
-          start: line.start + modelProviderMatch.valueStart,
-          end: line.start + modelProviderMatch.valueEnd,
-        };
+        currentProfile.modelProviderValueRange = toAbsoluteRange(line.start, modelProviderMatch.valueStart, modelProviderMatch.valueEnd);
       }
     }
 
-    if (currentModelProvider) {
+    if (currentModelProviderSection) {
       const baseUrlMatch = matchKeyValueLine(line.content, "base_url");
       if (baseUrlMatch) {
-        currentModelProvider.baseUrl = baseUrlMatch.value;
-        currentModelProvider.baseUrlValueRange = {
-          start: line.start + baseUrlMatch.valueStart,
-          end: line.start + baseUrlMatch.valueEnd,
-        };
+        currentModelProviderSection.baseUrl = baseUrlMatch.value;
+        currentModelProviderSection.baseUrlValueRange = toAbsoluteRange(line.start, baseUrlMatch.valueStart, baseUrlMatch.valueEnd);
       }
       const nameMatch = matchKeyValueLine(line.content, "name");
       if (nameMatch) {
-        currentModelProvider.providerName = nameMatch.value;
-        currentModelProvider.nameValueRange = {
-          start: line.start + nameMatch.valueStart,
-          end: line.start + nameMatch.valueEnd,
-        };
+        currentModelProviderSection.providerName = nameMatch.value;
+        currentModelProviderSection.nameValueRange = toAbsoluteRange(line.start, nameMatch.valueStart, nameMatch.valueEnd);
       }
       const requiresOpenAiAuthMatch = matchBooleanKeyValueLine(line.content, "requires_openai_auth");
       if (requiresOpenAiAuthMatch) {
-        currentModelProvider.requiresOpenAiAuth = requiresOpenAiAuthMatch.value;
-        currentModelProvider.requiresOpenAiAuthValueRange = {
-          start: line.start + requiresOpenAiAuthMatch.valueStart,
-          end: line.start + requiresOpenAiAuthMatch.valueEnd,
-        };
+        currentModelProviderSection.requiresOpenAiAuth = requiresOpenAiAuthMatch.value;
+        currentModelProviderSection.requiresOpenAiAuthValueRange = toAbsoluteRange(
+          line.start,
+          requiresOpenAiAuthMatch.valueStart,
+          requiresOpenAiAuthMatch.valueEnd
+        );
       }
       const wireApiMatch = matchKeyValueLine(line.content, "wire_api");
       if (wireApiMatch) {
-        currentModelProvider.wireApi = wireApiMatch.value;
-        currentModelProvider.wireApiValueRange = {
-          start: line.start + wireApiMatch.valueStart,
-          end: line.start + wireApiMatch.valueEnd,
-        };
+        currentModelProviderSection.wireApi = wireApiMatch.value;
+        currentModelProviderSection.wireApiValueRange = toAbsoluteRange(line.start, wireApiMatch.valueStart, wireApiMatch.valueEnd);
+      }
+      const envKeyMatch = matchKeyValueLine(line.content, "env_key");
+      if (envKeyMatch) {
+        currentModelProviderSection.envKey = envKeyMatch.value;
+        currentModelProviderSection.envKeyValueRange = toAbsoluteRange(line.start, envKeyMatch.valueStart, envKeyMatch.valueEnd);
+        currentModelProviderSection.envKeyLineRange = { start: line.start, end: line.end };
+      }
+      const envKeyInstructionsMatch = matchKeyValueLine(line.content, "env_key_instructions");
+      if (envKeyInstructionsMatch) {
+        currentModelProviderSection.envKeyInstructions = envKeyInstructionsMatch.value;
+        currentModelProviderSection.envKeyInstructionsValueRange = toAbsoluteRange(
+          line.start,
+          envKeyInstructionsMatch.valueStart,
+          envKeyInstructionsMatch.valueEnd
+        );
+        currentModelProviderSection.envKeyInstructionsLineRange = { start: line.start, end: line.end };
       }
     }
   }
@@ -283,8 +331,15 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
   return {
     rawText: configContent,
     lineEnding,
-    activeProfile,
-    activeProfileRange,
+    currentModel,
+    currentModelRange,
+    currentModelLineRange,
+    currentModelProvider,
+    currentModelProviderRange,
+    currentModelProviderLineRange,
+    legacyProfile,
+    legacyProfileRange,
+    legacyProfileLineRange,
     profiles: profiles.map((profile) => ({
       ...profile,
       managedFieldInsertIndex: findManagedFieldInsertIndex(configContent, profile.sectionStart, profile.sectionEnd),
@@ -297,7 +352,7 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
 }
 
 /**
- * Builds the managed/unmanaged/orphaned profile views used by config commands and diagnostics.
+ * Builds the legacy profile inspection views used by config commands and diagnostics.
  */
 export function buildManagedProfileViews(
   document: ParsedConfigDocument,
@@ -315,7 +370,7 @@ export function buildManagedProfileViews(
     views.push({
       name: section.name,
       managed: linkInfo.managed,
-      isActive: document.activeProfile === section.name,
+      isActive: document.currentModelProvider === section.name,
       linkedProviders: [...linkInfo.linkedProviders].sort(),
       model: section.model,
       modelProvider: section.modelProvider,
@@ -332,7 +387,7 @@ export function buildManagedProfileViews(
     views.push({
       name: profile,
       managed: true,
-      isActive: document.activeProfile === profile,
+      isActive: document.currentModelProvider === profile,
       linkedProviders: [...linkInfo.linkedProviders].sort(),
       model: null,
       modelProvider: null,
@@ -354,112 +409,65 @@ export function collectConfigConsistencyIssues(
 ): ConfigConsistencyIssue[] {
   const issues: ConfigConsistencyIssue[] = [];
   const providerMap = providers?.providers ?? null;
-  const profileLinkMap = buildProfileLinkMap(providers);
-  for (const view of buildManagedProfileViews(document, providers)) {
-    if (view.source === "orphaned-reference") {
-      issues.push({
-        code: "ORPHANED_PROFILE_REFERENCE",
-        profile: view.name,
-        providers: [...view.linkedProviders],
-      });
-    }
-    if (view.source === "unmanaged" && view.linkedProviders.length === 0) {
-      issues.push({
-        code: "ORPHANED_PROFILE_SECTION",
-        profile: view.name,
-      });
-    }
-    if (view.linkedProviders.length > 1) {
-      issues.push({
-        code: "SHARED_PROFILE_REFERENCE",
-        profile: view.name,
-        providers: [...view.linkedProviders],
-      });
-    }
-    if (view.source !== "orphaned-reference") {
-      if (!view.modelProvider) {
+  const activeModelProvider = document.currentModelProvider;
+  const activeProviderSection = activeModelProvider
+    ? document.modelProviders.find((entry) => entry.name === activeModelProvider) ?? null
+    : null;
+
+  if (!document.currentModel) {
+    issues.push({ code: "MODEL_MISSING", modelProvider: activeModelProvider ?? "(none)" });
+  }
+  if (!document.currentModelProvider) {
+    issues.push({ code: "MODEL_PROVIDER_MISSING" });
+  }
+  if (document.legacyProfile) {
+    issues.push({ code: "LEGACY_PROFILE_SELECTOR", profile: document.legacyProfile });
+  }
+  for (const profile of document.profiles) {
+    issues.push({ code: "LEGACY_PROFILE_SECTION", profile: profile.name });
+  }
+  if (activeModelProvider && !activeProviderSection) {
+    issues.push({ code: "MODEL_PROVIDER_SECTION_MISSING", modelProvider: activeModelProvider });
+  }
+  if (activeModelProvider && activeProviderSection && !activeProviderSection.baseUrl) {
+    issues.push({ code: "MODEL_PROVIDER_BASE_URL_MISSING", modelProvider: activeModelProvider });
+  }
+  if (activeProviderSection?.envKey) {
+    issues.push({
+      code: "LEGACY_MODEL_PROVIDER_ENV_KEY",
+      modelProvider: activeProviderSection.name,
+      envKey: activeProviderSection.envKey,
+    });
+  }
+  if (activeModelProvider && providerMap) {
+    const linkedProviders = Object.entries(providerMap)
+      .filter(([, provider]) => provider.profile === activeModelProvider)
+      .sort(([left], [right]) => left.localeCompare(right));
+    if (linkedProviders.length === 1 && activeProviderSection?.baseUrl) {
+      const [providerName, provider] = linkedProviders[0];
+      if (
+        !provider.runtime &&
+        typeof provider.baseUrl === "string" &&
+        provider.baseUrl.trim() !== "" &&
+        provider.baseUrl !== activeProviderSection.baseUrl
+      ) {
         issues.push({
-          code: "MODEL_PROVIDER_MISSING",
-          profile: view.name,
+          code: "PROVIDER_BASE_URL_MISMATCH",
+          modelProvider: activeModelProvider,
+          provider: providerName,
+          providerBaseUrl: provider.baseUrl,
+          configBaseUrl: activeProviderSection.baseUrl,
+          providerType: "direct",
         });
-      } else {
-        if (view.modelProvider !== view.name) {
-          issues.push({
-            code: "MODEL_PROVIDER_NAME_MISMATCH",
-            profile: view.name,
-            modelProvider: view.modelProvider,
-          });
-        }
-        const modelProviderSection = document.modelProviders.find((entry) => entry.name === view.modelProvider);
-        if (!modelProviderSection) {
-          issues.push({
-            code: "MODEL_PROVIDER_SECTION_MISSING",
-            profile: view.name,
-            modelProvider: view.modelProvider,
-          });
-        } else if (!modelProviderSection.baseUrl) {
-          issues.push({
-            code: "MODEL_PROVIDER_BASE_URL_MISSING",
-            profile: view.name,
-            modelProvider: view.modelProvider,
-          });
-        } else {
-          const profileLinkInfo = profileLinkMap.get(view.name);
-          if (
-            profileLinkInfo &&
-            profileLinkInfo.linkedProviders.length === 1 &&
-            providerMap
-          ) {
-            const providerName = profileLinkInfo.linkedProviders[0];
-            const provider = providerMap[providerName];
-            if (
-              provider &&
-              !provider.runtime &&
-              typeof provider.baseUrl === "string" &&
-              provider.baseUrl.trim() !== "" &&
-              provider.baseUrl !== modelProviderSection.baseUrl
-            ) {
-              issues.push({
-                code: "PROVIDER_BASE_URL_MISMATCH",
-                profile: view.name,
-                provider: providerName,
-                providerBaseUrl: provider.baseUrl,
-                configBaseUrl: modelProviderSection.baseUrl,
-                providerType: "direct",
-              });
-            }
-          }
-        }
       }
     }
   }
 
-  if (document.activeProfile) {
-    const activeLinkInfo = profileLinkMap.get(document.activeProfile);
-    if (!activeLinkInfo) {
-      issues.push({
-        code: "UNMANAGED_ACTIVE_PROFILE",
-        profile: document.activeProfile,
-      });
-    } else if (activeLinkInfo.linkedProviders.length > 1) {
-      issues.push({
-        code: "ACTIVE_PROVIDER_UNRESOLVED",
-        profile: document.activeProfile,
-        providers: [...activeLinkInfo.linkedProviders],
-      });
-    }
-  }
-
-  return issues.sort((left, right) => {
-    if (left.profile === right.profile) {
-      return left.code.localeCompare(right.code);
-    }
-    return left.profile.localeCompare(right.profile);
-  });
+  return issues.sort((left, right) => left.code.localeCompare(right.code));
 }
 
 /**
- * Ensures the minimal managed profile fields are available before a new section is created.
+ * Ensures the minimal managed profile fields are available before a new legacy section is created.
  */
 export function validateManagedProfileCreation(
   profile: string,
@@ -484,7 +492,7 @@ export function validateManagedProfileCreation(
 }
 
 /**
- * Computes keep/delete/switch outcomes when a provider leaves or changes profiles.
+ * Computes keep/delete/switch outcomes when a provider leaves or changes model-provider bindings.
  */
 export function planProfileLifecycleOutcome(args: {
   providerName: string;
@@ -545,15 +553,20 @@ export function planProfileLifecycleOutcome(args: {
 }
 
 /**
- * Builds a text patch plan for top-level profile changes and profile section lifecycle changes.
+ * Builds a text patch plan for route fields, legacy selectors, and provider-section mutations.
  */
 export function planConfigMutation(
   document: ParsedConfigDocument,
   args: {
-    setActiveProfile?: string | null;
+    setCurrentModel?: string | null;
+    setCurrentModelProvider?: string | null;
+    setLegacyProfile?: string | null;
     upsertProfiles?: Record<string, Partial<ManagedProfileFields>>;
     upsertModelProviders?: Record<string, Partial<ManagedModelProviderFields>>;
     deleteProfiles?: string[];
+    deleteLegacyProfile?: boolean;
+    deleteLegacyProfilesByName?: string[];
+    scrubModelProviderEnvKeys?: string[];
   }
 ): ConfigMutationPlan {
   const operations: ConfigPatchOperation[] = [];
@@ -565,27 +578,38 @@ export function planConfigMutation(
   const sectionMap = new Map(document.profiles.map((profile) => [profile.name, profile]));
   const modelProviderSectionMap = new Map(document.modelProviders.map((entry) => [entry.name, entry]));
 
-  if (args.setActiveProfile && args.setActiveProfile !== document.activeProfile) {
-    const quoted = `"${args.setActiveProfile}"`;
-    if (document.activeProfileRange) {
-      operations.push({
-        kind: "replace-range",
-        start: document.activeProfileRange.start,
-        end: document.activeProfileRange.end,
-        text: quoted,
-      });
-    } else {
-      const insertAt = findTopLevelInsertIndex(document.rawText);
-      const text = `profile = ${quoted}${document.lineEnding}`;
-      operations.push({
-        kind: "insert-at",
-        index: insertAt,
-        text,
-      });
-    }
+  planRootFieldMutation(document, "model", document.currentModel, document.currentModelRange, document.currentModelLineRange, args.setCurrentModel, operations);
+  planRootFieldMutation(
+    document,
+    "model_provider",
+    document.currentModelProvider,
+    document.currentModelProviderRange,
+    document.currentModelProviderLineRange,
+    args.setCurrentModelProvider,
+    operations
+  );
+
+  if (args.setLegacyProfile !== undefined) {
+    planRootFieldMutation(
+      document,
+      "profile",
+      document.legacyProfile,
+      document.legacyProfileRange,
+      document.legacyProfileLineRange,
+      args.setLegacyProfile,
+      operations
+    );
   }
 
-  for (const profileName of args.deleteProfiles ?? []) {
+  if (args.deleteLegacyProfile && document.legacyProfileLineRange) {
+    operations.push({
+      kind: "delete-range",
+      start: document.legacyProfileLineRange.start,
+      end: expandLineDeletionStart(document.rawText, document.legacyProfileLineRange.start, document.legacyProfileLineRange.end),
+    });
+  }
+
+  for (const profileName of [...(args.deleteProfiles ?? []), ...(args.deleteLegacyProfilesByName ?? [])]) {
     const section = sectionMap.get(profileName);
     if (!section) {
       continue;
@@ -626,39 +650,48 @@ export function planConfigMutation(
   for (const [profileName, fields] of Object.entries(args.upsertModelProviders ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
     const section = modelProviderSectionMap.get(profileName);
     if (!section) {
-      const baseUrl = fields.baseUrl?.trim() ?? "";
-      const providerName = fields.name?.trim() ?? "";
-      if (!baseUrl) {
-        throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${profileName}" requires base_url.`, {
-          profile: profileName,
-          modelProvider: profileName,
-          missingFields: [
-            !baseUrl ? "base_url" : null,
-          ].filter((value): value is string => Boolean(value)),
-        });
-      }
+      const normalizedFields = normalizeManagedModelProviderFields(profileName, fields);
       const prefix = document.rawText.length > 0 && !document.rawText.endsWith(document.lineEnding)
         ? document.lineEnding
         : "";
-      const requiresOpenAiAuth = fields.requiresOpenAiAuth;
-      const wireApi = fields.wireApi?.trim() ?? "";
       operations.push({
         kind: "insert-at",
         index: document.rawText.length,
         text:
           `${prefix}[model_providers.${profileName}]${document.lineEnding}` +
-          `base_url = ${JSON.stringify(baseUrl)}${document.lineEnding}` +
-          (providerName ? `name = ${JSON.stringify(providerName)}${document.lineEnding}` : "") +
-          (requiresOpenAiAuth !== undefined ? `requires_openai_auth = ${String(requiresOpenAiAuth)}${document.lineEnding}` : "") +
-          (wireApi ? `wire_api = ${JSON.stringify(wireApi)}${document.lineEnding}` : ""),
+          `base_url = ${JSON.stringify(normalizedFields.baseUrl)}${document.lineEnding}` +
+          `name = ${JSON.stringify(normalizedFields.name)}${document.lineEnding}` +
+          `requires_openai_auth = ${String(normalizedFields.requiresOpenAiAuth)}${document.lineEnding}` +
+          `wire_api = ${JSON.stringify(normalizedFields.wireApi)}${document.lineEnding}`,
       });
       createdModelProviderSections.push(profileName);
       continue;
     }
 
-    const sectionUpdated = planModelProviderFieldMutation(section, fields, operations);
+    const sectionUpdated = planModelProviderFieldMutation(document, section, normalizeManagedModelProviderFields(profileName, fields), operations);
     if (sectionUpdated) {
       updatedModelProviders.push(profileName);
+    }
+  }
+
+  for (const profileName of args.scrubModelProviderEnvKeys ?? []) {
+    const section = modelProviderSectionMap.get(profileName);
+    if (!section) {
+      continue;
+    }
+    if (section.envKeyLineRange) {
+      operations.push({
+        kind: "delete-range",
+        start: section.envKeyLineRange.start,
+        end: expandLineDeletionStart(document.rawText, section.envKeyLineRange.start, section.envKeyLineRange.end),
+      });
+    }
+    if (section.envKeyInstructionsLineRange) {
+      operations.push({
+        kind: "delete-range",
+        start: section.envKeyInstructionsLineRange.start,
+        end: expandLineDeletionStart(document.rawText, section.envKeyInstructionsLineRange.start, section.envKeyInstructionsLineRange.end),
+      });
     }
   }
 
@@ -669,7 +702,9 @@ export function planConfigMutation(
     deletedProfileSections,
     updatedProfiles,
     updatedModelProviders,
-    switchedActiveProfile: Boolean(args.setActiveProfile && args.setActiveProfile !== document.activeProfile),
+    switchedActiveProfile:
+      Boolean(args.setCurrentModelProvider !== undefined && args.setCurrentModelProvider !== document.currentModelProvider) ||
+      Boolean(args.setLegacyProfile !== undefined && args.setLegacyProfile !== document.legacyProfile),
   };
 }
 
@@ -694,6 +729,9 @@ export function applyPatchOperations(rawText: string, operations: ConfigPatchOpe
   return nextText;
 }
 
+/**
+ * Plans managed field updates for one legacy profile section.
+ */
 function planSectionFieldMutation(
   document: ParsedConfigDocument,
   section: ProfileSectionRef,
@@ -750,18 +788,19 @@ function planSectionFieldMutation(
  * Plans managed field updates for one model_providers section.
  */
 function planModelProviderFieldMutation(
+  document: ParsedConfigDocument,
   section: ModelProviderSectionRef,
-  fields: Partial<ManagedModelProviderFields>,
+  fields: ManagedModelProviderFields,
   operations: ConfigPatchOperation[]
 ): boolean {
   let updated = false;
-  const baseUrlText = fields.baseUrl !== undefined ? JSON.stringify(fields.baseUrl) : null;
-  const nameText = fields.name !== undefined ? JSON.stringify(fields.name) : null;
-  const requiresOpenAiAuthText = fields.requiresOpenAiAuth !== undefined ? String(fields.requiresOpenAiAuth) : null;
-  const wireApiText = fields.wireApi !== undefined ? JSON.stringify(fields.wireApi) : null;
+  const baseUrlText = JSON.stringify(fields.baseUrl);
+  const nameText = JSON.stringify(fields.name);
+  const requiresOpenAiAuthText = String(fields.requiresOpenAiAuth);
+  const wireApiText = JSON.stringify(fields.wireApi);
   const inserts: string[] = [];
 
-  if (baseUrlText !== null && section.baseUrlValueRange) {
+  if (section.baseUrlValueRange) {
     if (section.baseUrl !== fields.baseUrl) {
       operations.push({
         kind: "replace-range",
@@ -771,12 +810,12 @@ function planModelProviderFieldMutation(
       });
       updated = true;
     }
-  } else if (baseUrlText !== null) {
+  } else {
     inserts.push(`base_url = ${baseUrlText}`);
     updated = true;
   }
 
-  if (nameText !== null && section.nameValueRange) {
+  if (section.nameValueRange) {
     if (section.providerName !== fields.name) {
       operations.push({
         kind: "replace-range",
@@ -786,12 +825,12 @@ function planModelProviderFieldMutation(
       });
       updated = true;
     }
-  } else if (nameText !== null) {
+  } else {
     inserts.push(`name = ${nameText}`);
     updated = true;
   }
 
-  if (requiresOpenAiAuthText !== null && section.requiresOpenAiAuthValueRange) {
+  if (section.requiresOpenAiAuthValueRange) {
     if (section.requiresOpenAiAuth !== fields.requiresOpenAiAuth) {
       operations.push({
         kind: "replace-range",
@@ -801,12 +840,12 @@ function planModelProviderFieldMutation(
       });
       updated = true;
     }
-  } else if (requiresOpenAiAuthText !== null) {
+  } else {
     inserts.push(`requires_openai_auth = ${requiresOpenAiAuthText}`);
     updated = true;
   }
 
-  if (wireApiText !== null && section.wireApiValueRange) {
+  if (section.wireApiValueRange) {
     if (section.wireApi !== fields.wireApi) {
       operations.push({
         kind: "replace-range",
@@ -816,7 +855,7 @@ function planModelProviderFieldMutation(
       });
       updated = true;
     }
-  } else if (wireApiText !== null) {
+  } else {
     inserts.push(`wire_api = ${wireApiText}`);
     updated = true;
   }
@@ -825,11 +864,72 @@ function planModelProviderFieldMutation(
     operations.push({
       kind: "insert-at",
       index: section.managedFieldInsertIndex,
-      text: `${inserts.join("\n")}\n`,
+      text: `${inserts.join(document.lineEnding)}${document.lineEnding}`,
     });
   }
 
   return updated;
+}
+
+function planRootFieldMutation(
+  document: ParsedConfigDocument,
+  key: string,
+  currentValue: string | null,
+  currentValueRange: ValueRange | null,
+  currentLineRange: ValueRange | null,
+  nextValue: string | null | undefined,
+  operations: ConfigPatchOperation[]
+): void {
+  if (nextValue === undefined) {
+    return;
+  }
+  if (nextValue === null) {
+    if (currentLineRange) {
+      operations.push({
+        kind: "delete-range",
+        start: currentLineRange.start,
+        end: expandLineDeletionStart(document.rawText, currentLineRange.start, currentLineRange.end),
+      });
+    }
+    return;
+  }
+  if (currentValueRange) {
+    if (currentValue !== nextValue) {
+      operations.push({
+        kind: "replace-range",
+        start: currentValueRange.start,
+        end: currentValueRange.end,
+        text: JSON.stringify(nextValue),
+      });
+    }
+    return;
+  }
+  const insertAt = findTopLevelInsertIndex(document.rawText);
+  operations.push({
+    kind: "insert-at",
+    index: insertAt,
+    text: `${key} = ${JSON.stringify(nextValue)}${document.lineEnding}`,
+  });
+}
+
+function normalizeManagedModelProviderFields(
+  profileName: string,
+  fields: Partial<ManagedModelProviderFields>
+): ManagedModelProviderFields {
+  const baseUrl = fields.baseUrl?.trim() ?? "";
+  if (!baseUrl) {
+    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${profileName}" requires base_url.`, {
+      profile: profileName,
+      modelProvider: profileName,
+      missingFields: ["base_url"],
+    });
+  }
+  return {
+    baseUrl,
+    name: fields.name?.trim() || profileName,
+    requiresOpenAiAuth: fields.requiresOpenAiAuth ?? true,
+    wireApi: fields.wireApi?.trim() || "responses",
+  };
 }
 
 function splitWithOffsets(value: string): Array<{ content: string; start: number; end: number }> {
@@ -969,6 +1069,21 @@ function expandDeletionEnd(rawText: string, sectionStart: number, sectionEnd: nu
     }
   }
   return end;
+}
+
+function expandLineDeletionStart(rawText: string, start: number, end: number): number {
+  let nextEnd = end;
+  while (nextEnd < rawText.length && (rawText[nextEnd] === "\r" || rawText[nextEnd] === "\n")) {
+    nextEnd += 1;
+  }
+  return nextEnd;
+}
+
+function toAbsoluteRange(lineStart: number, valueStart: number, valueEnd: number): ValueRange {
+  return {
+    start: lineStart + valueStart,
+    end: lineStart + valueEnd,
+  };
 }
 
 function escapeRegExp(value: string): string {

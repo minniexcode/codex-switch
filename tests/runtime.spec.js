@@ -225,15 +225,15 @@ module.exports = {
           () => ({
             error: null,
             status: 0,
-            stdout: "codex 0.0.5",
+            stdout: "codex 0.133.9",
             stderr: "",
           }),
-          () => probeCodexRuntime("0.0.6")
+          () => probeCodexRuntime("0.134.0")
         );
 
         assert.equal(result.ok, false);
         assert.equal(result.reason, "unsupported");
-        assert.equal(result.version, "0.0.5");
+        assert.equal(result.version, "0.133.9");
       },
     },
     {

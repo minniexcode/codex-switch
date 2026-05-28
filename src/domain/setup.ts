@@ -17,6 +17,7 @@ export type SetupProviderDetails = {
 export type MigrateAdoptableProfile = {
   name: string;
   model: string;
+  modelProvider: string;
   baseUrl: string;
 };
 
@@ -33,7 +34,7 @@ export type MigrateAdoptabilityReport = {
 export function buildSetupDrafts(
   profiles: string[],
   detailsByProfile: Record<string, SetupProviderDetails>,
-  runtimeByProfile: Record<string, { baseUrl?: string }>
+  runtimeByProfile: Record<string, { baseUrl?: string; model?: string; modelProvider?: string }>
 ): SetupProviderDraft[] {
   return profiles.map((profile) => {
     const detail = detailsByProfile[profile] ?? {};
@@ -42,8 +43,9 @@ export function buildSetupDrafts(
     return {
       providerName,
       record: cleanProviderRecord({
-        profile,
+        profile: runtime?.modelProvider ?? profile,
         apiKey: detail.apiKey ?? "",
+        model: runtime?.model,
         baseUrl: detail.baseUrl ?? runtime?.baseUrl,
         note: detail.note,
         tags: detail.tags,
@@ -101,6 +103,7 @@ export function collectMigrateAdoptability(document: ParsedConfigDocument, provi
       adoptableProfileDetails.push({
         name: view.name,
         model: view.model!,
+        modelProvider: view.modelProvider!,
         baseUrl: view.baseUrl!,
       });
       continue;

@@ -22,7 +22,9 @@ export function listConfigProfilesView(args: { configPath: string; providersPath
 
   return {
     data: {
-      activeProfile: document.activeProfile,
+      currentModel: document.currentModel,
+      currentModelProvider: document.currentModelProvider,
+      legacyProfile: document.legacyProfile,
       profiles,
       count: profiles.length,
     },

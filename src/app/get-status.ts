@@ -23,7 +23,8 @@ export async function getStatus(
 ): Promise<CommandResult> {
   const configExists = fs.existsSync(configPath);
   const providersExists = fs.existsSync(providersPath);
-  let currentProfile: string | null = null;
+  let currentModelProvider: string | null = null;
+  let currentModel: string | null = null;
   const warnings: string[] = [];
   const providers = providersExists ? readProvidersFile(providersPath) : null;
   let configViews: ReturnType<typeof buildManagedProfileViews> = [];
@@ -32,15 +33,16 @@ export async function getStatus(
 
   if (configExists) {
     const document = readStructuredConfig(configPath);
-    currentProfile = document.activeProfile;
+    currentModel = document.currentModel;
+    currentModelProvider = document.currentModelProvider;
     configViews = buildManagedProfileViews(document, providers);
     consistencyIssues = collectConfigConsistencyIssues(document, providers);
-    if (!currentProfile) {
-      warnings.push("config.toml exists but has no top-level profile.");
+    if (!currentModelProvider) {
+      warnings.push("config.toml exists but has no top-level model_provider.");
     }
   }
 
-  const liveState = inspectLiveStateDrift(currentProfile, providers);
+  const liveState = inspectLiveStateDrift(currentModelProvider, providers);
   const activeProviderCandidates = liveState.mappedProviders;
   const activeProvider =
     liveState.providerResolvable && providers && liveState.mappedProvider
@@ -85,11 +87,11 @@ export async function getStatus(
       : null;
   if (liveState.canBackfillActiveProvider) {
     // Surface unmanaged live state without mutating anything during a read-only status call.
-    warnings.push("Current config profile is not mapped in providers.json. Backfill would be required before treating live state as managed.");
+      warnings.push("Current config profile is not mapped in providers.json. Backfill would be required before treating live state as managed.");
   }
   if (liveState.reason === "shared-profile") {
     warnings.push(
-      `Current config profile "${currentProfile}" is shared by multiple providers in providers.json, so the active provider cannot be resolved uniquely.`
+      `Current model provider "${currentModelProvider}" is shared by multiple providers in providers.json, so the active provider cannot be resolved uniquely.`
     );
   }
   if (runtimeStateInspection.exists && !runtimeStateInspection.valid) {
@@ -110,8 +112,9 @@ export async function getStatus(
         }),
         configExists,
         providersExists,
-        currentProfile,
-        currentProfileMapped: liveState.profileMapped,
+        currentModelProvider,
+        currentModelProviderMapped: liveState.modelProviderMapped,
+        currentModel,
         provider: liveState.mappedProvider,
         activeProviderResolvable: liveState.providerResolvable,
         activeProviderCandidates,

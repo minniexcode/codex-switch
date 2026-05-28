@@ -37,20 +37,20 @@ export type StorageRoles = {
 };
 
 /**
- * Describes whether the live config.toml profile still maps back to providers.json.
+ * Describes whether the live config.toml model_provider route still maps back to providers.json.
  */
 export type LiveStateDrift = {
-  currentProfile: string | null;
+  currentModelProvider: string | null;
   mappedProvider: string | null;
   mappedProviders: string[];
-  profileMapped: boolean;
+  modelProviderMapped: boolean;
   providerResolvable: boolean;
   canBackfillActiveProvider: boolean;
   reason:
     | "ok"
     | "shared-profile"
     | "config-missing"
-    | "profile-missing"
+    | "model-provider-missing"
     | "providers-missing"
     | "provider-unmapped";
 };
@@ -117,30 +117,30 @@ export function getStorageRoles(args: {
 }
 
 /**
- * Compares the live active profile against managed providers to detect drift.
+ * Compares the live active model_provider against managed providers to detect drift.
  */
 export function inspectLiveStateDrift(
-  currentProfile: string | null,
+  currentModelProvider: string | null,
   providers: ProvidersFile | null
 ): LiveStateDrift {
-  if (currentProfile === null) {
+  if (currentModelProvider === null) {
     return {
-      currentProfile,
+      currentModelProvider,
       mappedProvider: null,
       mappedProviders: [],
-      profileMapped: false,
+      modelProviderMapped: false,
       providerResolvable: false,
       canBackfillActiveProvider: false,
-      reason: providers ? "profile-missing" : "config-missing",
+      reason: providers ? "model-provider-missing" : "config-missing",
     };
   }
 
   if (!providers) {
     return {
-      currentProfile,
+      currentModelProvider,
       mappedProvider: null,
       mappedProviders: [],
-      profileMapped: false,
+      modelProviderMapped: false,
       providerResolvable: false,
       canBackfillActiveProvider: false,
       reason: "providers-missing",
@@ -149,17 +149,17 @@ export function inspectLiveStateDrift(
 
   const mappedProviders: string[] = [];
   for (const [name, provider] of Object.entries(providers.providers)) {
-    if (provider.profile === currentProfile) {
+    if (provider.profile === currentModelProvider) {
       mappedProviders.push(name);
     }
   }
 
   if (mappedProviders.length === 1) {
     return {
-      currentProfile,
+      currentModelProvider,
       mappedProvider: mappedProviders[0],
       mappedProviders,
-      profileMapped: true,
+      modelProviderMapped: true,
       providerResolvable: true,
       canBackfillActiveProvider: false,
       reason: "ok",
@@ -168,10 +168,10 @@ export function inspectLiveStateDrift(
 
   if (mappedProviders.length > 1) {
     return {
-      currentProfile,
+      currentModelProvider,
       mappedProvider: null,
       mappedProviders,
-      profileMapped: true,
+      modelProviderMapped: true,
       providerResolvable: false,
       canBackfillActiveProvider: false,
       reason: "shared-profile",
@@ -179,10 +179,10 @@ export function inspectLiveStateDrift(
   }
 
   return {
-    currentProfile,
+    currentModelProvider,
     mappedProvider: null,
     mappedProviders: [],
-    profileMapped: false,
+    modelProviderMapped: false,
     providerResolvable: false,
     canBackfillActiveProvider: true,
     reason: "provider-unmapped",

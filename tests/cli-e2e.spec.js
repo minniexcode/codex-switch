@@ -148,7 +148,7 @@ module.exports = {
         assert.equal(list.payload.data.count, 4);
         assert.ok(list.payload.data.providers.every((provider) => typeof provider.providerType === "string"));
         assert.ok(list.payload.data.providers.every((provider) => typeof provider.isActive === "boolean"));
-        assert.equal(list.payload.data.currentProfile, "freemodel");
+        assert.equal(list.payload.data.currentModelProvider, "freemodel");
         assert.equal(list.payload.data.activeProvider, "freemodel");
         assert.equal(list.payload.data.activeProviderResolvable, true);
         assert.deepEqual(list.payload.data.activeProviderCandidates, ["freemodel"]);
@@ -165,11 +165,11 @@ module.exports = {
         const status = await runJsonCli(["status", "--json", "--codex-dir", fixtureCodexDir]);
         assert.equal(status.status, 0);
         assert.equal(status.payload.data.providersExists, true);
-        assert.equal(status.payload.data.currentProfile, "freemodel");
+        assert.equal(status.payload.data.currentModelProvider, "freemodel");
 
         const configShow = await runJsonCli(["config", "show", "--json", "--codex-dir", fixtureCodexDir]);
         assert.equal(configShow.status, 0);
-        assert.equal(configShow.payload.data.activeProfile, "freemodel");
+        assert.equal(configShow.payload.data.currentModelProvider, "freemodel");
         assert.ok(configShow.payload.data.profiles.length >= 4);
 
         const configList = await runJsonCli(["config", "list-profiles", "--json", "--codex-dir", fixtureCodexDir]);
@@ -222,7 +222,7 @@ module.exports = {
       async run() {
         const list = await runBuiltCli(["list", "--codex-dir", fixtureCodexDir]);
         assert.equal(list.status, 0);
-        assert.match(list.stdout, /Current profile: freemodel/);
+        assert.match(list.stdout, /Current model provider: freemodel/);
         assert.match(list.stdout, /freemodel \[direct\] current -> freemodel/);
 
         const status = await runBuiltCli(["status", "--codex-dir", fixtureCodexDir]);
@@ -247,7 +247,8 @@ module.exports = {
           codexDir,
           toolHomeDir,
           configToml: [
-            'profile = "alpha"',
+            'model = "gpt-4o-mini"',
+            'model_provider = "alpha"',
             "",
             "[profiles.alpha]",
             'model = "gpt-4o-mini"',
@@ -298,7 +299,8 @@ module.exports = {
           codexDir,
           toolHomeDir,
           configToml: [
-            'profile = "copilot"',
+            'model = "gpt-4o-mini"',
+            'model_provider = "copilot"',
             "",
             "[profiles.copilot]",
             'model = "gpt-4o-mini"',
@@ -347,7 +349,8 @@ module.exports = {
           codexDir,
           toolHomeDir,
           configToml: [
-            'profile = "alpha"',
+            'model = "gpt-4o-mini"',
+            'model_provider = "alpha"',
             "",
             "[profiles.alpha]",
             'model = "gpt-4o-mini"',
@@ -406,7 +409,7 @@ module.exports = {
         });
         assert.equal(add.status, 0);
         assert.equal(add.payload.data.provider, "zeta");
-        assert.deepEqual(add.payload.data.createdProfileSections, ["zeta"]);
+        assert.deepEqual(add.payload.data.createdProfileSections, []);
         assert.deepEqual(add.payload.data.createdModelProviderSections, ["zeta"]);
         const providers = JSON.parse(fs.readFileSync(path.join(successToolHome, "providers.json"), "utf8"));
         const runtimeProviders = JSON.parse(fs.readFileSync(path.join(successDir, "providers.json"), "utf8"));
@@ -457,7 +460,7 @@ module.exports = {
         assert.equal(switched.status, 0);
         assert.equal(switched.payload.data.profile, "freemodel");
         const switchedConfig = fs.readFileSync(path.join(codexDir, "config.toml"), "utf8");
-        assert.match(switchedConfig, /profile = "freemodel"/);
+        assert.match(switchedConfig, /model_provider = "freemodel"/);
         const switchedAuth = JSON.parse(fs.readFileSync(path.join(codexDir, "auth.json"), "utf8"));
         assert.equal(switchedAuth.auth_mode, "apikey");
         assert.equal(switchedAuth.OPENAI_API_KEY, "freemodel-123");
@@ -473,7 +476,7 @@ module.exports = {
         const rollback = await runJsonCli(["rollback", "--json", "--codex-dir", codexDir]);
         assert.equal(rollback.status, 0);
         const restoredConfig = fs.readFileSync(path.join(codexDir, "config.toml"), "utf8");
-        assert.match(restoredConfig, /profile = "freemodel"/);
+        assert.match(restoredConfig, /model_provider = "freemodel"/);
       },
     },
     {

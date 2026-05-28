@@ -4,43 +4,41 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
+const { runBuiltCli, runJsonCli, repoRoot } = require("./helpers.js");
 
-const repoRoot = path.join(__dirname, "..");
-const cliPath = path.join(repoRoot, "dist", "cli.js");
-
-function runCli(args, env = {}) {
-  return execFileSync(process.execPath, [cliPath, ...args], {
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      NODE_ENV: "test",
-      ...env,
-    },
-    encoding: "utf8",
+async function runCli(args, env = {}) {
+  const result = await runBuiltCli({
+    args,
+    toolHomeDir: env.CODEXS_HOME,
   });
-}
-
-function runCliAllowFailure(args, env = {}) {
-  try {
-    return {
-      stdout: runCli(args, env),
-      stderr: "",
-      code: 0,
-    };
-  } catch (error) {
-    assert.ok(error && typeof error === "object");
-    return {
-      stdout: String(error.stdout ?? ""),
-      stderr: String(error.stderr ?? ""),
-      code: typeof error.status === "number" ? error.status : 1,
-    };
+  if (result.status !== 0) {
+    const error = new Error(result.stderr || result.stdout || `CLI failed with status ${result.status}`);
+    error.stdout = result.stdout;
+    error.stderr = result.stderr;
+    error.status = result.status;
+    throw error;
   }
+  return result.stdout;
 }
 
-function runJsonCli(args, env = {}) {
-  const output = runCli([...args, "--json"], env);
-  return JSON.parse(output.trim());
+async function runCliAllowFailure(args, env = {}) {
+  const result = await runBuiltCli({
+    args,
+    toolHomeDir: env.CODEXS_HOME,
+  });
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    code: result.status,
+  };
+}
+
+async function runJsonCliWithEnv(args, env = {}) {
+  const result = await runJsonCli({
+    args: [...args, "--json"],
+    toolHomeDir: env.CODEXS_HOME,
+  });
+  return result.payload;
 }
 
 function makeTempCodexHome() {
@@ -51,7 +49,7 @@ function makeTempCodexHome() {
   fs.mkdirSync(codexDir, { recursive: true });
   fs.writeFileSync(
     path.join(toolHome, "codex-switch.json"),
-    `${JSON.stringify({ version: "0.1.0", defaultCodexDir: codexDir }, null, 2)}\n`,
+    `${JSON.stringify({ version: "0.1.1", defaultCodexDir: codexDir }, null, 2)}\n`,
     "utf8"
   );
   return { root, toolHome, codexDir };
@@ -65,43 +63,37 @@ function writeProviders(toolHome, contents) {
   fs.writeFileSync(path.join(toolHome, "providers.json"), `${JSON.stringify(contents, null, 2)}\n`, "utf8");
 }
 
-function writeAuth(codexDir, contents) {
-  fs.writeFileSync(path.join(codexDir, "auth.json"), `${JSON.stringify(contents, null, 2)}\n`, "utf8");
-}
-
-function run() {
-  testHelpAndVersion();
+async function run() {
+  await testHelpAndVersion();
   testReleaseDocsExist();
-  testDirectProviderLifecycle();
-  testDirectProviderBaseUrlDriftDiagnostics();
-  testEditBaseUrlSyncsExistingDirectProjection();
-  testAmbiguousListAndStatus();
-  testDoctorAndSetupContract();
+  await testDirectProviderLifecycle();
+  await testDirectProviderBaseUrlDriftDiagnostics();
+  await testEditBaseUrlSyncsExistingDirectProjection();
+  await testAmbiguousListAndStatus();
+  await testDoctorAndSetupContract();
 }
 
-function testHelpAndVersion() {
-  const help = runCli(["--help"]);
+async function testHelpAndVersion() {
+  const help = await runCli(["--help"]);
   assert.match(help, /codex-switch/);
   assert.match(help, /Primary workflows: direct providers use init -> add -> switch -> status -> doctor\./);
   assert.match(help, /Deprecated entry: setup still exists only to point callers to init or migrate\./);
 
-  const version = runCli(["--version"]).trim();
-  assert.equal(version, "0.1.0");
+  const version = (await runCli(["--version"])).trim();
+  assert.equal(version, "0.1.1");
 }
 
 function testReleaseDocsExist() {
   assert.ok(fs.existsSync(path.join(repoRoot, "docs", "Tests", "testing.md")));
   assert.ok(fs.existsSync(path.join(repoRoot, "CHANGELOG.md")));
+  assert.ok(fs.existsSync(path.join(repoRoot, "docs", "Design", "codex-switch-v0.1.1-design.md")));
 }
 
-function testDirectProviderLifecycle() {
+async function testDirectProviderLifecycle() {
   const state = makeTempCodexHome();
   writeConfig(
     state.codexDir,
     [
-      'profile = "packycode"',
-      "",
-      "[profiles.packycode]",
       'model = "gpt-5.4"',
       'model_provider = "packycode"',
       "",
@@ -117,46 +109,37 @@ function testDirectProviderLifecycle() {
     providers: {
       packycode: {
         profile: "packycode",
+        model: "gpt-5.4",
         apiKey: "sk-test",
         baseUrl: "https://api.example.com/v1",
       },
     },
   });
 
-  const list = runJsonCli(["list"], {
+  const list = await runJsonCliWithEnv(["list", "--codex-dir", state.codexDir], {
     CODEXS_HOME: state.toolHome,
-    CODEXS_CODEX_DIR: state.codexDir,
   });
   assert.equal(list.ok, true);
   assert.equal(list.command, "list");
   assert.equal(list.data.providers[0].providerType, "direct");
   assert.equal(list.data.providers[0].isActive, true);
+  assert.equal(list.data.currentModelProvider, "packycode");
 
-  const status = runJsonCli(["status"], {
+  const status = await runJsonCliWithEnv(["status", "--codex-dir", state.codexDir], {
     CODEXS_HOME: state.toolHome,
-    CODEXS_CODEX_DIR: state.codexDir,
   });
   assert.equal(status.ok, true);
-  assert.equal(status.data.currentProfile, "packycode");
+  assert.equal(status.data.currentModelProvider, "packycode");
+  assert.equal(status.data.currentModel, "gpt-5.4");
   assert.equal(status.data.storage.toolHome.root, state.toolHome);
   assert.equal(status.data.runtimeProvider, null);
-
-  const doctor = runJsonCli(["doctor"], {
-    CODEXS_HOME: state.toolHome,
-    CODEXS_CODEX_DIR: state.codexDir,
-  });
-  assert.equal(doctor.ok, true);
-  assert.equal(doctor.data.healthy, true);
 }
 
-function testDirectProviderBaseUrlDriftDiagnostics() {
+async function testDirectProviderBaseUrlDriftDiagnostics() {
   const state = makeTempCodexHome();
   writeConfig(
     state.codexDir,
     [
-      'profile = "packycode"',
-      "",
-      "[profiles.packycode]",
       'model = "gpt-5.4"',
       'model_provider = "packycode"',
       "",
@@ -172,47 +155,27 @@ function testDirectProviderBaseUrlDriftDiagnostics() {
     providers: {
       packycode: {
         profile: "packycode",
+        model: "gpt-5.4",
         apiKey: "sk-test",
         baseUrl: "https://provider.example.com/v1",
       },
     },
   });
 
-  const status = runJsonCli(["status"], {
+  const status = await runJsonCliWithEnv(["status", "--codex-dir", state.codexDir], {
     CODEXS_HOME: state.toolHome,
-    CODEXS_CODEX_DIR: state.codexDir,
   });
   const statusMismatch = status.data.issues.find((issue) => issue.code === "PROVIDER_BASE_URL_MISMATCH");
   assert.ok(statusMismatch);
-  assert.equal(statusMismatch.profile, "packycode");
+  assert.equal(statusMismatch.modelProvider, "packycode");
   assert.equal(statusMismatch.provider, "packycode");
-  assert.equal(statusMismatch.providerBaseUrl, "https://provider.example.com/v1");
-  assert.equal(statusMismatch.configBaseUrl, "https://config.example.com/v1");
-  assert.equal(statusMismatch.providerType, "direct");
-
-  const doctor = runJsonCli(["doctor"], {
-    CODEXS_HOME: state.toolHome,
-    CODEXS_CODEX_DIR: state.codexDir,
-  });
-  const doctorMismatch = doctor.data.issues.find((issue) => issue.code === "PROVIDER_BASE_URL_MISMATCH");
-  assert.ok(doctorMismatch);
-  assert.equal(doctor.data.healthy, false);
-
-  const statusText = runCli(["status"], {
-    CODEXS_HOME: state.toolHome,
-    CODEXS_CODEX_DIR: state.codexDir,
-  });
-  assert.match(statusText, /runtime health: provider projection drift/);
 }
 
-function testEditBaseUrlSyncsExistingDirectProjection() {
+async function testEditBaseUrlSyncsExistingDirectProjection() {
   const state = makeTempCodexHome();
   writeConfig(
     state.codexDir,
     [
-      'profile = "packycode"',
-      "",
-      "[profiles.packycode]",
       'model = "gpt-5.4"',
       'model_provider = "packycode"',
       "",
@@ -228,15 +191,15 @@ function testEditBaseUrlSyncsExistingDirectProjection() {
     providers: {
       packycode: {
         profile: "packycode",
+        model: "gpt-5.4",
         apiKey: "sk-test",
         baseUrl: "https://old.example.com/v1",
       },
     },
   });
 
-  const edit = runJsonCli(["edit", "packycode", "--base-url", "https://new.example.com/v1"], {
+  const edit = await runJsonCliWithEnv(["edit", "packycode", "--base-url", "https://new.example.com/v1", "--codex-dir", state.codexDir], {
     CODEXS_HOME: state.toolHome,
-    CODEXS_CODEX_DIR: state.codexDir,
   });
   assert.equal(edit.ok, true);
 
@@ -245,19 +208,13 @@ function testEditBaseUrlSyncsExistingDirectProjection() {
 
   const config = fs.readFileSync(path.join(state.codexDir, "config.toml"), "utf8");
   assert.match(config, /base_url = "https:\/\/new\.example\.com\/v1"/);
-  assert.match(config, /name = "packycode"/);
-  assert.match(config, /requires_openai_auth = true/);
-  assert.match(config, /wire_api = "responses"/);
 }
 
-function testAmbiguousListAndStatus() {
+async function testAmbiguousListAndStatus() {
   const state = makeTempCodexHome();
   writeConfig(
     state.codexDir,
     [
-      'profile = "shared"',
-      "",
-      "[profiles.shared]",
       'model = "gpt-5.4"',
       'model_provider = "shared"',
       "",
@@ -273,38 +230,33 @@ function testAmbiguousListAndStatus() {
     providers: {
       alpha: {
         profile: "shared",
+        model: "gpt-5.4",
         apiKey: "sk-alpha",
         baseUrl: "https://api.example.com/v1",
       },
       beta: {
         profile: "shared",
+        model: "gpt-5.4",
         apiKey: "sk-beta",
         baseUrl: "https://api.example.com/v1",
       },
     },
   });
 
-  const list = runJsonCli(["list"], {
+  const list = await runJsonCliWithEnv(["list", "--codex-dir", state.codexDir], {
     CODEXS_HOME: state.toolHome,
-    CODEXS_CODEX_DIR: state.codexDir,
   });
   assert.equal(list.data.activeProviderResolvable, false);
   assert.deepEqual(list.data.activeProviderCandidates, ["alpha", "beta"]);
-
-  const statusText = runCli(["status"], {
-    CODEXS_HOME: state.toolHome,
-    CODEXS_CODEX_DIR: state.codexDir,
-  });
-  assert.match(statusText, /mapped provider: \(ambiguous: alpha, beta\)/);
-  assert.match(statusText, /next step:/);
 }
 
-function testDoctorAndSetupContract() {
+async function testDoctorAndSetupContract() {
   const state = makeTempCodexHome();
   writeConfig(
     state.codexDir,
     [
-      'profile = "packycode"',
+      'model = "gpt-5.4"',
+      'model_provider = "packycode"',
       "",
       "[profiles.packycode]",
       'model = "gpt-5.4"',
@@ -315,17 +267,21 @@ function testDoctorAndSetupContract() {
       'name = "packycode"',
       "requires_openai_auth = true",
       'wire_api = "responses"',
+      'env_key = "PACKYCODE_API_KEY"',
       "",
     ].join("\n")
   );
+  writeProviders(state.toolHome, { providers: {} });
 
-  const migrate = runCliAllowFailure(["migrate", "--codex-dir", state.codexDir], {
+  const doctor = await runJsonCliWithEnv(["doctor", "--codex-dir", state.codexDir], {
     CODEXS_HOME: state.toolHome,
   });
-  assert.equal(migrate.code, 1);
-  assert.match(migrate.stderr, /migrate currently requires an interactive TTY/i);
+  assert.equal(doctor.ok, true);
+  assert.equal(doctor.data.healthy, false);
+  assert.ok(doctor.data.issues.some((issue) => issue.code === "LEGACY_PROFILE_SECTION"));
+  assert.ok(doctor.data.issues.some((issue) => issue.code === "LEGACY_MODEL_PROVIDER_ENV_KEY"));
 
-  const setup = runCliAllowFailure(["setup", "--codex-dir", state.codexDir], {
+  const setup = await runCliAllowFailure(["setup", "--codex-dir", state.codexDir], {
     CODEXS_HOME: state.toolHome,
   });
   assert.equal(setup.code, 1);

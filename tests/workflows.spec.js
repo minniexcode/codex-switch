@@ -44,7 +44,8 @@ function makeFixture() {
   fs.writeFileSync(
     paths.configPath,
     [
-      'profile = "alpha"',
+      'model = "gpt-4o-mini"',
+      'model_provider = "alpha"',
       "",
       "[profiles.alpha]",
       'model = "gpt-4o-mini"',
@@ -87,7 +88,7 @@ function withCodexAvailable(run) {
   setCodexSpawnImplementation(() => ({
     error: null,
     status: 0,
-    stdout: "codex 0.0.6",
+    stdout: "codex 0.134.0",
     stderr: "",
   }));
   try {
@@ -313,7 +314,7 @@ module.exports = {
         );
         assert.equal(status.data.storage.toolHome.root, paths.toolHomeDir);
         assert.equal(status.data.storage.targetRuntime.root, paths.codexDir);
-        assert.equal(typeof status.data.currentProfile, "string");
+        assert.equal(typeof status.data.currentModelProvider, "string");
 
         const doctor = await withCodexAvailable(() =>
           runDoctor({
@@ -350,8 +351,8 @@ module.exports = {
         const status = await withCodexAvailable(() =>
           getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath)
         );
-        assert.equal(status.data.currentProfile, "alpha");
-        assert.equal(status.data.currentProfileMapped, true);
+        assert.equal(status.data.currentModelProvider, "alpha");
+        assert.equal(status.data.currentModelProviderMapped, true);
         assert.equal(status.data.provider, null);
         assert.equal(status.data.activeProviderResolvable, false);
         assert.deepEqual(status.data.activeProviderCandidates, ["alpha", "alphaReplica"]);
@@ -359,7 +360,7 @@ module.exports = {
         assert.ok(status.warnings.some((warning) => /cannot be resolved uniquely/i.test(warning)));
 
         const listed = listProviders(paths.providersPath, paths.configPath);
-        assert.equal(listed.data.currentProfile, "alpha");
+        assert.equal(listed.data.currentModelProvider, "alpha");
         assert.equal(listed.data.activeProvider, null);
         assert.equal(listed.data.activeProviderResolvable, false);
         assert.deepEqual(listed.data.activeProviderCandidates, ["alpha", "alphaReplica"]);
@@ -751,7 +752,7 @@ module.exports = {
           configPath: paths.configPath,
           providersPath: paths.providersPath,
         });
-        assert.equal(configResult.data.activeProfile, "alpha");
+        assert.equal(configResult.data.currentModelProvider, "alpha");
         assert.equal(configResult.data.profiles.length, 2);
 
         const doctorResult = await withCodexAvailable(() =>
@@ -843,10 +844,10 @@ module.exports = {
           tags: [],
           createProfile: true,
         });
-        assert.deepEqual(added.data.createdProfileSections, ["gamma"]);
+        assert.deepEqual(added.data.createdProfileSections, []);
         assert.ok(readProvidersFile(paths.providersPath).providers.gamma);
         assert.equal(readProvidersFile(paths.providersPath).providers.gamma.baseUrl, undefined);
-        assert.match(fs.readFileSync(paths.configPath, "utf8"), /\[profiles\.gamma\]/);
+        assert.match(fs.readFileSync(paths.configPath, "utf8"), /\[model_providers\.gamma\]/);
 
         const edited = editProvider({
           codexDir: paths.codexDir,
@@ -872,9 +873,9 @@ module.exports = {
           configPath: paths.configPath,
           providerName: "gamma",
         });
-        assert.deepEqual(removed.data.deletedProfileSections, ["gamma"]);
+        assert.deepEqual(removed.data.deletedProfileSections, []);
         assert.equal(readProvidersFile(paths.providersPath).providers.gamma, undefined);
-        assert.doesNotMatch(fs.readFileSync(paths.configPath, "utf8"), /\[profiles\.gamma\]/);
+        assert.doesNotMatch(fs.readFileSync(paths.configPath, "utf8"), /\[model_providers\.gamma\]/);
       },
     },
     {
@@ -900,12 +901,11 @@ module.exports = {
           tags: ["paid"],
           createProfile: true,
         });
-        assert.deepEqual(added.data.createdProfileSections, ["delta"]);
+        assert.deepEqual(added.data.createdProfileSections, []);
         assert.deepEqual(added.data.createdModelProviderSections, ["delta"]);
         const providers = readProvidersFile(paths.providersPath).providers;
         assert.equal(providers.delta.baseUrl, "https://delta.example");
         const config = fs.readFileSync(paths.configPath, "utf8");
-        assert.match(config, /\[profiles\.delta\]/);
         assert.match(config, /\[model_providers\.delta\]/);
         assert.match(config, /base_url = "https:\/\/delta\.example"/);
       },
@@ -951,6 +951,50 @@ module.exports = {
         assert.deepEqual(
           Object.keys(backups.data.backups[0]).sort(),
           ["backupId", "backupPath", "createdAt", "files", "reason"]
+        );
+      },
+    },
+    {
+      name: "switch does not inherit model from a legacy profile section anymore",
+      async run() {
+        const paths = makeFixture();
+        fs.writeFileSync(
+          paths.providersPath,
+          `${JSON.stringify({ providers: { beta: { profile: "beta", apiKey: "sk-beta", baseUrl: "https://beta.example" } } }, null, 2)}\n`,
+          "utf8"
+        );
+        fs.writeFileSync(
+          paths.configPath,
+          [
+            'model_provider = "alpha"',
+            "",
+            "[profiles.beta]",
+            'model = "gpt-4o-mini"',
+            'model_provider = "beta"',
+            "",
+            "[model_providers.beta]",
+            'base_url = "https://beta.example"',
+            'name = "beta"',
+            "requires_openai_auth = true",
+            'wire_api = "responses"',
+            "",
+          ].join("\n"),
+          "utf8"
+        );
+
+        await assert.rejects(
+          () =>
+            switchProvider({
+              codexDir: paths.codexDir,
+              lockPath: paths.lockPath,
+              backupsDir: paths.backupsDir,
+              latestBackupPath: paths.latestBackupPath,
+              configPath: paths.configPath,
+              providersPath: paths.providersPath,
+              authPath: paths.authPath,
+              providerName: "beta",
+            }),
+          (error) => error && error.code === "MANAGED_PROFILE_FIELDS_MISSING"
         );
       },
     },

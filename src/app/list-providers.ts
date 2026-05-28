@@ -8,6 +8,8 @@ import { readProvidersFile } from "../storage/providers-repo";
 export type ProviderListItem = {
   name: string;
   profile: string;
+  modelProvider: string;
+  model: string | null;
   providerType: "direct" | "copilot";
   isActive: boolean;
   note: string | null;
@@ -20,14 +22,20 @@ export type ProviderListItem = {
 export function listProviders(providersPath: string, configPath?: string): CommandResult {
   const providers = readProvidersFile(providersPath);
   const names = Object.keys(providers.providers).sort();
-  const currentProfile =
+  const currentModelProvider =
     configPath && fs.existsSync(configPath)
-      ? readStructuredConfig(configPath).activeProfile
+      ? readStructuredConfig(configPath).currentModelProvider
       : null;
-  const liveState = inspectLiveStateDrift(currentProfile, providers);
+  const currentModel =
+    configPath && fs.existsSync(configPath)
+      ? readStructuredConfig(configPath).currentModel
+      : null;
+  const liveState = inspectLiveStateDrift(currentModelProvider, providers);
   const items: ProviderListItem[] = names.map((name) => ({
     name,
     profile: providers.providers[name].profile,
+    modelProvider: providers.providers[name].profile,
+    model: providers.providers[name].model ?? null,
     providerType: isCopilotBridgeProvider(providers.providers[name]) ? "copilot" : "direct",
     isActive: liveState.providerResolvable && liveState.mappedProvider === name,
     note: providers.providers[name].note ?? null,
@@ -35,13 +43,14 @@ export function listProviders(providersPath: string, configPath?: string): Comma
   }));
 
   return {
-    data: {
-      providers: items,
-      count: items.length,
-      currentProfile,
-      activeProvider: liveState.mappedProvider,
-      activeProviderResolvable: liveState.providerResolvable,
-      activeProviderCandidates: liveState.mappedProviders,
+      data: {
+        providers: items,
+        count: items.length,
+        currentModel,
+        currentModelProvider,
+        activeProvider: liveState.mappedProvider,
+        activeProviderResolvable: liveState.providerResolvable,
+        activeProviderCandidates: liveState.mappedProviders,
     },
   };
 }

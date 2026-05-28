@@ -28,7 +28,9 @@ export function showConfig(args: { configPath: string; providersPath: string; pr
 
   return {
     data: {
-      activeProfile: document.activeProfile,
+      currentModel: document.currentModel,
+      currentModelProvider: document.currentModelProvider,
+      legacyProfile: document.legacyProfile,
       selectedProfile,
       profiles: profiles.map((profile) => ({
         ...profile,

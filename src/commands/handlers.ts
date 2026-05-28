@@ -80,7 +80,7 @@ export async function handleRegisteredCommand(
       });
     }
     case "current":
-      return getCurrentProfile(paths.configPath);
+      return getCurrentProfile(paths.configPath, paths.providersPath);
     case "status":
       return getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath, {
         runtimeDir: paths.runtimeDir,
@@ -510,7 +510,7 @@ export async function handleRegisteredCommand(
         providersPath: paths.providersPath,
         configPath: paths.configPath,
         providerName,
-        switchToProfile,
+        switchToProvider: switchToProfile,
       });
     }
     case "doctor":

@@ -104,11 +104,15 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       if (providers.length === 0) {
         lines.push("No providers configured.");
       } else {
-        const currentProfile = typeof data?.currentProfile === "string" ? data.currentProfile : null;
+        const currentModel = typeof data?.currentModel === "string" ? data.currentModel : null;
+        const currentModelProvider = typeof data?.currentModelProvider === "string" ? data.currentModelProvider : null;
         const activeProviderResolvable = data?.activeProviderResolvable !== false;
         const activeCandidates = Array.isArray(data?.activeProviderCandidates) ? (data?.activeProviderCandidates as string[]) : [];
-        if (currentProfile) {
-          lines.push(`Current profile: ${currentProfile}`);
+        if (currentModel) {
+          lines.push(`Current model: ${currentModel}`);
+        }
+        if (currentModelProvider) {
+          lines.push(`Current model provider: ${currentModelProvider}`);
           if (!activeProviderResolvable && activeCandidates.length > 1) {
             lines.push(`Current provider: ambiguous (${activeCandidates.join(", ")})`);
           } else if (!activeProviderResolvable) {
@@ -122,7 +126,7 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
           const note = provider.note ? ` note=${provider.note}` : "";
           const current = provider.isActive ? " current" : "";
           lines.push(
-            `${provider.name} [${String(provider.providerType ?? "direct")}]${current} -> ${provider.profile}${tags}${note}`
+            `${provider.name} [${String(provider.providerType ?? "direct")}]${current} -> ${provider.modelProvider}${provider.model ? ` model=${provider.model}` : ""}${tags}${note}`
           );
         }
       }
@@ -145,13 +149,18 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       break;
     }
     case "current":
-      lines.push(`Current profile: ${String(data?.profile ?? "")}`);
+      lines.push(`Current model: ${String(data?.model ?? "")}`);
+      lines.push(`Current model provider: ${String(data?.modelProvider ?? "")}`);
+      if (data?.provider) {
+        lines.push(`Managed provider: ${String(data.provider)}`);
+      }
       break;
     case "status":
       lines.push("Status summary:");
       lines.push(`  target runtime: ${String(data?.codexDir ?? "")}`);
       lines.push(`  tool home: ${String(((data?.storage as Record<string, unknown> | undefined)?.toolHome as Record<string, unknown> | undefined)?.root ?? "")}`);
-      lines.push(`  current profile: ${String(data?.currentProfile ?? "(none)")}`);
+      lines.push(`  current model: ${String(data?.currentModel ?? "(none)")}`);
+      lines.push(`  current model provider: ${String(data?.currentModelProvider ?? "(none)")}`);
       lines.push(`  mapped provider: ${renderStatusMappedProvider(data)}`);
       lines.push(`  provider path: ${renderStatusProviderPath(data)}`);
       lines.push(`  runtime health: ${renderStatusHealth(data)}`);
@@ -159,7 +168,9 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`  next step: ${renderStatusNextStep(data, warnings)}`);
       break;
     case "config-show": {
-      lines.push(`activeProfile: ${String(data?.activeProfile ?? "")}`);
+      lines.push(`currentModel: ${String(data?.currentModel ?? "")}`);
+      lines.push(`currentModelProvider: ${String(data?.currentModelProvider ?? "")}`);
+      lines.push(`legacyProfile: ${String(data?.legacyProfile ?? "")}`);
       const profiles = (data?.profiles as Array<Record<string, unknown>>) ?? [];
         for (const profile of profiles) {
           lines.push(
@@ -178,7 +189,8 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       break;
     }
     case "switch":
-      lines.push(`Switched to provider ${String(data?.provider ?? "")} using profile ${String(data?.profile ?? "")}.`);
+      lines.push(`Switched to provider ${String(data?.provider ?? "")} using model provider ${String(data?.modelProvider ?? data?.profile ?? "")}.`);
+      lines.push(`Model: ${String(data?.model ?? "")}`);
       lines.push(`Backup: ${String(data?.backupPath ?? "")}`);
       break;
     case "import":
@@ -207,7 +219,7 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       }
       lines.push(`login launched: ${String(data?.loginLaunched ?? false)}`);
       lines.push(`auth ready: ${String(data?.authReady ?? false)}`);
-      lines.push("next step: run `codexs add <provider> --copilot --profile <name>` and then `codexs switch <provider>`.");
+      lines.push("next step: run `codexs add <provider> --copilot --profile <model-provider-id>` and then `codexs switch <provider>`.");
       break;
     case "migrate":
       lines.push(`Migrated providers in ${String(data?.codexDir ?? "")} using ${String(data?.strategy ?? "")}.`);
@@ -289,12 +301,6 @@ function renderStatusHealth(data: Record<string, unknown> | null): string {
   if (!activeProviderResolvable || liveState.reason === "shared-profile") {
     return "active provider ambiguous";
   }
-  if (issues.some((issue) => issue.code === "UNMANAGED_ACTIVE_PROFILE")) {
-    return "active profile unmanaged";
-  }
-  if (issues.some((issue) => issue.code === "ACTIVE_PROVIDER_UNRESOLVED")) {
-    return "active provider ambiguous";
-  }
   if (issues.some((issue) => issue.code === "PROVIDER_BASE_URL_MISMATCH")) {
     return "provider projection drift";
   }
@@ -347,6 +353,9 @@ function renderStatusNextStep(data: Record<string, unknown> | null, warnings: st
   if (!data?.provider) {
     return "run `codexs switch <provider>` after adding or adopting a managed provider";
   }
+  if (Array.isArray(data?.issues) && (data?.issues as Array<Record<string, unknown>>).some((issue) => issue.code === "LEGACY_PROFILE_SELECTOR" || issue.code === "LEGACY_PROFILE_SECTION" || issue.code === "LEGACY_MODEL_PROVIDER_ENV_KEY")) {
+    return "run `codexs switch <provider>` to reproject the active route and clean legacy fields";
+  }
   return "run `codexs doctor` if you need a deeper diagnostic pass";
 }
 
@@ -368,10 +377,11 @@ function renderDoctorIssueNextStep(issue: Record<string, unknown>): string {
     case "BRIDGE_HEALTHCHECK_FAILED":
       return "reselect the provider with `codexs switch <provider>` or inspect bridge state";
     case "UNMANAGED_ACTIVE_PROFILE":
-      return "switch to a managed provider or adopt the active profile with `codexs migrate`";
-    case "ACTIVE_PROVIDER_UNRESOLVED":
-    case "SHARED_PROFILE_REFERENCE":
-      return "make provider-to-profile mappings unique before relying on current-provider detection";
+      return "switch to a managed provider or adopt the active route with `codexs migrate`";
+    case "LEGACY_PROFILE_SELECTOR":
+    case "LEGACY_PROFILE_SECTION":
+    case "LEGACY_MODEL_PROVIDER_ENV_KEY":
+      return "rerun `codexs switch <provider>` to project top-level model/model_provider and remove legacy fields";
     case "PROVIDER_BASE_URL_MISMATCH":
       return "rerun `codexs edit <provider> --base-url <url>` or `codexs switch <provider>` to repair the runtime projection";
     default:

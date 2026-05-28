@@ -1,7 +1,7 @@
 import { cliError } from "../domain/errors";
-import { planProfileLifecycleOutcome } from "../domain/config";
 import { applyConfigMutation, createConfigMutationPlan, readStructuredConfig } from "../storage/config-repo";
 import { readProvidersFile, writeProvidersFile } from "../storage/providers-repo";
+import { buildCopilotModelProviderProjection, buildDirectModelProviderProjection, isCopilotBridgeProvider } from "../domain/providers";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 
@@ -16,7 +16,7 @@ export function removeProvider(args: {
   providersPath: string;
   configPath: string;
   providerName: string;
-  switchToProfile?: string | null;
+  switchToProvider?: string | null;
 }): CommandResult {
   const providers = readProvidersFile(args.providersPath);
   const document = readStructuredConfig(args.configPath);
@@ -26,22 +26,49 @@ export function removeProvider(args: {
   }
 
   const nextProviders = { ...providers.providers };
-  // Delete against a copied object so the original parsed state stays untouched.
   delete nextProviders[args.providerName];
-  const remainingLinksByProfile = new Map<string, string[]>();
-  for (const [name, provider] of Object.entries(nextProviders)) {
-    const list = remainingLinksByProfile.get(provider.profile) ?? [];
-    list.push(name);
-    remainingLinksByProfile.set(provider.profile, list);
+  const activeModelProvider = document.currentModelProvider;
+  const linkedProviders = Object.entries(providers.providers)
+    .filter(([, provider]) => provider.profile === activeModelProvider)
+    .map(([name]) => name)
+    .sort();
+  const removingActiveProvider = activeModelProvider === current.profile && linkedProviders.length === 1;
+  const switchTargetName = args.switchToProvider ?? null;
+  const switchTarget = switchTargetName ? nextProviders[switchTargetName] ?? null : null;
+
+  if (removingActiveProvider && !switchTargetName) {
+    throw cliError("PROFILE_IN_USE", `Provider "${args.providerName}" is the active route and requires --switch-to <provider-name>.`, {
+      provider: args.providerName,
+      activeModelProvider,
+      linkedProviders,
+    });
   }
-  const lifecycle = planProfileLifecycleOutcome({
-    providerName: args.providerName,
-    oldProfile: current.profile,
-    newProfile: null,
-    activeProfile: document.activeProfile,
-    remainingLinksByProfile,
-    switchToProfile: args.switchToProfile ?? null,
-  });
+  if (switchTargetName && !switchTarget) {
+    throw cliError("PROVIDER_NOT_FOUND", `Provider "${switchTargetName}" was not found.`, {
+      provider: switchTargetName,
+      availableProviders: Object.keys(nextProviders).sort(),
+    });
+  }
+  const switchTargetModel = switchTarget?.model ?? document.currentModel ?? null;
+  if (switchTargetName && !switchTargetModel) {
+    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Provider "${switchTargetName}" has no model to switch with.`, {
+      provider: switchTargetName,
+      suggestion: "Run `codexs edit <provider> --model <name>` first.",
+    });
+  }
+  const switchTargetProjection = switchTarget
+    ? isCopilotBridgeProvider(switchTarget)
+      ? buildCopilotModelProviderProjection(switchTarget.runtime!)
+      : switchTarget.baseUrl
+        ? buildDirectModelProviderProjection(switchTarget.profile, switchTarget.baseUrl)
+        : null
+    : null;
+  if (switchTargetName && !switchTargetProjection) {
+    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Provider "${switchTargetName}" requires base_url before it can become active.`, {
+      provider: switchTargetName,
+      suggestion: "Run `codexs edit <provider> --base-url <url>` first.",
+    });
+  }
 
   return runMutation({
     lockPath: args.lockPath,
@@ -54,17 +81,24 @@ export function removeProvider(args: {
     ],
     mutate: () => {
       const configPlan = createConfigMutationPlan(document, {
-        deleteProfiles: lifecycle.deletedProfileSections,
-        setActiveProfile: lifecycle.nextActiveProfile,
+        setCurrentModel: switchTarget ? switchTargetModel : undefined,
+        setCurrentModelProvider: switchTarget ? switchTarget.profile : undefined,
+        upsertModelProviders: switchTarget && switchTargetProjection
+          ? { [switchTarget.profile]: switchTargetProjection }
+          : undefined,
+        deleteLegacyProfile: Boolean(switchTarget),
+        deleteLegacyProfilesByName: switchTarget ? [switchTarget.profile] : [],
+        scrubModelProviderEnvKeys: switchTarget ? [switchTarget.profile] : [],
       });
       writeProvidersFile(args.providersPath, { providers: nextProviders });
       applyConfigMutation(args.configPath, document, configPlan);
       return {
         provider: args.providerName,
+        switchedTo: switchTargetName,
         createdProfileSections: configPlan.createdProfileSections,
         deletedProfileSections: configPlan.deletedProfileSections,
-        keptSharedProfiles: lifecycle.keptSharedProfiles,
-        switchedActiveProfile: lifecycle.switchedActiveProfile,
+        keptSharedProfiles: [],
+        switchedActiveProfile: Boolean(switchTarget),
         adoptedProfiles: [],
         repairedProfiles: [],
       };

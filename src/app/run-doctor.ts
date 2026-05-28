@@ -12,6 +12,7 @@ import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { probeCopilotBridgeRuntime } from "../runtime/copilot-bridge";
 import { readCopilotAuthState } from "../runtime/copilot-adapter";
 import { inspectCopilotBridgeState } from "../storage/runtime-state-repo";
+import { MIN_SUPPORTED_CODEX_VERSION } from "../runtime/codex-version";
 
 /**
  * Performs consistency checks across config.toml, providers.json, and the local Codex CLI.
@@ -25,7 +26,7 @@ export async function runDoctor(args: {
   runtimesDir?: string;
 }): Promise<CommandResult> {
   const issues: Array<Record<string, unknown>> = [];
-  let currentProfile: string | null = null;
+  let currentModelProvider: string | null = null;
   let providers = null;
   let document: ParsedConfigDocument | null = null;
 
@@ -37,11 +38,11 @@ export async function runDoctor(args: {
     });
   } else {
     document = readStructuredConfig(args.configPath);
-    currentProfile = document.activeProfile;
-    if (!currentProfile) {
+    currentModelProvider = document.currentModelProvider;
+    if (!currentModelProvider) {
       issues.push({
-        code: "PROFILE_NOT_FOUND",
-        message: "config.toml has no top-level profile.",
+        code: "MODEL_PROVIDER_MISSING",
+        message: "config.toml has no top-level model_provider.",
         file: args.configPath,
       });
     }
@@ -92,8 +93,8 @@ export async function runDoctor(args: {
     });
   }
 
-  if (document?.activeProfile && providers) {
-    const matches = findProvidersByProfile(providers, document.activeProfile);
+  if (document?.currentModelProvider && providers) {
+    const matches = findProvidersByProfile(providers, document.currentModelProvider);
     if (matches.length === 1) {
       const activeProvider = providers.providers[matches[0]];
       if (isCopilotBridgeProvider(activeProvider)) {
@@ -136,11 +137,11 @@ export async function runDoctor(args: {
         message: "Copilot bridge runtime state exists but no matching managed Copilot provider is available.",
         ...runtimeState,
       });
-    } else if (!document?.activeProfile || runtimeProvider.profile !== document.activeProfile) {
+    } else if (!document?.currentModelProvider || runtimeProvider.profile !== document.currentModelProvider) {
       issues.push({
         code: "BRIDGE_STATE_STALE",
-        message: "Copilot bridge runtime state exists for a provider that is not the current active profile.",
-        activeProfile: document?.activeProfile ?? null,
+        message: "Copilot bridge runtime state exists for a provider that is not the current active model_provider.",
+        activeModelProvider: document?.currentModelProvider ?? null,
         runtimeProvider: runtimeState.provider,
         runtimeProfile: runtimeProvider.profile,
         ...runtimeState,
@@ -149,9 +150,9 @@ export async function runDoctor(args: {
   }
 
   // Drift inspection still runs when files are missing so status output can explain partial state.
-  const drift = inspectLiveStateDrift(currentProfile, providers);
+  const drift = inspectLiveStateDrift(currentModelProvider, providers);
 
-  const codexCheck = probeCodexRuntime();
+  const codexCheck = probeCodexRuntime(MIN_SUPPORTED_CODEX_VERSION);
   if (!codexCheck.ok) {
     const message =
       codexCheck.reason === "missing"
@@ -209,32 +210,28 @@ function mapBridgeDiagnosticCode(cause: string): string {
  */
 function renderConfigIssueMessage(issue: ConfigConsistencyIssue | Record<string, unknown>): string {
   switch (issue.code) {
-    case "ORPHANED_PROFILE_REFERENCE":
-      return `Profile "${issue.profile}" is referenced by providers but missing from config.toml.`;
-    case "UNMANAGED_ACTIVE_PROFILE":
-      return `Active profile "${issue.profile}" is not mapped by providers.json.`;
-    case "SHARED_PROFILE_REFERENCE":
-      return `Profile "${issue.profile}" is shared by multiple providers.`;
-    case "ORPHANED_PROFILE_SECTION":
-      return `Profile section "${issue.profile}" is not linked to any provider.`;
+    case "MODEL_MISSING":
+      return "Top-level model is missing from config.toml.";
     case "MODEL_PROVIDER_MISSING":
-      return `Profile "${issue.profile}" is missing model_provider.`;
-    case "MODEL_PROVIDER_NAME_MISMATCH":
-      return `Profile "${issue.profile}" must use matching model_provider name "${issue.profile}", found "${issue.modelProvider}".`;
+      return "Top-level model_provider is missing from config.toml.";
     case "MODEL_PROVIDER_SECTION_MISSING":
-      return `Model provider section "${issue.modelProvider}" for profile "${issue.profile}" is missing from config.toml.`;
+      return `Model provider section "${issue.modelProvider}" is missing from config.toml.`;
     case "MODEL_PROVIDER_BASE_URL_MISSING":
-      return `Model provider section "${issue.modelProvider}" for profile "${issue.profile}" is missing base_url.`;
+      return `Model provider section "${issue.modelProvider}" is missing base_url.`;
+    case "LEGACY_PROFILE_SELECTOR":
+      return `Legacy top-level profile selector "${issue.profile}" is still present.`;
+    case "LEGACY_PROFILE_SECTION":
+      return `Legacy profile section "${issue.profile}" is still present.`;
+    case "LEGACY_MODEL_PROVIDER_ENV_KEY":
+      return `Model provider "${issue.modelProvider}" still contains legacy env_key wiring.`;
     case "PROVIDER_BASE_URL_MISMATCH":
       return issue.providerType === "direct"
-        ? `Direct provider "${issue.provider}" baseUrl does not match config.toml model provider "${issue.profile}" base_url.`
+        ? `Direct provider "${issue.provider}" baseUrl does not match config.toml model provider "${issue.modelProvider}" base_url.`
         : String((issue as { code?: string }).code ?? "UNKNOWN_ISSUE");
-    case "ACTIVE_PROVIDER_UNRESOLVED":
-      return `Active profile "${issue.profile}" maps to multiple providers, so the active managed provider cannot be resolved uniquely.`;
     case "AUTH_JSON_INVALID":
       return String((issue as { reason?: string; message?: string }).message ?? (issue as { reason?: string }).reason ?? "auth.json is invalid.");
     case "DESTRUCTIVE_REMOVE_BLOCKED":
-      return `Provider "${issue.provider}" cannot be removed while "${issue.activeProfile}" remains active.`;
+      return `Provider "${issue.provider}" cannot be removed while "${issue.activeModelProvider}" remains active.`;
     default:
       return String((issue as { code?: string }).code ?? "UNKNOWN_ISSUE");
   }

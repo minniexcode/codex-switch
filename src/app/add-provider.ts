@@ -1,5 +1,4 @@
 import * as crypto from "node:crypto";
-import { validateManagedProfileCreation } from "../domain/config";
 import {
   buildCopilotBridgeBaseUrl,
   buildDirectModelProviderProjection,
@@ -12,7 +11,6 @@ import {
   applyConfigMutation,
   createConfigMutationPlan,
   readStructuredConfig,
-  requireManagedProfileRuntime,
 } from "../storage/config-repo";
 import { ensureDir } from "../storage/fs-utils";
 import { readProvidersFileIfExists, writeProvidersFile } from "../storage/providers-repo";
@@ -89,24 +87,19 @@ export async function addProvider(args: {
     }
   }
   const document = readStructuredConfig(args.configPath);
-  const existingProfile = document.profiles.find((profile) => profile.name === args.profile);
   const existingModelProvider = document.modelProviders.find((entry) => entry.name === args.profile);
-  if (!existingProfile && !args.createProfile) {
-    throw cliError("PROFILE_NOT_FOUND", `Profile "${args.profile}" does not exist in config.toml.`, {
-      profile: args.profile,
+  const inheritedModel = document.currentModel ?? undefined;
+  const providerModel = args.model ?? inheritedModel;
+  if (!providerModel) {
+    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Provider "${args.providerName}" requires a model.`, {
       provider: args.providerName,
+      modelProvider: args.profile,
+      missingFields: ["model"],
+      suggestion: "Pass `--model <name>` or set a top-level model in config.toml first.",
     });
   }
   const directBaseUrl = args.baseUrl;
-  const upsertProfiles = !existingProfile && args.createProfile
-    ? {
-        [args.profile]: validateManagedProfileCreation(args.profile, {
-          model: args.model ?? undefined,
-          modelProvider: args.profile,
-        }),
-      }
-    : undefined;
-  if (!args.copilot && !existingModelProvider && args.createProfile && (!directBaseUrl || directBaseUrl.trim() === "")) {
+  if (!args.copilot && (!directBaseUrl || directBaseUrl.trim() === "") && !existingModelProvider) {
     throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${args.profile}" requires base_url.`, {
       profile: args.profile,
       modelProvider: args.profile,
@@ -117,14 +110,12 @@ export async function addProvider(args: {
     ? {
         [args.profile]: buildCopilotModelProviderProjection(runtime as ProviderRuntime),
       }
-    : !existingModelProvider && args.createProfile
-      ? {
-          [args.profile]: buildDirectModelProviderProjection(args.profile, directBaseUrl as string),
-        }
-      : undefined;
-  if (existingProfile) {
-    requireManagedProfileRuntime(document, providers, args.profile);
-  }
+    : {
+        [args.profile]: buildDirectModelProviderProjection(
+          args.profile,
+          (directBaseUrl ?? existingModelProvider?.baseUrl ?? "").trim()
+        ),
+      };
   const apiKey = args.copilot ? args.bridgeApiKey ?? crypto.randomBytes(24).toString("hex") : args.apiKey;
   const baseUrl = args.copilot ? buildCopilotBridgeBaseUrl(runtime as ProviderRuntime) : args.baseUrl ?? undefined;
 
@@ -134,6 +125,7 @@ export async function addProvider(args: {
       [args.providerName]: cleanProviderRecord({
         profile: args.profile,
         apiKey,
+        model: providerModel,
         baseUrl,
         note: args.note ?? undefined,
         tags: args.tags,
@@ -153,14 +145,16 @@ export async function addProvider(args: {
     ],
     mutate: () => {
       const configPlan = createConfigMutationPlan(document, {
-        upsertProfiles,
         upsertModelProviders,
+        scrubModelProviderEnvKeys: [args.profile],
       });
       // Persist only the normalized provider payload so later reads are deterministic.
       writeProvidersFile(args.providersPath, next);
       applyConfigMutation(args.configPath, document, configPlan);
       return {
         provider: args.providerName,
+        model: providerModel,
+        modelProvider: args.profile,
         profile: args.profile,
         runtimeKind: runtime?.kind ?? null,
         createdProfileSections: configPlan.createdProfileSections,

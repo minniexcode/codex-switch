@@ -10,7 +10,6 @@ import {
   applyPatchOperations,
   buildManagedProfileViews,
   parseStructuredConfig,
-  parseTopLevelProfile,
   planConfigMutation,
 } from "../domain/config";
 import { cliError, normalizeError } from "../domain/errors";
@@ -41,12 +40,12 @@ export function readStructuredConfig(configPath: string): ParsedConfigDocument {
 }
 
 /**
- * Reads the active top-level profile from config.toml.
+ * Reads the active top-level model_provider route from config.toml.
  */
 export function readCurrentProfile(configPath: string): string {
-  const profile = readStructuredConfig(configPath).activeProfile ?? parseTopLevelProfile(readConfigFile(configPath));
+  const profile = readStructuredConfig(configPath).currentModelProvider;
   if (!profile) {
-    throw cliError("PROFILE_NOT_FOUND", "No top-level profile is set in config.toml.", {
+    throw cliError("PROFILE_NOT_FOUND", "No top-level model_provider is set in config.toml.", {
       file: configPath,
     });
   }
@@ -61,18 +60,10 @@ export function listConfigProfiles(configPath: string): Set<string> {
 }
 
 /**
- * Verifies that a provider's target profile exists before a switch operation proceeds.
+ * Loads config.toml for commands that project one model_provider route.
  */
 export function ensureProfileExists(configPath: string, profile: string, provider?: string): ParsedConfigDocument {
-  const document = readStructuredConfig(configPath);
-  if (!document.profiles.some((entry) => entry.name === profile)) {
-    throw cliError("PROFILE_NOT_FOUND", `Profile "${profile}" does not exist in config.toml.`, {
-      file: configPath,
-      provider,
-      profile,
-    });
-  }
-  return document;
+  return readStructuredConfig(configPath);
 }
 
 /**
@@ -143,7 +134,7 @@ export function requireModelProviderRuntimeSection(document: ParsedConfigDocumen
  */
 export function updateTopLevelProfile(configPath: string, configContent: string, profile: string): void {
   writeTextFileAtomic(configPath, applyPatchOperations(configContent, planConfigMutation(parseStructuredConfig(configContent), {
-    setActiveProfile: profile,
+    setLegacyProfile: profile,
   }).operations));
 }
 
@@ -153,10 +144,15 @@ export function updateTopLevelProfile(configPath: string, configContent: string,
 export function createConfigMutationPlan(
   document: ParsedConfigDocument,
   args: {
-    setActiveProfile?: string | null;
+    setCurrentModel?: string | null;
+    setCurrentModelProvider?: string | null;
+    setLegacyProfile?: string | null;
     upsertProfiles?: Record<string, Partial<ManagedProfileFields>>;
     upsertModelProviders?: Record<string, Partial<ManagedModelProviderFields>>;
     deleteProfiles?: string[];
+    deleteLegacyProfile?: boolean;
+    deleteLegacyProfilesByName?: string[];
+    scrubModelProviderEnvKeys?: string[];
   }
 ): ConfigMutationPlan {
   return planConfigMutation(document, args);

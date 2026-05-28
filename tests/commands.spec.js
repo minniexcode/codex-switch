@@ -404,7 +404,7 @@ module.exports = {
             tags: [],
           },
         ]);
-        assert.equal(result.data.currentProfile, null);
+        assert.equal(result.data.currentModelProvider, null);
         assert.equal(result.data.activeProvider, null);
         assert.equal(result.data.activeProviderResolvable, false);
         assert.deepEqual(result.data.activeProviderCandidates, []);
@@ -464,7 +464,7 @@ module.exports = {
             `${JSON.stringify({ providers: {} }, null, 2)}\n`,
             "utf8"
           );
-          fs.writeFileSync(path.join(codexDir, "config.toml"), 'profile = "alpha"\n', "utf8");
+          fs.writeFileSync(path.join(codexDir, "config.toml"), 'model = "gpt-4o-mini"\nmodel_provider = "alpha"\n', "utf8");
           fs.writeFileSync(
             path.join(codexDir, "auth.json"),
             `${JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "sk-alpha" }, null, 2)}\n`,
@@ -498,6 +498,30 @@ module.exports = {
           fs.rmSync(toolHomeDir, { recursive: true, force: true });
           fs.rmSync(codexDir, { recursive: true, force: true });
         }
+      },
+    },
+    {
+      name: "executeCommand status does not treat legacy top-level profile as the active runtime route",
+      async run() {
+        const codexDir = makeTempCodexDir();
+        fs.writeFileSync(path.join(codexDir, "config.toml"), 'profile = "alpha"\n', "utf8");
+        fs.writeFileSync(
+          path.join(codexDir, "auth.json"),
+          `${JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "sk-alpha" }, null, 2)}\n`,
+          "utf8"
+        );
+
+        const parsed = parseArgs(["status", "--codex-dir", codexDir, "--json"]);
+        const result = await executeCommand(
+          {
+            command: parsed.command,
+            options: parsed.globalOptions,
+          },
+          parsed
+        );
+
+        assert.equal(result.data.currentModelProvider, null);
+        assert.ok(result.warnings.some((warning) => /no top-level model_provider/i.test(warning)));
       },
     },
     {

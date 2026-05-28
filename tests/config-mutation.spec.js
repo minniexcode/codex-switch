@@ -12,7 +12,6 @@ const {
 
 function run() {
   testCreatesCompleteDirectProviderRuntimeSection();
-  testCreatesCompleteEditTargetRuntimeSection();
   testUpdatesExistingDirectProviderBaseUrlWithoutDroppingManagedFields();
   testPreservesCopilotProjection();
 }
@@ -46,40 +45,6 @@ function testCreatesCompleteDirectProviderRuntimeSection() {
   const nextConfig = applyPatchOperations(config, plan.operations);
   assert.match(nextConfig, /\[model_providers\.packycode\]/);
   assert.match(nextConfig, /base_url = "https:\/\/www\.packyapi\.com\/v1"/);
-  assert.match(nextConfig, /name = "packycode"/);
-  assert.match(nextConfig, /requires_openai_auth = true/);
-  assert.match(nextConfig, /wire_api = "responses"/);
-}
-
-function testCreatesCompleteEditTargetRuntimeSection() {
-  const config = [
-    'profile = "old-profile"',
-    "",
-    "[profiles.old-profile]",
-    'model = "gpt-5.4"',
-    'model_provider = "old-profile"',
-    "",
-    "[model_providers.old-profile]",
-    'base_url = "https://old.example.com/v1"',
-    "",
-  ].join("\n");
-
-  const document = parseStructuredConfig(config);
-  const plan = createConfigMutationPlan(document, {
-    upsertProfiles: {
-      packycode: {
-        model: "gpt-5.4",
-        modelProvider: "packycode",
-      },
-    },
-    upsertModelProviders: {
-      packycode: buildDirectModelProviderProjection("packycode", "https://www.packyapi.com/v1"),
-    },
-  });
-
-  const nextConfig = applyPatchOperations(config, plan.operations);
-  assert.match(nextConfig, /\[profiles\.packycode\]/);
-  assert.match(nextConfig, /\[model_providers\.packycode\]/);
   assert.match(nextConfig, /name = "packycode"/);
   assert.match(nextConfig, /requires_openai_auth = true/);
   assert.match(nextConfig, /wire_api = "responses"/);

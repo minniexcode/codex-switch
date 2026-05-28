@@ -30,8 +30,12 @@ export type DirectModelProviderProjection = {
  * Provider definition stored in providers.json.
  */
 export type ProviderRecord = {
+  /**
+   * Stored model_provider id alias used when projecting the active route.
+   */
   profile: string;
   apiKey: string;
+  model?: string;
   baseUrl?: string;
   note?: string;
   tags?: string[];
@@ -72,6 +76,9 @@ export function validateProvidersShape(input: unknown): ProvidersFile {
       throw new Error(`Provider "${name}" is missing a valid apiKey.`);
     }
 
+    if (provider.model !== undefined && typeof provider.model !== "string") {
+      throw new Error(`Provider "${name}" has an invalid model.`);
+    }
     if (provider.baseUrl !== undefined && typeof provider.baseUrl !== "string") {
       throw new Error(`Provider "${name}" has an invalid baseUrl.`);
     }
@@ -96,6 +103,7 @@ export function validateProvidersShape(input: unknown): ProvidersFile {
     providers[name] = cleanProviderRecord({
       profile: provider.profile,
       apiKey: provider.apiKey,
+      model: provider.model as string | undefined,
       baseUrl: provider.baseUrl as string | undefined,
       note: provider.note as string | undefined,
       tags: provider.tags as string[] | undefined,
@@ -115,6 +123,9 @@ export function cleanProviderRecord(record: ProviderRecord): ProviderRecord {
     apiKey: record.apiKey.trim(),
   };
 
+  if (record.model && record.model.trim() !== "") {
+    next.model = record.model.trim();
+  }
   if (record.baseUrl && record.baseUrl.trim() !== "") {
     next.baseUrl = record.baseUrl.trim();
   }

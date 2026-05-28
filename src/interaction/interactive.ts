@@ -29,8 +29,8 @@ export async function promptForProviderSelection(
   message: string
 ): Promise<string> {
   const providers = readProvidersFile(providersPath);
-  const currentProfile = fs.existsSync(configPath) ? readStructuredConfig(configPath).activeProfile : null;
-  const liveState = inspectLiveStateDrift(currentProfile, providers);
+  const currentModelProvider = fs.existsSync(configPath) ? readStructuredConfig(configPath).currentModelProvider : null;
+  const liveState = inspectLiveStateDrift(currentModelProvider, providers);
   const choices = Object.entries(providers.providers)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([providerName, provider]) => {

@@ -11,11 +11,10 @@ import {
 } from "../storage/config-repo";
 import { ensureDir } from "../storage/fs-utils";
 import { mergeProviders, readProvidersFileIfExists, writeProvidersFile } from "../storage/providers-repo";
+import { MIN_SUPPORTED_CODEX_VERSION } from "../runtime/codex-version";
 import { runDoctor } from "./run-doctor";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
-
-const MIN_CODEX_VERSION = "0.0.1";
 
 /**
  * Migrates unmanaged Codex config profiles into a managed providers.json registry.
@@ -42,10 +41,10 @@ export async function migrateCodex(args: {
     });
   }
 
-  const version = checkCodexVersion(MIN_CODEX_VERSION);
+  const version = checkCodexVersion(MIN_SUPPORTED_CODEX_VERSION);
   if (!version.ok) {
     throw cliError("CODEX_VERSION_UNSUPPORTED", "codex CLI version is below the supported minimum.", {
-      minimumVersion: MIN_CODEX_VERSION,
+      minimumVersion: MIN_SUPPORTED_CODEX_VERSION,
       currentVersion: version.currentVersion ?? null,
       cause: version.cause,
     });
