@@ -1,6 +1,6 @@
 # codex-switch CLI Usage
 
-This document describes the current CLI contract for `@minniexcode/codex-switch` at version `0.1.0`.
+This document describes the current CLI contract for `@minniexcode/codex-switch` at version `0.1.1`.
 
 Executable command name:
 
@@ -10,9 +10,9 @@ codexs
 
 ## 1. Version Context
 
-The current package version in this repository is `0.1.0`.
+The current package version in this repository is `0.1.1`.
 
-This is the first stable release line. The command surface already exists, and this version focuses on keeping workflow guidance, help text, and implementation behavior aligned.
+This release line targets Codex `0.134.0+`. The public contract assumes runtime routing is selected by top-level `model` plus `model_provider`, while legacy `profile` and `[profiles.*]` remain inspect-and-adopt inputs instead of the recommended runtime path.
 
 ## 2. Primary Workflows
 
@@ -20,7 +20,7 @@ This is the first stable release line. The command surface already exists, and t
 
 ```bash
 codexs init
-codexs add <provider> --profile <name> --api-key <key>
+codexs add <provider> --model <model> --api-key <key> [--base-url <url>]
 codexs switch <provider>
 codexs status
 codexs doctor
@@ -29,7 +29,7 @@ codexs doctor
 Intent:
 
 - `init` prepares the `codex-switch` tool home.
-- `add` creates a managed provider record.
+- `add` creates a managed provider record with a target model and provider route identity.
 - `switch` projects the selected provider into the target Codex runtime.
 - `status` summarizes tool-home, runtime, provider, and health state.
 - `doctor` gives deeper repair-oriented diagnostics.
@@ -39,7 +39,7 @@ Intent:
 ```bash
 codexs init
 codexs login copilot
-codexs add <provider> --copilot --profile <name>
+codexs add <provider> --copilot --model <model>
 codexs switch <provider>
 codexs status
 codexs doctor
@@ -52,7 +52,56 @@ Important notes:
 - `login copilot` succeeds only after auth readiness is rechecked.
 - `add --copilot` does not install or log in to Copilot for you.
 
-## 3. Advanced Adopt Workflow
+## 3. Runtime Route Contract
+
+For Codex `0.134.0+`, the active runtime route is selected through top-level `model` and `model_provider` in `config.toml`.
+
+`codex-switch` writes that route as its primary runtime projection:
+
+- top-level `model`
+- top-level `model_provider`
+- `[model_providers.<id>]`
+- `auth.json` when direct auth projection is required
+
+Managed provider projection intentionally avoids these legacy fields:
+
+- `model_providers.<id>.env_key`
+- `model_providers.<id>.env_key_instructions`
+
+Managed provider projection fixes these fields for OpenAI-compatible direct routes:
+
+- `wire_api = "responses"`
+- `requires_openai_auth = true`
+
+Compatibility notes:
+
+- `--profile` is accepted as an alias for the managed `model_provider` id.
+- legacy top-level `profile` and `[profiles.*]` may still appear in existing runtime state
+- `migrate`, `config show`, `config list-profiles`, and `doctor` can still inspect those legacy structures
+- new managed runtime projection should be described as route-first, not profile-first
+
+Example managed direct-provider projection:
+
+```toml
+model = "gpt-5.5"
+model_provider = "proxy"
+
+[model_providers.proxy]
+name = "proxy"
+base_url = "https://proxy.example.com/v1"
+wire_api = "responses"
+requires_openai_auth = true
+```
+
+Authentication projection for the direct path remains:
+
+```json
+{
+  "OPENAI_API_KEY": "sk-xxx"
+}
+```
+
+## 4. Advanced Adopt Workflow
 
 Use `migrate` only when you already have Codex runtime state that should be adopted into managed `providers.json` state.
 
@@ -65,12 +114,12 @@ codexs migrate
 
 Current behavior:
 
-- It reads `config.toml` profiles from the target Codex runtime.
+- It can inspect legacy runtime `profile` and `[profiles.*]` state from the target Codex runtime.
 - It can collect missing provider details in TTY mode.
 - It can merge into or overwrite existing managed provider state.
 - It still fails fast in non-TTY and `--json` runs when interactive input would be required.
 
-## 4. Deprecated Entry
+## 5. Deprecated Entry
 
 ```bash
 codexs setup
@@ -78,9 +127,9 @@ codexs setup
 
 `setup` is deprecated. It is kept only to direct callers toward `init` or `migrate`, and it no longer performs initialization or migration work.
 
-## 5. Global Contract
+## 6. Global Contract
 
-### 5.1 Global Flags
+### 6.1 Global Flags
 
 ```bash
 --json
@@ -89,14 +138,14 @@ codexs setup
 --version
 ```
 
-### 5.2 Environment Variables
+### 6.2 Environment Variables
 
 ```bash
 CODEXS_HOME
 CODEXS_CODEX_DIR
 ```
 
-### 5.3 Runtime Model
+### 6.3 Runtime Model
 
 Tool home:
 
@@ -124,7 +173,7 @@ Meaning:
 - `config.toml` remains the active runtime routing file.
 - `auth.json` remains the active auth projection file.
 
-## 6. Command Categories
+## 7. Command Categories
 
 Read commands:
 
@@ -157,7 +206,7 @@ codexs bridge stop [provider]
 codexs rollback [backup-id]
 ```
 
-## 7. Selected Command Semantics
+## 8. Selected Command Semantics
 
 ### `init`
 
@@ -175,38 +224,47 @@ codexs rollback [backup-id]
 ### `status`
 
 - Reports the target Codex runtime and the tool-home root.
-- Reports the current profile and whether it maps to a managed provider.
+- Reports the active model and active `model_provider` route.
+- Can still surface legacy profile-derived observations when inspecting older runtime state.
 - Adds bridge, Copilot SDK, and upstream auth signals when the active provider uses a local runtime bridge.
 - Does not mutate any files.
 
 ### `list`
 
-- Lists managed providers together with their linked profile.
+- Lists managed providers together with their linked route identity.
 - Distinguishes provider type using the public values `direct` and `copilot`.
 - Marks the current provider only when the active runtime can be mapped back to one unique managed provider.
-- When the active profile is shared by multiple providers, it does not invent a single current provider and should instead surface the ambiguity.
-- TTY provider pickers used by commands such as `switch` and `show` follow the same visibility rules for profile, provider type, and current-state hints.
+- When the active route is shared by multiple providers, it does not invent a single current provider and should instead surface the ambiguity.
+- TTY provider pickers used by commands such as `switch` and `show` follow the same visibility rules for route, provider type, and current-state hints.
 
 ### `doctor`
 
-- Checks expected config files, provider/profile consistency, and Codex CLI availability.
+- Checks expected config files, managed-provider consistency, and Codex CLI availability.
+- Inspects both route-first runtime state and legacy profile state when needed.
 - Adds bridge and Copilot dependency diagnostics for Copilot-backed providers.
 - Returns repair-oriented issues intended for both human users and AI agents.
 
 ### `switch`
 
-- Direct providers rewrite `auth.json` as an API-key projection and update the active runtime profile.
+- Projects direct providers by rewriting top-level `model`, top-level `model_provider`, the managed `[model_providers.<id>]` block, and `auth.json`.
+- Cleans legacy projected `env_key` and `env_key_instructions` fields before writing the managed provider route.
 - Copilot bridge providers also project the local bridge secret into the runtime while managing bridge routing.
 - Managed writes are backed up and rolled back on failure.
-- When `<provider>` is omitted in a TTY, the interactive provider selector should show profile, provider type, and current-state hints using the same rules as `list`.
+- When `<provider>` is omitted in a TTY, the interactive provider selector should show route, provider type, and current-state hints using the same rules as `list`.
+
+### `add` and `edit`
+
+- Create or update managed provider records rather than editing runtime files directly.
+- Treat `--profile` only as an alias for the managed `model_provider` id.
+- Clean old `env_key` and `env_key_instructions` fields from managed projection during subsequent switching.
 
 ### `migrate`
 
-- Adopts unmanaged runtime profiles into managed `providers.json` state.
-- Still relies on interactive profile selection and provider-detail collection in this release.
+- Adopts unmanaged runtime route or legacy profile state into managed `providers.json` state.
+- Still relies on interactive route/profile selection and provider-detail collection in this release.
 - Should be treated as an advanced adopt tool, not as the normal onboarding path.
 
-## 8. Automation Boundaries
+## 9. Automation Boundaries
 
 - Progressive prompts run only in a real TTY and never under `--json`.
 - Human write commands may prompt for missing inputs or dangerous-action confirmation.
@@ -214,10 +272,11 @@ codexs rollback [backup-id]
 - `login copilot` is TTY-only.
 - `migrate` is not yet a complete non-interactive workflow.
 
-## 9. Related Docs
+## 10. Related Docs
 
 - [README](../README.md)
 - [Chinese README](../README.CN.md)
 - [AI README](../README.AI.md)
 - [Product Overview](./codex-switch-product-overview.md)
-- [Release PRD 0.1.0](./PRD/codex-switch-prd-v0.1.0.md)
+- [Release PRD 0.1.1](./PRD/codex-switch-prd-v0.1.1.md)
+- [Release Design 0.1.1](./Design/codex-switch-v0.1.1-design.md)

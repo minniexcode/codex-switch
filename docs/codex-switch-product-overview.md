@@ -7,12 +7,12 @@
 当前 release contract 以这些文档为准：
 
 - [`cli-usage.md`](./cli-usage.md)
-- [`PRD/codex-switch-prd-v0.1.0.md`](./PRD/codex-switch-prd-v0.1.0.md)
-- [`Design/codex-switch-v0.1.0-design.md`](./Design/codex-switch-v0.1.0-design.md)
+- [`PRD/codex-switch-prd-v0.1.1.md`](./PRD/codex-switch-prd-v0.1.1.md)
+- [`Design/codex-switch-v0.1.1-design.md`](./Design/codex-switch-v0.1.1-design.md)
 
 ## 产品概述
 
-`codex-switch` 是一个本地 provider 管理 CLI，用于管理和切换目标 Codex runtime 的 provider/profile 配置，同时把工具自己的管理态保存在独立 tool home 下。
+`codex-switch` 是一个本地 provider 管理 CLI，用于管理和切换目标 Codex runtime 的 provider/model-provider 路由配置，同时把工具自己的管理态保存在独立 tool home 下。
 
 它不是旧 `setup` 小工具，也不是围绕单目录 `~/.codex` 组织全部状态的脚本集合。
 
@@ -52,7 +52,7 @@ Direct 主路径：
 
 ```bash
 codexs init
-codexs add <provider> --profile <name> --api-key <key>
+codexs add <provider> --model <model> --api-key <key> [--base-url <url>]
 codexs switch <provider>
 codexs status
 codexs doctor
@@ -63,7 +63,7 @@ Copilot 主路径：
 ```bash
 codexs init
 codexs login copilot
-codexs add <provider> --copilot --profile <name>
+codexs add <provider> --copilot --model <model>
 codexs switch <provider>
 codexs status
 codexs doctor
@@ -78,9 +78,10 @@ codexs migrate
 
 ## 当前产品判断
 
-`0.1.0` 的重点不是再加新命令，而是让用户在 README、help 和输出第一屏就能理解：
+`0.1.1` 的重点不是再加新命令，而是让用户在 README、help 和输出第一屏就能理解：
 
 - fresh install 应先走什么
 - Copilot 路径和 direct 路径有什么区别
 - `migrate` 何时才该使用
 - `status` / `doctor` 如何帮助定位下一步
+- 当前运行态是用顶层 `model` 与 `model_provider` 选择活动路由

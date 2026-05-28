@@ -1,6 +1,6 @@
 # @minniexcode/codex-switch
 
-`@minniexcode/codex-switch` is a local-first CLI for managing and switching Codex provider and profile configuration safely.
+`@minniexcode/codex-switch` is a local-first CLI for managing and switching Codex provider and model-provider routing safely.
 
 It keeps `codex-switch` tool state separate from the target Codex runtime, so provider management, backup flow, and runtime projection stay explicit instead of relying on manual file edits.
 
@@ -8,9 +8,9 @@ Chinese version: [README.CN.md](./README.CN.md)
 
 ## Version
 
-Current package version: `0.1.0`
+Current package version: `0.1.1`
 
-This is the first stable release line. The current release focuses on keeping the primary workflows, help text, operational boundaries, and release docs aligned with the implementation.
+This is the current stable release line. `0.1.1` aligns the public docs with the Codex `0.134.0+` runtime contract where top-level `model` and `model_provider` select the active route.
 
 ## Install
 
@@ -36,7 +36,7 @@ Direct provider workflow:
 
 ```bash
 codexs init
-codexs add my-provider --profile my-provider --api-key sk-xxx
+codexs add my-provider --model gpt-5.5 --base-url https://gateway.example.com/v1 --api-key sk-xxx
 codexs switch my-provider
 codexs status
 codexs doctor
@@ -47,7 +47,7 @@ GitHub Copilot workflow:
 ```bash
 codexs init
 codexs login copilot
-codexs add copilot-main --copilot --profile copilot-main
+codexs add copilot-main --copilot --model gpt-4.1
 codexs switch copilot-main
 codexs status
 codexs doctor
@@ -58,8 +58,42 @@ Notes:
 - `init` prepares the `codex-switch` tool home and managed state.
 - `login copilot` handles upstream Copilot onboarding and auth readiness.
 - `add --copilot` does not perform login for you; it assumes Copilot login is already ready.
+- `switch` projects the selected provider into the target Codex runtime as top-level `model` plus `model_provider`.
 - `status` is the main read command after switching.
 - `doctor` is the main repair-oriented diagnostic command.
+
+## Runtime Routing Model
+
+For Codex `0.134.0+`, the active runtime route is selected through top-level `model` and `model_provider` in `config.toml`.
+
+`codex-switch` treats that route as the runtime contract:
+
+- top-level `model` selects the active model id
+- top-level `model_provider` selects the active provider route
+- managed `[model_providers.<id>]` entries are the projected runtime provider definitions
+- `--profile` is only an alias for the managed `model_provider` id, not the primary runtime selector
+
+Direct-provider projection writes:
+
+- top-level `model`
+- top-level `model_provider`
+- `[model_providers.<id>]`
+- `auth.json` with `OPENAI_API_KEY`
+
+Managed direct-provider projection does not keep `env_key` or `env_key_instructions` in the generated runtime config. `switch`, `add`, and `edit` clean old legacy projection fields before writing the active route.
+
+For managed OpenAI-compatible routes, the projected provider entry keeps the fixed runtime shape:
+
+```toml
+model = "gpt-5.5"
+model_provider = "my-provider"
+
+[model_providers.my-provider]
+name = "my-provider"
+base_url = "https://gateway.example.com/v1"
+wire_api = "responses"
+requires_openai_auth = true
+```
 
 ## Advanced Adopt Workflow
 
@@ -84,11 +118,11 @@ codexs current
 codexs status
 codexs config show [profile]
 codexs config list-profiles
-codexs add <provider> --profile <name> --api-key <key>
-codexs add <provider> --copilot --profile <name>
+codexs add <provider> --model <model> --api-key <key> [--base-url <url>]
+codexs add <provider> --copilot --model <model>
 codexs edit <provider>
 codexs switch <provider>
-codexs remove <provider> [--force] [--switch-to <profile>]
+codexs remove <provider> [--force] [--switch-to <provider>]
 codexs import <file>
 codexs export <file> [--force]
 codexs bridge start [provider]
@@ -102,8 +136,6 @@ codexs doctor
 `setup` still exists only as a deprecated compatibility entry that points callers to `init` or `migrate`.
 
 ## Runtime Model
-
-`codex-switch` uses a dual-path model.
 
 Tool home:
 
@@ -175,8 +207,8 @@ npm pack --dry-run
 - [Detailed CLI Usage](./docs/cli-usage.md)
 - [Testing Guide](./docs/Tests/testing.md)
 - [Product Overview](./docs/codex-switch-product-overview.md)
-- [Release PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
-- [Release Gate PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
+- [Release PRD 0.1.1](./docs/PRD/codex-switch-prd-v0.1.1.md)
+- [Release Design 0.1.1](./docs/Design/codex-switch-v0.1.1-design.md)
 
 ## License
 

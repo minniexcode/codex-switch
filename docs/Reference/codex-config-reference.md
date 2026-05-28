@@ -137,6 +137,12 @@ model_reasoning_effort = "high"
 approval_policy = "never"
 ```
 
+Important `codex-switch` note:
+
+- official Codex still supports profiles
+- `codex-switch` `0.1.1` does not treat top-level `profile` as the recommended managed runtime selector
+- in `codex-switch`, legacy `profile` and `[profiles.*]` are mainly inspect-and-adopt inputs for `migrate`, `doctor`, and `config` inspection flows
+
 ## 4. `config.toml` by topic
 
 ### 4.1 Model, reasoning, and response style
@@ -194,6 +200,8 @@ Core keys:
 - `model_providers.<id>.env_http_headers`
 - `model_providers.<id>.query_params`
 - `model_providers.<id>.request_max_retries`
+- `model_providers.<id>.wire_api`
+- `model_providers.<id>.requires_openai_auth`
 
 Authentication options for custom providers include:
 
@@ -213,6 +221,22 @@ Related Bedrock keys:
 
 - `model_providers.amazon-bedrock.aws.profile`
 - `model_providers.amazon-bedrock.aws.region`
+
+#### `codex-switch` 0.1.1 managed projection
+
+When `codex-switch` manages a direct OpenAI-compatible route for Codex `0.134.0+`, it intentionally projects a narrower runtime shape than the full official provider schema:
+
+- top-level `model` is the active model selector
+- top-level `model_provider` is the active route selector
+- projected `[model_providers.<id>]` keeps `base_url`
+- projected `[model_providers.<id>]` fixes `wire_api = "responses"`
+- projected `[model_providers.<id>]` fixes `requires_openai_auth = true`
+- projected runtime config does not keep `env_key`
+- projected runtime config does not keep `env_key_instructions`
+
+Authentication is projected through `auth.json` with `OPENAI_API_KEY`, not through `env_key` in the managed runtime config.
+
+That is a `codex-switch` product decision, not a limitation of Codex itself. If you hand-write or independently manage Codex config, `env_key` remains a valid official mechanism.
 
 ### 4.3.1 `openai_base_url` vs custom providers
 
@@ -538,6 +562,23 @@ base_url = "https://proxy.example.com/v1"
 env_key = "OPENAI_API_KEY"
 http_headers = { "X-Team" = "platform" }
 ```
+
+This is an official Codex-style custom provider example.
+
+If you are using `codex-switch` managed direct-provider projection instead, the runtime projection is intentionally narrower:
+
+```toml
+model = "gpt-5.4"
+model_provider = "proxy"
+
+[model_providers.proxy]
+name = "proxy"
+base_url = "https://proxy.example.com/v1"
+wire_api = "responses"
+requires_openai_auth = true
+```
+
+In that managed projection, `OPENAI_API_KEY` is expected in `auth.json` rather than through `env_key` in `config.toml`.
 
 ### 6.4 Locked-down shell environment
 

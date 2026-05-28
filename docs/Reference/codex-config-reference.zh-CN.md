@@ -149,6 +149,12 @@ model_reasoning_effort = "high"
 approval_policy = "never"
 ```
 
+对 `codex-switch` 0.1.1 的补充说明：
+
+- 官方 Codex 仍然支持 profiles
+- `codex-switch` 不再把顶层 `profile` 视为推荐的受管 runtime selector
+- 在 `codex-switch` 里，legacy `profile` 和 `[profiles.*]` 主要用于 `migrate`、`doctor` 和 `config` 检视的 adopt / inspect 场景
+
 ## 4. `config.toml` 主题整理
 
 ### 4.1 模型、推理强度与输出风格
@@ -206,6 +212,8 @@ Codex 把“当前使用哪个 provider”和“provider 怎么定义”拆开�
 - `model_providers.<id>.env_http_headers`
 - `model_providers.<id>.query_params`
 - `model_providers.<id>.request_max_retries`
+- `model_providers.<id>.wire_api`
+- `model_providers.<id>.requires_openai_auth`
 
 自定义 provider 的认证方式包括：
 
@@ -228,6 +236,22 @@ Bedrock 相关 key：
 
 - `model_providers.amazon-bedrock.aws.profile`
 - `model_providers.amazon-bedrock.aws.region`
+
+#### `codex-switch` 0.1.1 的受管投影
+
+当 `codex-switch` 为 Codex `0.134.0+` 管理一个 direct OpenAI-compatible route 时，它会有意把运行态投影限制在一组更窄的字段上：
+
+- 顶层 `model` 是活动模型选择器
+- 顶层 `model_provider` 是活动路由选择器
+- 投影后的 `[model_providers.<id>]` 保留 `base_url`
+- 投影后的 `[model_providers.<id>]` 固定写 `wire_api = "responses"`
+- 投影后的 `[model_providers.<id>]` 固定写 `requires_openai_auth = true`
+- 受管运行态投影不会保留 `env_key`
+- 受管运行态投影不会保留 `env_key_instructions`
+
+认证信息会通过 `auth.json` 里的 `OPENAI_API_KEY` 投影，而不是通过运行态 `config.toml` 中的 `env_key`。
+
+这属于 `codex-switch` 的产品约束，不是 Codex 官方能力限制。如果你是手工维护或独立维护 Codex config，`env_key` 仍然是官方支持的方式。
 
 ### 4.3.1 `openai_base_url` 和自定义 provider 的区别
 
@@ -567,6 +591,23 @@ base_url = "https://proxy.example.com/v1"
 env_key = "OPENAI_API_KEY"
 http_headers = { "X-Team" = "platform" }
 ```
+
+这段是官方 Codex 风格的自定义 provider 示例。
+
+如果你走的是 `codex-switch` 的受管 direct-provider 投影，运行态会被有意收窄为：
+
+```toml
+model = "gpt-5.4"
+model_provider = "proxy"
+
+[model_providers.proxy]
+name = "proxy"
+base_url = "https://proxy.example.com/v1"
+wire_api = "responses"
+requires_openai_auth = true
+```
+
+在这种受管投影下，`OPENAI_API_KEY` 预期写在 `auth.json`，而不是通过 `config.toml` 里的 `env_key` 暴露。
 
 ### 6.4 最小暴露的 shell 环境策略
 

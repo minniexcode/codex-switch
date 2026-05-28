@@ -1,14 +1,14 @@
 # @minniexcode/codex-switch
 
-`@minniexcode/codex-switch` 是一个本地优先的 CLI，用来安全地管理和切换 Codex 的 provider 与 profile 配置。
+`@minniexcode/codex-switch` 是一个本地优先的 CLI，用来安全地管理和切换 Codex 的 provider 与 model-provider 路由配置。
 
 它把 `codex-switch` 自己的工具状态和目标 Codex runtime 明确分开，让 provider 管理、备份与 runtime 投影有一套受管流程，而不是依赖手工改文件。
 
 ## 版本定位
 
-当前包版本：`0.1.0`
+当前包版本：`0.1.1`
 
-这是第一条稳定发布线。这个版本的重点不是继续扩命令面，而是把主工作流、帮助文案、实际行为和发布文档统一到同一套契约上。
+这是当前稳定发布线。`0.1.1` 的目标是把公开文档和 Codex `0.134.0+` 的 runtime contract 对齐，也就是用顶层 `model` 与 `model_provider` 选择活动路由。
 
 ## 安装
 
@@ -34,7 +34,7 @@ Direct provider 主路径：
 
 ```bash
 codexs init
-codexs add my-provider --profile my-provider --api-key sk-xxx
+codexs add my-provider --model gpt-5.5 --base-url https://gateway.example.com/v1 --api-key sk-xxx
 codexs switch my-provider
 codexs status
 codexs doctor
@@ -45,7 +45,7 @@ GitHub Copilot 主路径：
 ```bash
 codexs init
 codexs login copilot
-codexs add copilot-main --copilot --profile copilot-main
+codexs add copilot-main --copilot --model gpt-4.1
 codexs switch copilot-main
 codexs status
 codexs doctor
@@ -56,8 +56,42 @@ codexs doctor
 - `init` 负责初始化 `codex-switch` 的 tool home 与受管状态文件。
 - `login copilot` 负责上游 Copilot onboarding 和登录可用性检查。
 - `add --copilot` 不负责替你登录，它假设上游 Copilot 已经 ready。
+- `switch` 会把选中的 provider 投影到目标 Codex runtime 的顶层 `model` 与 `model_provider`。
 - `status` 是切换后的主读取命令。
 - `doctor` 是主诊断命令，用于解释问题和下一步修复动作。
+
+## Runtime 路由模型
+
+对于 Codex `0.134.0+`，活动 runtime route 由 `config.toml` 顶层的 `model` 和 `model_provider` 决定。
+
+`codex-switch` 按这套 contract 管理运行态：
+
+- 顶层 `model` 表示当前活动模型
+- 顶层 `model_provider` 表示当前活动 provider route
+- 受管的 `[model_providers.<id>]` 是 runtime provider 定义投影
+- `--profile` 只作为受管 `model_provider` id 的 alias，不再是主 runtime selector
+
+Direct provider 的运行态投影会写入：
+
+- 顶层 `model`
+- 顶层 `model_provider`
+- `[model_providers.<id>]`
+- 带 `OPENAI_API_KEY` 的 `auth.json`
+
+受管 direct provider 投影不会再保留 `env_key` 或 `env_key_instructions`。`switch`、`add` 和 `edit` 会在写入活动路由前清理这些旧字段。
+
+对受管的 OpenAI-compatible route，投影后的 provider 结构固定为：
+
+```toml
+model = "gpt-5.5"
+model_provider = "my-provider"
+
+[model_providers.my-provider]
+name = "my-provider"
+base_url = "https://gateway.example.com/v1"
+wire_api = "responses"
+requires_openai_auth = true
+```
 
 ## Advanced Adopt 路径
 
@@ -82,11 +116,11 @@ codexs current
 codexs status
 codexs config show [profile]
 codexs config list-profiles
-codexs add <provider> --profile <name> --api-key <key>
-codexs add <provider> --copilot --profile <name>
+codexs add <provider> --model <model> --api-key <key> [--base-url <url>]
+codexs add <provider> --copilot --model <model>
 codexs edit <provider>
 codexs switch <provider>
-codexs remove <provider> [--force] [--switch-to <profile>]
+codexs remove <provider> [--force] [--switch-to <provider>]
 codexs import <file>
 codexs export <file> [--force]
 codexs bridge start [provider]
@@ -171,8 +205,8 @@ npm pack --dry-run
 - [详细 CLI 文档](./docs/cli-usage.md)
 - [产品概览](./docs/codex-switch-product-overview.md)
 - [测试说明](./docs/Tests/testing.md)
-- [Release PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
-- [Release Gate PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
+- [Release PRD 0.1.1](./docs/PRD/codex-switch-prd-v0.1.1.md)
+- [Release Design 0.1.1](./docs/Design/codex-switch-v0.1.1-design.md)
 
 ## License
 
