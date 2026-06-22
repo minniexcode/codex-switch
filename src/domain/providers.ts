@@ -17,6 +17,7 @@ export type CopilotModelProviderProjection = {
   name: "copilot";
   requiresOpenAiAuth: true;
   wireApi: "responses";
+  streamIdleTimeoutMs: 300000;
 };
 
 export type DirectModelProviderProjection = {
@@ -228,6 +229,7 @@ export function buildCopilotModelProviderProjection(runtime: ProviderRuntime): C
     name: "copilot",
     requiresOpenAiAuth: true,
     wireApi: "responses",
+    streamIdleTimeoutMs: 300000,
   };
 }
 

@@ -66,17 +66,26 @@ type ResponsesRequestPayload = {
   model?: unknown;
   input?: unknown;
   stream?: unknown;
+  timeout_ms?: unknown;
+  timeoutMs?: unknown;
 };
 
 type NormalizedResponsesRequest = {
   model: string;
   messages: Array<{ role: string; content: string }>;
   stream: boolean;
+  timeoutMs?: number;
 };
 
 type BridgeRequestContext = {
   apiKey: string;
-  executeChatCompletion: (payload: Record<string, unknown>) => Promise<ChatCompletionResponse>;
+  executeChatCompletion: (payload: Record<string, unknown>, options?: BridgeExecutionOptions) => Promise<ChatCompletionResponse>;
+};
+
+type BridgeExecutionOptions = {
+  onTextDelta?: (delta: string) => void;
+  onTextDone?: (text: string) => void;
+  timeoutMs?: number;
 };
 
 /**
@@ -170,14 +179,24 @@ export async function probeCopilotBridgeRuntime(
 /**
  * Starts or reuses a Copilot bridge worker, then verifies its health before returning.
  */
-export async function ensureCopilotBridge(providerName: string, provider: ProviderRecord, runtimeDir?: string): Promise<CopilotBridgeStartResult> {
-  return startOrReuseCopilotBridge(providerName, provider, runtimeDir);
+export async function ensureCopilotBridge(
+  providerName: string,
+  provider: ProviderRecord,
+  runtimeDir?: string,
+  runtimesDir?: string
+): Promise<CopilotBridgeStartResult> {
+  return startOrReuseCopilotBridge(providerName, provider, runtimeDir, runtimesDir);
 }
 
 /**
  * Starts or reuses a Copilot bridge worker and reports the chosen port.
  */
-export async function startOrReuseCopilotBridge(providerName: string, provider: ProviderRecord, runtimeDir?: string): Promise<CopilotBridgeStartResult> {
+export async function startOrReuseCopilotBridge(
+  providerName: string,
+  provider: ProviderRecord,
+  runtimeDir?: string,
+  runtimesDir?: string
+): Promise<CopilotBridgeStartResult> {
   if (!isCopilotBridgeProvider(provider)) {
     throw cliError("RUNTIME_PROVIDER_INVALID", "Provider is not backed by a Copilot bridge runtime.", {
       provider: providerName,
@@ -243,6 +262,8 @@ export async function startOrReuseCopilotBridge(providerName: string, provider: 
         CODEX_SWITCH_BRIDGE_PORT: String(selectedPort),
         CODEX_SWITCH_BRIDGE_API_KEY: provider.apiKey,
         CODEX_SWITCH_BRIDGE_BASE_URL: selectedBaseUrl,
+        CODEX_SWITCH_RUNTIME_DIR: runtimeDir ?? "",
+        CODEX_SWITCH_RUNTIMES_DIR: runtimesDir ?? "",
       },
     });
   } catch (error: unknown) {
@@ -325,20 +346,36 @@ export function createCopilotBridgeRequestHandler(context: BridgeRequestContext)
       }
       if (method === "POST" && url === "/v1/chat/completions") {
         const body = await readJsonBody(request);
+        const timeoutMs = parseBridgeRequestTimeoutMs(body, "/v1/chat/completions");
         const stream = Boolean(body.stream);
-        const payload = await context.executeChatCompletion(body);
         if (stream) {
           response.writeHead(200, {
             "content-type": "text/event-stream",
             "cache-control": "no-cache",
             connection: "keep-alive",
           });
-          response.write(`data: ${JSON.stringify(payload)}\n\n`);
+          const heartbeat = startSseHeartbeat(response);
+          const payload = await context.executeChatCompletion(body, {
+            timeoutMs,
+            onTextDelta: (delta) => {
+              response.write(`data: ${JSON.stringify({
+                choices: [
+                  {
+                    index: 0,
+                    delta: { content: delta },
+                    finish_reason: null,
+                  },
+                ],
+              })}\n\n`);
+            },
+          });
+          clearInterval(heartbeat);
           response.write("data: [DONE]\n\n");
           response.end();
           return;
         }
 
+        const payload = await context.executeChatCompletion(body, { timeoutMs });
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify(payload));
         return;
@@ -347,20 +384,43 @@ export function createCopilotBridgeRequestHandler(context: BridgeRequestContext)
       if (method === "POST" && url === "/v1/responses") {
         const body = await readJsonBody(request);
         const normalized = normalizeResponsesRequest(body);
-        const payload = await context.executeChatCompletion({
+        const chatPayload = {
           model: normalized.model,
           messages: normalized.messages,
-        });
+        };
         if (normalized.stream) {
           response.writeHead(200, {
             "content-type": "text/event-stream",
             "cache-control": "no-cache",
             connection: "keep-alive",
           });
-          writeResponsesStream(response, payload);
+          const responseId = `resp_${Date.now()}`;
+          const messageId = buildResponsesMessageId(responseId);
+          writeResponsesStreamStart(response, responseId, normalized.model, messageId);
+          const heartbeat = startSseHeartbeat(response);
+          let text = "";
+          const payload = await context.executeChatCompletion(chatPayload, {
+            timeoutMs: normalized.timeoutMs,
+            onTextDelta: (delta) => {
+              text += delta;
+              writeResponsesTextDelta(response, messageId, delta);
+            },
+            onTextDone: (doneText) => {
+              if (text.length === 0) {
+                text = doneText;
+                writeResponsesTextDelta(response, messageId, doneText);
+              }
+            },
+          });
+          clearInterval(heartbeat);
+          const outputText = text || getChatCompletionText(payload);
+          writeResponsesStreamDone(response, responseId, normalized.model, messageId, outputText);
           response.end();
           return;
         }
+        const payload = await context.executeChatCompletion(chatPayload, {
+          timeoutMs: normalized.timeoutMs,
+        });
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify(buildResponsesPayload(payload)));
         return;
@@ -374,9 +434,9 @@ export function createCopilotBridgeRequestHandler(context: BridgeRequestContext)
       response.writeHead(404, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { message: "Not found" } }));
     } catch (error: unknown) {
-      const statusCode = isCliError(error) && error.code === "BRIDGE_UNSUPPORTED_REQUEST" ? 400 : 500;
+      const statusCode = mapBridgeErrorStatus(error);
       response.writeHead(statusCode, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : String(error) } }));
+      response.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : String(error), code: isCliError(error) ? error.code : "BRIDGE_RUNTIME_FAILURE" } }));
     }
   };
 }
@@ -399,7 +459,22 @@ function normalizeResponsesRequest(body: Record<string, unknown>): NormalizedRes
     model: payload.model,
     messages,
     stream: payload.stream === true,
+    timeoutMs: parseBridgeRequestTimeoutMs(body, "/v1/responses"),
   };
+}
+
+/**
+ * Extracts one optional request timeout for bridge-backed completions.
+ */
+function parseBridgeRequestTimeoutMs(body: Record<string, unknown>, endpoint: string): number | undefined {
+  const timeoutMsValue = body.timeout_ms ?? body.timeoutMs;
+  if (timeoutMsValue === undefined) {
+    return undefined;
+  }
+  if (typeof timeoutMsValue !== "number" || !Number.isFinite(timeoutMsValue) || timeoutMsValue <= 0) {
+    throw cliError("BRIDGE_UNSUPPORTED_REQUEST", `Copilot bridge ${endpoint} timeout must be a positive number when provided.`);
+  }
+  return timeoutMsValue;
 }
 
 function normalizeResponsesInput(input: unknown): Array<{ role: string; content: string }> {
@@ -655,6 +730,123 @@ function writeResponsesStream(response: http.ServerResponse, payload: ChatComple
   });
 }
 
+function writeResponsesStreamStart(response: http.ServerResponse, responseId: string, model: string, messageId: string): void {
+  const createdAt = Math.floor(Date.now() / 1000);
+  const inProgressResponse = {
+    id: responseId,
+    object: "response",
+    created_at: createdAt,
+    model,
+    status: "in_progress",
+    output: [],
+    output_text: "",
+  };
+  writeSseEvent(response, "response.created", {
+    type: "response.created",
+    response: inProgressResponse,
+  });
+  writeSseEvent(response, "response.in_progress", {
+    type: "response.in_progress",
+    response: inProgressResponse,
+  });
+  writeSseEvent(response, "response.output_item.added", {
+    type: "response.output_item.added",
+    output_index: 0,
+    item: {
+      id: messageId,
+      type: "message",
+      status: "in_progress",
+      role: "assistant",
+      content: [],
+    },
+  });
+  writeSseEvent(response, "response.content_part.added", {
+    type: "response.content_part.added",
+    item_id: messageId,
+    output_index: 0,
+    content_index: 0,
+    part: {
+      type: "output_text",
+      text: "",
+      annotations: [],
+    },
+  });
+}
+
+function writeResponsesTextDelta(response: http.ServerResponse, messageId: string, delta: string): void {
+  if (delta.length === 0) {
+    return;
+  }
+  writeSseEvent(response, "response.output_text.delta", {
+    type: "response.output_text.delta",
+    item_id: messageId,
+    output_index: 0,
+    content_index: 0,
+    delta,
+  });
+}
+
+function writeResponsesStreamDone(response: http.ServerResponse, responseId: string, model: string, messageId: string, outputText: string): void {
+  const completedMessage = {
+    id: messageId,
+    type: "message",
+    status: "completed",
+    role: "assistant",
+    content: [
+      {
+        type: "output_text",
+        text: outputText,
+        annotations: [],
+      },
+    ],
+  };
+  writeSseEvent(response, "response.output_text.done", {
+    type: "response.output_text.done",
+    item_id: messageId,
+    output_index: 0,
+    content_index: 0,
+    text: outputText,
+  });
+  writeSseEvent(response, "response.content_part.done", {
+    type: "response.content_part.done",
+    item_id: messageId,
+    output_index: 0,
+    content_index: 0,
+    part: {
+      type: "output_text",
+      text: outputText,
+      annotations: [],
+    },
+  });
+  writeSseEvent(response, "response.output_item.done", {
+    type: "response.output_item.done",
+    output_index: 0,
+    item: completedMessage,
+  });
+  writeSseEvent(response, "response.completed", {
+    type: "response.completed",
+    response: {
+      id: responseId,
+      object: "response",
+      created_at: Math.floor(Date.now() / 1000),
+      model,
+      status: "completed",
+      output: [completedMessage],
+      output_text: outputText,
+    },
+  });
+}
+
+function startSseHeartbeat(response: http.ServerResponse): NodeJS.Timeout {
+  return setInterval(() => {
+    response.write(": keep-alive\n\n");
+  }, 15000);
+}
+
+function getChatCompletionText(payload: ChatCompletionResponse): string {
+  return payload.choices?.[0]?.message?.content ?? "";
+}
+
 /**
  * Formats and writes one server-sent event frame.
  */
@@ -677,6 +869,22 @@ function isCliError(error: unknown): error is { code: string } {
   return Boolean(error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string");
 }
 
+function mapBridgeErrorStatus(error: unknown): number {
+  if (!isCliError(error)) {
+    return 500;
+  }
+  if (error.code === "BRIDGE_UNSUPPORTED_REQUEST") {
+    return 400;
+  }
+  if (error.code === "COPILOT_AUTH_REQUIRED") {
+    return 401;
+  }
+  if (error.code === "BRIDGE_UPSTREAM_TIMEOUT") {
+    return 504;
+  }
+  return 500;
+}
+
 /**
  * Returns a stable build identifier for the compiled bridge worker bundle.
  */
@@ -697,7 +905,7 @@ export function startCopilotBridgeServer(args: {
   host: string;
   port: number;
   apiKey: string;
-  executeChatCompletion: (payload: Record<string, unknown>) => Promise<ChatCompletionResponse>;
+  executeChatCompletion: (payload: Record<string, unknown>, options?: BridgeExecutionOptions) => Promise<ChatCompletionResponse>;
 }): Promise<http.Server> {
   return new Promise((resolve, reject) => {
     const server = http.createServer(

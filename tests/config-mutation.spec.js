@@ -48,6 +48,7 @@ function testCreatesCompleteDirectProviderRuntimeSection() {
   assert.match(nextConfig, /name = "packycode"/);
   assert.match(nextConfig, /requires_openai_auth = true/);
   assert.match(nextConfig, /wire_api = "responses"/);
+  assert.doesNotMatch(nextConfig, /stream_idle_timeout_ms/);
 }
 
 function testUpdatesExistingDirectProviderBaseUrlWithoutDroppingManagedFields() {
@@ -97,6 +98,7 @@ function testPreservesCopilotProjection() {
     name: "copilot",
     requiresOpenAiAuth: true,
     wireApi: "responses",
+    streamIdleTimeoutMs: 300000,
   });
 }
 

@@ -4,11 +4,13 @@
 
 这份文档介绍当前活跃产品事实源下的 `codex-switch` 产品定位。
 
-当前 release contract 以这些文档为准：
+当前稳定 release contract 以这些文档为准：
 
 - [`cli-usage.md`](./cli-usage.md)
+- [`PRD/codex-switch-prd-v0.1.0.md`](./PRD/codex-switch-prd-v0.1.0.md)
 - [`PRD/codex-switch-prd-v0.1.1.md`](./PRD/codex-switch-prd-v0.1.1.md)
-- [`Design/codex-switch-v0.1.1-design.md`](./Design/codex-switch-v0.1.1-design.md)
+- [`PRD/codex-switch-prd-v0.1.2.md`](./PRD/codex-switch-prd-v0.1.2.md)（规划中）
+- [`Design/codex-switch-v0.1.2-design.md`](./Design/codex-switch-v0.1.2-design.md)（规划中）
 
 ## 产品概述
 
@@ -85,3 +87,5 @@ codexs migrate
 - `migrate` 何时才该使用
 - `status` / `doctor` 如何帮助定位下一步
 - 当前运行态是用顶层 `model` 与 `model_provider` 选择活动路由
+
+`0.1.2` 是规划中的 Copilot runtime 修复线，不是当前已发布包版本。当前实现边界是：Copilot 路径要求 Node.js `>=20`，受管安装默认固定到 `@github/copilot-sdk@1.0.2`，运行时会额外拒绝过旧版本和 prerelease 版本，并在真正创建 client 或 session 时验证 SDK API shape；本地 bridge 仍然只是面向 simple text-oriented turns 的 experimental bridge。Direct provider 路径继续支持 Node.js `>=18`。

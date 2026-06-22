@@ -1,6 +1,6 @@
 # codex-switch CLI Usage
 
-This document describes the current CLI contract for `@minniexcode/codex-switch` at version `0.1.1`.
+This document describes the current `0.1.2` CLI contract for `@minniexcode/codex-switch`, including the Copilot runtime repair boundary.
 
 Executable command name:
 
@@ -10,7 +10,7 @@ codexs
 
 ## 1. Version Context
 
-The current package version in this repository is `0.1.1`.
+The current package version in this repository is `0.1.2`.
 
 This release line targets Codex `0.134.0+`. The public contract assumes runtime routing is selected by top-level `model` plus `model_provider`, while legacy `profile` and `[profiles.*]` remain inspect-and-adopt inputs instead of the recommended runtime path.
 
@@ -51,6 +51,8 @@ Important notes:
 - The current implementation prefers the bundled Copilot CLI from the managed runtime and falls back to `PATH` when needed.
 - `login copilot` succeeds only after auth readiness is rechecked.
 - `add --copilot` does not install or log in to Copilot for you.
+- Copilot runtime paths require Node.js `>=20`; direct providers remain supported on Node.js `>=18`.
+- The Copilot bridge is experimental and targets simple text-oriented turns through the local OpenAI-compatible bridge.
 
 ## 3. Runtime Route Contract
 
@@ -72,6 +74,10 @@ Managed provider projection fixes these fields for OpenAI-compatible direct rout
 
 - `wire_api = "responses"`
 - `requires_openai_auth = true`
+
+Copilot bridge projection also writes:
+
+- `stream_idle_timeout_ms = 300000`
 
 Compatibility notes:
 
@@ -278,5 +284,7 @@ codexs rollback [backup-id]
 - [Chinese README](../README.CN.md)
 - [AI README](../README.AI.md)
 - [Product Overview](./codex-switch-product-overview.md)
-- [Release PRD 0.1.1](./PRD/codex-switch-prd-v0.1.1.md)
-- [Release Design 0.1.1](./Design/codex-switch-v0.1.1-design.md)
+- [PRD 0.1.0](./PRD/codex-switch-prd-v0.1.0.md)
+- [PRD 0.1.1](./PRD/codex-switch-prd-v0.1.1.md)
+- [PRD 0.1.2](./PRD/codex-switch-prd-v0.1.2.md)
+- [Design 0.1.2](./Design/codex-switch-v0.1.2-design.md)

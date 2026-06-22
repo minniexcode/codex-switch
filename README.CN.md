@@ -6,9 +6,9 @@
 
 ## 版本定位
 
-当前包版本：`0.1.1`
+当前包版本：`0.1.2`
 
-这是当前稳定发布线。`0.1.1` 的目标是把公开文档和 Codex `0.134.0+` 的 runtime contract 对齐，也就是用顶层 `model` 与 `model_provider` 选择活动路由。
+这是当前稳定发布线。`0.1.2` 是 Copilot runtime 修复版本，包含受管 SDK 固定版本与 Copilot 专用的 `stream_idle_timeout_ms = 300000` 投影，用于避免长 prompt 的空闲超时。
 
 ## 安装
 
@@ -205,8 +205,10 @@ npm pack --dry-run
 - [详细 CLI 文档](./docs/cli-usage.md)
 - [产品概览](./docs/codex-switch-product-overview.md)
 - [测试说明](./docs/Tests/testing.md)
-- [Release PRD 0.1.1](./docs/PRD/codex-switch-prd-v0.1.1.md)
-- [Release Design 0.1.1](./docs/Design/codex-switch-v0.1.1-design.md)
+- [PRD 0.1.1](./docs/PRD/codex-switch-prd-v0.1.1.md)
+- [Design 0.1.1](./docs/Design/codex-switch-v0.1.1-design.md)
+- [PRD 0.1.2](./docs/PRD/codex-switch-prd-v0.1.2.md)
+- [Design 0.1.2](./docs/Design/codex-switch-v0.1.2-design.md)
 
 ## License
 

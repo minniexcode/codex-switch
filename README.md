@@ -8,9 +8,9 @@ Chinese version: [README.CN.md](./README.CN.md)
 
 ## Version
 
-Current package version: `0.1.1`
+Current package version: `0.1.2`
 
-This is the current stable release line. `0.1.1` aligns the public docs with the Codex `0.134.0+` runtime contract where top-level `model` and `model_provider` select the active route.
+This is the current stable documentation line. `0.1.2` is the Copilot runtime repair release, including the managed SDK pin and the Copilot-only `stream_idle_timeout_ms = 300000` projection used to prevent long prompt idle timeouts.
 
 ## Install
 
@@ -58,6 +58,7 @@ Notes:
 - `init` prepares the `codex-switch` tool home and managed state.
 - `login copilot` handles upstream Copilot onboarding and auth readiness.
 - `add --copilot` does not perform login for you; it assumes Copilot login is already ready.
+- Copilot support is an experimental local bridge. The managed installer defaults to `@github/copilot-sdk@1.0.2`, Copilot runtime paths require Node.js `>=20`, and runtime checks separately reject older or prerelease SDK installs while validating API shape when the client or session is used.
 - `switch` projects the selected provider into the target Codex runtime as top-level `model` plus `model_provider`.
 - `status` is the main read command after switching.
 - `doctor` is the main repair-oriented diagnostic command.
@@ -93,6 +94,12 @@ name = "my-provider"
 base_url = "https://gateway.example.com/v1"
 wire_api = "responses"
 requires_openai_auth = true
+```
+
+Managed Copilot projection additionally writes:
+
+```toml
+stream_idle_timeout_ms = 300000
 ```
 
 ## Advanced Adopt Workflow
@@ -207,8 +214,10 @@ npm pack --dry-run
 - [Detailed CLI Usage](./docs/cli-usage.md)
 - [Testing Guide](./docs/Tests/testing.md)
 - [Product Overview](./docs/codex-switch-product-overview.md)
-- [Release PRD 0.1.1](./docs/PRD/codex-switch-prd-v0.1.1.md)
-- [Release Design 0.1.1](./docs/Design/codex-switch-v0.1.1-design.md)
+- [PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
+- [PRD 0.1.1](./docs/PRD/codex-switch-prd-v0.1.1.md)
+- [PRD 0.1.2](./docs/PRD/codex-switch-prd-v0.1.2.md)
+- [Design 0.1.2](./docs/Design/codex-switch-v0.1.2-design.md)
 
 ## License
 

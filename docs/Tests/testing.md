@@ -1,6 +1,6 @@
 # codex-switch Testing Guide
 
-This guide records the release gate for `0.1.0`.
+This guide records the current `0.1.x` verification contract for release and review work.
 
 ## Required checks
 

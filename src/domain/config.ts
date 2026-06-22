@@ -15,6 +15,7 @@ export type ManagedModelProviderFields = {
   name: string;
   requiresOpenAiAuth: boolean;
   wireApi: string;
+  streamIdleTimeoutMs?: number;
 };
 
 export type ManagedProfileView = {
@@ -89,6 +90,8 @@ export type ModelProviderSectionRef = {
   requiresOpenAiAuth: boolean | null;
   wireApiValueRange: ValueRange | null;
   wireApi: string | null;
+  streamIdleTimeoutMsValueRange: ValueRange | null;
+  streamIdleTimeoutMs: number | null;
   envKeyValueRange: ValueRange | null;
   envKey: string | null;
   envKeyInstructionsValueRange: ValueRange | null;
@@ -225,6 +228,8 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
         requiresOpenAiAuth: null,
         wireApiValueRange: null,
         wireApi: null,
+        streamIdleTimeoutMsValueRange: null,
+        streamIdleTimeoutMs: null,
         envKeyValueRange: null,
         envKey: null,
         envKeyInstructionsValueRange: null,
@@ -308,6 +313,15 @@ export function parseStructuredConfig(configContent: string): ParsedConfigDocume
       if (wireApiMatch) {
         currentModelProviderSection.wireApi = wireApiMatch.value;
         currentModelProviderSection.wireApiValueRange = toAbsoluteRange(line.start, wireApiMatch.valueStart, wireApiMatch.valueEnd);
+      }
+      const streamIdleTimeoutMsMatch = matchNumberKeyValueLine(line.content, "stream_idle_timeout_ms");
+      if (streamIdleTimeoutMsMatch) {
+        currentModelProviderSection.streamIdleTimeoutMs = streamIdleTimeoutMsMatch.value;
+        currentModelProviderSection.streamIdleTimeoutMsValueRange = toAbsoluteRange(
+          line.start,
+          streamIdleTimeoutMsMatch.valueStart,
+          streamIdleTimeoutMsMatch.valueEnd
+        );
       }
       const envKeyMatch = matchKeyValueLine(line.content, "env_key");
       if (envKeyMatch) {
@@ -662,7 +676,10 @@ export function planConfigMutation(
           `base_url = ${JSON.stringify(normalizedFields.baseUrl)}${document.lineEnding}` +
           `name = ${JSON.stringify(normalizedFields.name)}${document.lineEnding}` +
           `requires_openai_auth = ${String(normalizedFields.requiresOpenAiAuth)}${document.lineEnding}` +
-          `wire_api = ${JSON.stringify(normalizedFields.wireApi)}${document.lineEnding}`,
+          `wire_api = ${JSON.stringify(normalizedFields.wireApi)}${document.lineEnding}` +
+          (normalizedFields.streamIdleTimeoutMs !== undefined
+            ? `stream_idle_timeout_ms = ${String(normalizedFields.streamIdleTimeoutMs)}${document.lineEnding}`
+            : ""),
       });
       createdModelProviderSections.push(profileName);
       continue;
@@ -798,6 +815,7 @@ function planModelProviderFieldMutation(
   const nameText = JSON.stringify(fields.name);
   const requiresOpenAiAuthText = String(fields.requiresOpenAiAuth);
   const wireApiText = JSON.stringify(fields.wireApi);
+  const streamIdleTimeoutMsText = fields.streamIdleTimeoutMs !== undefined ? String(fields.streamIdleTimeoutMs) : null;
   const inserts: string[] = [];
 
   if (section.baseUrlValueRange) {
@@ -858,6 +876,23 @@ function planModelProviderFieldMutation(
   } else {
     inserts.push(`wire_api = ${wireApiText}`);
     updated = true;
+  }
+
+  if (streamIdleTimeoutMsText !== null) {
+    if (section.streamIdleTimeoutMsValueRange) {
+      if (section.streamIdleTimeoutMs !== fields.streamIdleTimeoutMs) {
+        operations.push({
+          kind: "replace-range",
+          start: section.streamIdleTimeoutMsValueRange.start,
+          end: section.streamIdleTimeoutMsValueRange.end,
+          text: streamIdleTimeoutMsText,
+        });
+        updated = true;
+      }
+    } else {
+      inserts.push(`stream_idle_timeout_ms = ${streamIdleTimeoutMsText}`);
+      updated = true;
+    }
   }
 
   if (inserts.length > 0) {
@@ -929,6 +964,7 @@ function normalizeManagedModelProviderFields(
     name: fields.name?.trim() || profileName,
     requiresOpenAiAuth: fields.requiresOpenAiAuth ?? true,
     wireApi: fields.wireApi?.trim() || "responses",
+    streamIdleTimeoutMs: fields.streamIdleTimeoutMs,
   };
 }
 
@@ -992,6 +1028,23 @@ function matchBooleanKeyValueLine(line: string, key: string): { value: boolean; 
     value,
     valueStart,
     valueEnd,
+  };
+}
+
+function matchNumberKeyValueLine(line: string, key: string): { value: number; valueStart: number; valueEnd: number } | null {
+  const match = line.match(new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(\\d+)\\s*(#.*)?$`));
+  if (!match || match.index === undefined) {
+    return null;
+  }
+
+  const valueStart = line.indexOf(match[1], match.index);
+  if (valueStart === -1) {
+    return null;
+  }
+  return {
+    value: Number(match[1]),
+    valueStart,
+    valueEnd: valueStart + match[1].length,
   };
 }
 

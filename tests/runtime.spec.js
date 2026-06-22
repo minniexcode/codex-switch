@@ -98,7 +98,7 @@ function withFakeCopilotSdk(options, run) {
   fs.mkdirSync(packageDir, { recursive: true });
   fs.writeFileSync(
     path.join(packageDir, "package.json"),
-    `${JSON.stringify({ name: "@github/copilot-sdk", version: "0.0.0-test" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`,
     "utf8"
   );
   const moduleSource = options.failAuth
@@ -106,10 +106,8 @@ function withFakeCopilotSdk(options, run) {
         '"use strict";',
         "function approveAll() { return true; }",
         "class CopilotClient {",
-        "  async createSession(options) {",
-        '    if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
-        '    throw new Error("auth required");',
-        "  }",
+        "  async getAuthStatus() { return { authenticated: false }; }",
+        "  async createSession() { throw new Error('auth required'); }",
         "  async stop() {}",
         "}",
         "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
@@ -119,12 +117,15 @@ function withFakeCopilotSdk(options, run) {
         '"use strict";',
         "function approveAll() { return true; }",
         "class CopilotClient {",
+        "  async getAuthStatus() { return { authenticated: true }; }",
         "  async createSession(options) {",
         '    if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
         "    return {",
         "      async sendAndWait(args) {",
-        '        return { data: { content: `mock:${String(args.model ?? "")}:${String(args.prompt ?? "")}` } };',
+        '        return { data: { content: `mock:${String(args.prompt ?? "")}` } };',
         "      },",
+        "      async abort() {},",
+        "      async disconnect() {},",
         "    };",
         "  }",
         "  async stop() {}",
@@ -406,7 +407,7 @@ module.exports = {
             },
           });
           assert.equal(completion.choices[0].message.role, "assistant");
-          assert.match(completion.choices[0].message.content, /^mock:gpt-test:/);
+          assert.match(completion.choices[0].message.content, /^mock:user: hello/);
         });
       },
     },
@@ -420,7 +421,7 @@ module.exports = {
         fs.mkdirSync(packageDir, { recursive: true });
         fs.writeFileSync(
           path.join(packageDir, "package.json"),
-          `${JSON.stringify({ name: "@github/copilot-sdk", version: "0.0.0-test" }, null, 2)}\n`,
+          `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`,
           "utf8"
         );
         fs.writeFileSync(
@@ -432,13 +433,16 @@ module.exports = {
             "  constructor() {",
             "    this.connection = { ok: true };",
             "  }",
+            "  async getAuthStatus() { return { authenticated: true }; }",
             "  async createSession(options) {",
             '    if (!this || !this.connection) throw new Error("missing bound connection");',
             '    if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
             "    return {",
             "      async sendAndWait(args) {",
-            '        return { data: { content: `bound:${String(args.model ?? "")}:${String(args.prompt ?? "")}` } };',
+            '        return { data: { content: `bound:${String(args.prompt ?? "")}` } };',
             "      },",
+            "      async abort() {},",
+            "      async disconnect() {},",
             "    };",
             "  }",
             "  async stop() {}",
@@ -459,7 +463,7 @@ module.exports = {
               messages: [{ role: "user", content: "hello" }],
             },
           });
-          assert.match(completion.choices[0].message.content, /^bound:gpt-test:/);
+          assert.match(completion.choices[0].message.content, /^bound:user: hello/);
         } finally {
           if (previousRuntimeDir === undefined) {
             delete process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR;
@@ -492,6 +496,7 @@ module.exports = {
             [
               '"use strict";',
               "class CopilotClient {",
+              "  async getAuthStatus() { return { authenticated: true }; }",
               "  async createSession() {",
               '    throw new Error("onPermissionRequest is required");',
               "  }",
@@ -505,7 +510,7 @@ module.exports = {
 
           await assert.rejects(
             () => readCopilotAuthState(),
-            (error) => error && error.code === "COPILOT_SDK_UNSUPPORTED"
+            (error) => error && error.code === "COPILOT_SDK_API_UNSUPPORTED"
           );
         });
       },

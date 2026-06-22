@@ -83,27 +83,30 @@ function withFakeCopilotSdk(run) {
   const previousStateDir = process.env.CODEX_SWITCH_RUNTIME_STATE_DIR;
   fs.mkdirSync(packageDir, { recursive: true });
   fs.mkdirSync(stateDir, { recursive: true });
-  fs.writeFileSync(path.join(packageDir, "package.json"), `${JSON.stringify({ name: "@github/copilot-sdk", version: "0.0.0-test" }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(path.join(packageDir, "package.json"), `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`, "utf8");
   fs.writeFileSync(
     path.join(packageDir, "index.js"),
     [
       '"use strict";',
       "",
       "function approveAll() { return true; }",
-      "async function createSession(options) {",
-      '  if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
-      "  return {",
-      "    async sendAndWait(args) {",
-      '      return { content: `mock:${String(args.model ?? "")}:${String(args.prompt ?? "")}` };',
-      "    },",
-      "  };",
+      "class CopilotClient {",
+      "  async getAuthStatus() { return { authenticated: true }; }",
+      "  async createSession(options) {",
+      '    if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
+      "    return {",
+      "      async sendAndWait(args) {",
+      '        return { content: `mock:${String(args.prompt ?? "")}` };',
+      "      },",
+      "      async abort() {},",
+      "      async disconnect() {},",
+      "    };",
+      "  }",
+      "  async start() {}",
+      "  async stop() {}",
       "}",
       "",
-      "module.exports = {",
-      "  createSession,",
-      "  approveAll,",
-      "  default: { createSession, approveAll },",
-      "};",
+      "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
       "",
     ].join("\n"),
     "utf8"
@@ -166,23 +169,22 @@ function withBrokenCopilotAuth(run) {
   const previousStateDir = process.env.CODEX_SWITCH_RUNTIME_STATE_DIR;
   fs.mkdirSync(packageDir, { recursive: true });
   fs.mkdirSync(stateDir, { recursive: true });
-  fs.writeFileSync(path.join(packageDir, "package.json"), `${JSON.stringify({ name: "@github/copilot-sdk", version: "0.0.0-test" }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(path.join(packageDir, "package.json"), `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`, "utf8");
   fs.writeFileSync(
     path.join(packageDir, "index.js"),
     [
       '"use strict";',
       "",
       "function approveAll() { return true; }",
-      "async function createSession(options) {",
-      '  if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
-      '  throw new Error("login required");',
+      "class CopilotClient {",
+      "  async getAuthStatus() { return { authenticated: false }; }",
+      "  async createSession() {",
+      '    throw new Error("login required");',
+      "  }",
+      "  async stop() {}",
       "}",
       "",
-      "module.exports = {",
-      "  createSession,",
-      "  approveAll,",
-      "  default: { createSession, approveAll },",
-      "};",
+      "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
       "",
     ].join("\n"),
     "utf8"

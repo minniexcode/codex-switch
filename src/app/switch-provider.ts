@@ -7,7 +7,7 @@ import {
 import { writeOpenAiApiKeyAuth } from "../storage/auth-repo";
 import { readProvidersFile, writeProvidersFile } from "../storage/providers-repo";
 import { ensureCopilotBridge, stopCopilotBridge } from "../runtime/copilot-bridge";
-import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import { assertCopilotNodeRuntimeSupported, probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { readCopilotAuthState } from "../runtime/copilot-adapter";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
@@ -51,6 +51,7 @@ export async function switchProvider(args: {
     });
   }
   if (isCopilotBridgeProvider(provider)) {
+    assertCopilotNodeRuntimeSupported();
     const installStatus = probeCopilotSdkInstall(args.runtimesDir);
     if (!installStatus.installed) {
       throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed.", {
@@ -59,7 +60,7 @@ export async function switchProvider(args: {
       });
     }
     await readCopilotAuthState(args.runtimesDir);
-    const bridge = await ensureCopilotBridge(args.providerName, provider, args.runtimeDir);
+    const bridge = await ensureCopilotBridge(args.providerName, provider, args.runtimeDir, args.runtimesDir);
     const nextProvider = bridge.portChanged
       ? cleanProviderRecord({
           ...provider,

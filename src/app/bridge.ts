@@ -18,7 +18,7 @@ import { canPrompt } from "../interaction/interactive";
 import { CliPromptRuntime } from "../interaction/prompt";
 import { ensureCopilotBridge, probeCopilotBridgeRuntime, stopCopilotBridge } from "../runtime/copilot-bridge";
 import { readCopilotBridgeState } from "../storage/runtime-state-repo";
-import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import { assertCopilotNodeRuntimeSupported, probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { readCopilotAuthState } from "../runtime/copilot-adapter";
 import { CommandResult } from "./types";
 
@@ -54,7 +54,7 @@ export async function startBridge(args: {
   });
 
   await requireBridgeRuntimeReadiness(args.runtimesDir);
-  const bridge = await ensureCopilotBridge(target.providerName, target.provider, args.runtimeDir);
+  const bridge = await ensureCopilotBridge(target.providerName, target.provider, args.runtimeDir, args.runtimesDir);
   const nextProvider = bridge.portChanged ? rewriteBridgeProviderPort(target.provider, bridge.port) : target.provider;
 
   if (bridge.portChanged) {
@@ -319,6 +319,7 @@ async function promptForCopilotBridgeSelection(
  * Verifies that the local Copilot bridge prerequisites are available before startup.
  */
 async function requireBridgeRuntimeReadiness(runtimesDir: string): Promise<void> {
+  assertCopilotNodeRuntimeSupported();
   const installStatus = probeCopilotSdkInstall(runtimesDir);
   if (!installStatus.installed) {
     throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed.", {

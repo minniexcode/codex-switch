@@ -49,7 +49,7 @@ function makeTempCodexHome() {
   fs.mkdirSync(codexDir, { recursive: true });
   fs.writeFileSync(
     path.join(toolHome, "codex-switch.json"),
-    `${JSON.stringify({ version: "0.1.1", defaultCodexDir: codexDir }, null, 2)}\n`,
+      `${JSON.stringify({ version: "0.1.2", defaultCodexDir: codexDir }, null, 2)}\n`,
     "utf8"
   );
   return { root, toolHome, codexDir };
@@ -80,7 +80,7 @@ async function testHelpAndVersion() {
   assert.match(help, /Deprecated entry: setup still exists only to point callers to init or migrate\./);
 
   const version = (await runCli(["--version"])).trim();
-  assert.equal(version, "0.1.1");
+  assert.equal(version, "0.1.2");
 }
 
 function testReleaseDocsExist() {

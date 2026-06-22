@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { createRequire } from "node:module";
 import { cliError } from "../domain/errors";
 import { getCopilotRuntimeInstallDir, probeCopilotSdkInstall } from "./copilot-installer";
 
@@ -20,5 +21,7 @@ export async function loadCopilotSdk(runtimesDir?: string): Promise<unknown> {
       packageName: status.packageName,
     });
   }
-  return import(getCopilotSdkEntrypoint(runtimesDir));
+  const runtimePackageJson = path.join(status.installDir, "package.json");
+  const runtimeRequire = createRequire(runtimePackageJson);
+  return runtimeRequire("@github/copilot-sdk");
 }

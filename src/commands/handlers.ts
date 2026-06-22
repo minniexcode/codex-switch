@@ -39,7 +39,7 @@ import {
 import { CliPromptRuntime, createPromptRuntime } from "../interaction/prompt";
 import { readCopilotAuthState } from "../runtime/copilot-adapter";
 import { checkCopilotCliAvailable, runCopilotLogin } from "../runtime/copilot-cli";
-import { installCopilotSdk as installCopilotSdkRuntime, probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import { assertCopilotNodeRuntimeSupported, installCopilotSdk as installCopilotSdkRuntime, probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { findCodexDirCandidates, readStructuredConfig } from "../storage/config-repo";
 import { createCodexPaths } from "../storage/codex-paths";
 import { mergeProviders, readProvidersFileIfExists } from "../storage/providers-repo";
@@ -141,6 +141,7 @@ export async function handleRegisteredCommand(
           supportedUpstreams: ["copilot", "github-copilot"],
         });
       }
+      assertCopilotNodeRuntimeSupported();
       const installed = probeCopilotSdkInstall(paths.runtimesDir);
       let installedNow = false;
       if (!installed.installed) {

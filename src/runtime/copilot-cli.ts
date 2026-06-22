@@ -4,6 +4,12 @@ import { spawnSync } from "node:child_process";
 import { getCopilotRuntimeInstallDir } from "./copilot-installer";
 
 type SpawnLike = typeof spawnSync;
+export type CopilotCliInvocation = {
+  command: string;
+  args: string[];
+  source: "bundled" | "path";
+  shell: boolean;
+};
 
 let spawnImplementation: SpawnLike = spawnSync;
 
@@ -54,6 +60,13 @@ export function checkCopilotCliAvailable(runtimesDir?: string): {
 }
 
 /**
+ * Resolves the Copilot CLI invocation used by SDK clients and command probes.
+ */
+export function resolveCopilotCliInvocation(args: string[] = [], runtimesDir?: string): CopilotCliInvocation {
+  return getCopilotInvocation(args, runtimesDir);
+}
+
+/**
  * Launches the official `copilot login` flow in the current terminal.
  */
 export function runCopilotLogin(options?: { host?: string; runtimesDir?: string }): void {
@@ -81,7 +94,7 @@ export function runCopilotLogin(options?: { host?: string; runtimesDir?: string 
 function getCopilotInvocation(
   args: string[],
   runtimesDir?: string
-): { command: string; args: string[]; source: "bundled" | "path"; shell: boolean } {
+): CopilotCliInvocation {
   const bundledCommand = resolveBundledCopilotCommand(runtimesDir);
   const executable = bundledCommand ?? "copilot";
   if (process.platform === "win32") {

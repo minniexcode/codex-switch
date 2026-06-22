@@ -6,7 +6,8 @@ import { resolveCodexSwitchHome } from "../storage/codex-paths";
 import { OptionalRuntimeInstallStatus } from "./types";
 
 const COPILOT_SDK_PACKAGE = "@github/copilot-sdk";
-const COPILOT_SDK_VERSION = "latest";
+const COPILOT_SDK_VERSION = "1.0.2";
+const COPILOT_MIN_NODE_MAJOR = 20;
 
 type SpawnLike = typeof spawnSync;
 
@@ -43,6 +44,51 @@ export function getCopilotRuntimeInstallDir(runtimesDir?: string): string {
  */
 export function getCopilotSdkPackageName(): string {
   return COPILOT_SDK_PACKAGE;
+}
+
+/**
+ * Returns the supported Copilot SDK package version installed by this release.
+ */
+export function getSupportedCopilotSdkVersion(): string {
+  return COPILOT_SDK_VERSION;
+}
+
+/**
+ * Returns whether the active Node.js runtime can run the Copilot SDK path.
+ */
+export function getCopilotNodeRuntimeStatus(version = process.versions.node): { ok: true; version: string } | { ok: false; version: string; required: string } {
+  const major = Number(version.split(".")[0]);
+  if (Number.isInteger(major) && major >= COPILOT_MIN_NODE_MAJOR) {
+    return { ok: true, version };
+  }
+  return {
+    ok: false,
+    version,
+    required: `>=${String(COPILOT_MIN_NODE_MAJOR)}`,
+  };
+}
+
+/**
+ * Fails early when a command path requires the Copilot SDK runtime under Node.js <20.
+ */
+export function assertCopilotNodeRuntimeSupported(version = process.versions.node): void {
+  const status = getCopilotNodeRuntimeStatus(version);
+  if (!status.ok) {
+    throw cliError("COPILOT_RUNTIME_NODE_UNSUPPORTED", "Copilot runtime support requires Node.js >=20. Direct providers continue to support Node.js >=18.", {
+      nodeVersion: status.version,
+      requiredNode: status.required,
+    });
+  }
+}
+
+/**
+ * Returns whether an installed Copilot SDK version is supported by this release.
+ */
+export function isSupportedCopilotSdkVersion(version: string | null | undefined): boolean {
+  if (!version || version.includes("-")) {
+    return false;
+  }
+  return compareSemver(version, COPILOT_SDK_VERSION) >= 0;
 }
 
 /**
@@ -131,6 +177,19 @@ function resolveNpmInstallCommand(): { command: string; args: string[] } {
     command: process.platform === "win32" ? "npm.cmd" : "npm",
     args: installArgs,
   };
+}
+
+function compareSemver(left: string, right: string): number {
+  const leftParts = left.split(".").map((part) => Number(part));
+  const rightParts = right.split(".").map((part) => Number(part));
+  for (let index = 0; index < 3; index += 1) {
+    const leftPart = Number.isFinite(leftParts[index]) ? leftParts[index] : 0;
+    const rightPart = Number.isFinite(rightParts[index]) ? rightParts[index] : 0;
+    if (leftPart !== rightPart) {
+      return leftPart > rightPart ? 1 : -1;
+    }
+  }
+  return 0;
 }
 
 /**

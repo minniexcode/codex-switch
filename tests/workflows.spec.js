@@ -117,7 +117,7 @@ function withFakeCopilotSdk(run) {
   fs.mkdirSync(stateDir, { recursive: true });
   fs.writeFileSync(
     path.join(packageDir, "package.json"),
-    `${JSON.stringify({ name: "@github/copilot-sdk", version: "0.0.0-test" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`,
     "utf8"
   );
   fs.writeFileSync(
@@ -126,20 +126,23 @@ function withFakeCopilotSdk(run) {
       '"use strict";',
       "",
       "function approveAll() { return true; }",
-      "async function createSession(options) {",
-      '  if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
-      "  return {",
-      "    async sendAndWait(args) {",
-      '      return { content: `mock:${String(args.model ?? "")}:${String(args.prompt ?? "")}` };',
-      "    },",
-      "  };",
+      "class CopilotClient {",
+      "  async getAuthStatus() { return { authenticated: true }; }",
+      "  async createSession(options) {",
+      '    if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
+      "    return {",
+      "      async sendAndWait(args) {",
+      '        return { content: `mock:${String(args.prompt ?? "")}` };',
+      "      },",
+      "      async abort() {},",
+      "      async disconnect() {},",
+      "    };",
+      "  }",
+      "  async start() {}",
+      "  async stop() {}",
       "}",
       "",
-      "module.exports = {",
-      "  createSession,",
-      "  approveAll,",
-      "  default: { createSession, approveAll },",
-      "};",
+      "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
       "",
     ].join("\n"),
     "utf8"
@@ -208,7 +211,7 @@ function installFakeCopilotSdkAt(runtimesDir) {
   fs.mkdirSync(packageDir, { recursive: true });
   fs.writeFileSync(
     path.join(packageDir, "package.json"),
-    `${JSON.stringify({ name: "@github/copilot-sdk", version: "0.0.0-test" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`,
     "utf8"
   );
   fs.writeFileSync(
@@ -217,20 +220,23 @@ function installFakeCopilotSdkAt(runtimesDir) {
       '"use strict";',
       "",
       "function approveAll() { return true; }",
-      "async function createSession(options) {",
-      '  if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
-      "  return {",
-      "    async sendAndWait(args) {",
-      '      return { content: `mock:${String(args.model ?? "")}:${String(args.prompt ?? "")}` };',
-      "    },",
-      "  };",
+      "class CopilotClient {",
+      "  async getAuthStatus() { return { authenticated: true }; }",
+      "  async createSession(options) {",
+      '    if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
+      "    return {",
+      "      async sendAndWait(args) {",
+      '        return { content: `mock:${String(args.prompt ?? "")}` };',
+      "      },",
+      "      async abort() {},",
+      "      async disconnect() {},",
+      "    };",
+      "  }",
+      "  async start() {}",
+      "  async stop() {}",
       "}",
       "",
-      "module.exports = {",
-      "  createSession,",
-      "  approveAll,",
-      "  default: { createSession, approveAll },",
-      "};",
+      "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
       "",
     ].join("\n"),
     "utf8"
@@ -1173,6 +1179,7 @@ module.exports = {
             assert.match(configAfterSwitch, /name = "copilot"/);
             assert.match(configAfterSwitch, /requires_openai_auth = true/);
             assert.match(configAfterSwitch, /wire_api = "responses"/);
+            assert.match(configAfterSwitch, /stream_idle_timeout_ms = 300000/);
 
             const completion = await requestJson({
               host: "127.0.0.1",
@@ -1189,7 +1196,7 @@ module.exports = {
               },
             });
             assert.equal(completion.statusCode, 200);
-            assert.match(completion.body.choices[0].message.content, /^mock:copilot-test:/);
+            assert.match(completion.body.choices[0].message.content, /^mock:user: hello/);
 
             const doctorResult = await withCodexAvailable(() =>
               runDoctor({

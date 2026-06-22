@@ -15,7 +15,7 @@ import {
 import { ensureDir } from "../storage/fs-utils";
 import { readProvidersFileIfExists, writeProvidersFile } from "../storage/providers-repo";
 import { readCopilotAuthState } from "../runtime/copilot-adapter";
-import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import { assertCopilotNodeRuntimeSupported, probeCopilotSdkInstall } from "../runtime/copilot-installer";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 
@@ -65,6 +65,7 @@ export async function addProvider(args: {
       }
     : undefined;
   if (args.copilot) {
+    assertCopilotNodeRuntimeSupported();
     const installStatus = probeCopilotSdkInstall(args.runtimesDir);
     if (!installStatus.installed) {
       throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed. Run `codexs login copilot` first.", {
