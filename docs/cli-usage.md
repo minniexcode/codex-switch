@@ -1,6 +1,6 @@
 # codex-switch CLI Usage
 
-This document describes the current `0.1.2` CLI contract for `@minniexcode/codex-switch`, including the Copilot runtime repair boundary.
+This document describes the current `0.1.3` CLI contract for `@minniexcode/codex-switch`, including the Copilot login hotfix boundary.
 
 Executable command name:
 
@@ -10,7 +10,7 @@ codexs
 
 ## 1. Version Context
 
-The current package version in this repository is `0.1.2`.
+The current package version in this repository is `0.1.3`.
 
 This release line targets Codex `0.134.0+`. The public contract assumes runtime routing is selected by top-level `model` plus `model_provider`, while legacy `profile` and `[profiles.*]` remain inspect-and-adopt inputs instead of the recommended runtime path.
 
@@ -287,4 +287,6 @@ codexs rollback [backup-id]
 - [PRD 0.1.0](./PRD/codex-switch-prd-v0.1.0.md)
 - [PRD 0.1.1](./PRD/codex-switch-prd-v0.1.1.md)
 - [PRD 0.1.2](./PRD/codex-switch-prd-v0.1.2.md)
+- [PRD 0.1.3](./PRD/codex-switch-prd-v0.1.3.md)
 - [Design 0.1.2](./Design/codex-switch-v0.1.2-design.md)
+- [Design 0.1.3](./Design/codex-switch-v0.1.3-design.md)

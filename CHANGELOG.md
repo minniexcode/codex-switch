@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.3 - Unreleased
+
+Copilot login hotfix release.
+
+### Changed
+
+- Replaced the legacy `CopilotClient` constructor fields with the official `RuntimeConnection.forStdio({ path })` SDK connection path.
+- Resolved the managed SDK runtime against `@github/copilot/npm-loader.js` instead of relying on implicit bundled package lookup.
+- Kept human `copilot --help` and `copilot login` invocations on the bundled `.bin` shim while separating SDK runtime resolution from terminal CLI resolution.
+- Added a focused `0.1.3` regression spec covering the Copilot login compatibility fix.
+
 ## 0.1.2 - Unreleased
 
 Copilot runtime repair release.

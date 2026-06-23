@@ -8,9 +8,9 @@ Chinese version: [README.CN.md](./README.CN.md)
 
 ## Version
 
-Current package version: `0.1.2`
+Current package version: `0.1.3`
 
-This is the current stable documentation line. `0.1.2` is the Copilot runtime repair release, including the managed SDK pin and the Copilot-only `stream_idle_timeout_ms = 300000` projection used to prevent long prompt idle timeouts.
+This is the current stable documentation line. `0.1.3` is the Copilot login hotfix release, repairing the managed SDK client construction against the current official Copilot SDK runtime while keeping the `stream_idle_timeout_ms = 300000` Copilot projection unchanged.
 
 ## Install
 
@@ -217,7 +217,9 @@ npm pack --dry-run
 - [PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
 - [PRD 0.1.1](./docs/PRD/codex-switch-prd-v0.1.1.md)
 - [PRD 0.1.2](./docs/PRD/codex-switch-prd-v0.1.2.md)
+- [PRD 0.1.3](./docs/PRD/codex-switch-prd-v0.1.3.md)
 - [Design 0.1.2](./docs/Design/codex-switch-v0.1.2-design.md)
+- [Design 0.1.3](./docs/Design/codex-switch-v0.1.3-design.md)
 
 ## License
 

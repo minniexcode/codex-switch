@@ -11,6 +11,11 @@ export type CopilotCliInvocation = {
   shell: boolean;
 };
 
+export type CopilotSdkRuntimeInvocation = {
+  path: string;
+  args: string[];
+};
+
 let spawnImplementation: SpawnLike = spawnSync;
 
 /**
@@ -64,6 +69,21 @@ export function checkCopilotCliAvailable(runtimesDir?: string): {
  */
 export function resolveCopilotCliInvocation(args: string[] = [], runtimesDir?: string): CopilotCliInvocation {
   return getCopilotInvocation(args, runtimesDir);
+}
+
+/**
+ * Resolves the explicit runtime entrypoint required by the Copilot SDK.
+ */
+export function resolveCopilotSdkRuntimeInvocation(runtimesDir?: string): CopilotSdkRuntimeInvocation | null {
+  const installDir = getCopilotRuntimeInstallDir(runtimesDir);
+  const loaderPath = path.join(installDir, "node_modules", "@github", "copilot", "npm-loader.js");
+  if (!fs.existsSync(loaderPath)) {
+    return null;
+  }
+  return {
+    path: loaderPath,
+    args: [],
+  };
 }
 
 /**

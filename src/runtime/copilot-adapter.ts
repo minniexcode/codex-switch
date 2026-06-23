@@ -7,11 +7,14 @@ import {
   isSupportedCopilotSdkVersion,
   probeCopilotSdkInstall,
 } from "./copilot-installer";
-import { resolveCopilotCliInvocation } from "./copilot-cli";
+import { resolveCopilotSdkRuntimeInvocation } from "./copilot-cli";
 import { RuntimeAvailability } from "./types";
 
 type CopilotSdkModule = Record<string, unknown>;
 type CopilotPermissionRequest = Record<string, unknown>;
+type RuntimeConnectionFactoryLike = {
+  forStdio?: (options?: { path?: string; args?: readonly string[] }) => unknown;
+};
 type CopilotClientLike = Record<string, unknown> & {
   createSession?: (...args: unknown[]) => unknown;
   getAuthStatus?: () => unknown;
@@ -328,14 +331,23 @@ function createCopilotClient(sdk: CopilotSdkModule, runtimesDir?: string): Copil
   if (!ClientCtor) {
     throw cliError("COPILOT_SDK_API_UNSUPPORTED", "The installed Copilot SDK does not expose CopilotClient.", {});
   }
-  const invocation = resolveCopilotCliInvocation([], runtimesDir);
-  const clientOptions = {
-    copilotCommand: invocation.command,
-    command: invocation.command,
-    executable: invocation.command,
-  };
+  const runtimeConnection = resolveRuntimeConnectionFactory(sdk);
+  if (!runtimeConnection?.forStdio) {
+    throw cliError("COPILOT_SDK_API_UNSUPPORTED", "The installed Copilot SDK does not expose RuntimeConnection.forStdio().", {});
+  }
+  const runtimeInvocation = resolveCopilotSdkRuntimeInvocation(runtimesDir);
+  if (!runtimeInvocation) {
+    throw cliError("COPILOT_SDK_API_UNSUPPORTED", "The installed Copilot runtime is missing the @github/copilot npm loader required by the SDK.", {
+      expectedRuntimeFile: "node_modules/@github/copilot/npm-loader.js",
+    });
+  }
   try {
-    return new ClientCtor(clientOptions);
+    return new ClientCtor({
+      connection: runtimeConnection.forStdio({
+        path: runtimeInvocation.path,
+        args: runtimeInvocation.args,
+      }),
+    });
   } catch (error: unknown) {
     throw cliError("COPILOT_SDK_API_UNSUPPORTED", "The installed Copilot SDK CopilotClient could not be constructed.", {
       cause: error instanceof Error ? error.message : String(error),
@@ -506,6 +518,18 @@ function resolveConstructor(target: Record<string, unknown>, name: string): (new
   const nestedDefault = target.default as Record<string, unknown> | undefined;
   if (nestedDefault && typeof nestedDefault[name] === "function") {
     return nestedDefault[name] as new (...args: unknown[]) => CopilotClientLike;
+  }
+  return null;
+}
+
+function resolveRuntimeConnectionFactory(target: Record<string, unknown>): RuntimeConnectionFactoryLike | null {
+  const direct = target.RuntimeConnection;
+  if (direct && typeof direct === "object") {
+    return direct as RuntimeConnectionFactoryLike;
+  }
+  const nestedDefault = target.default as Record<string, unknown> | undefined;
+  if (nestedDefault) {
+    return resolveRuntimeConnectionFactory(nestedDefault);
   }
   return null;
 }

@@ -88,4 +88,4 @@ codexs migrate
 - `status` / `doctor` 如何帮助定位下一步
 - 当前运行态是用顶层 `model` 与 `model_provider` 选择活动路由
 
-`0.1.2` 是规划中的 Copilot runtime 修复线，不是当前已发布包版本。当前实现边界是：Copilot 路径要求 Node.js `>=20`，受管安装默认固定到 `@github/copilot-sdk@1.0.2`，运行时会额外拒绝过旧版本和 prerelease 版本，并在真正创建 client 或 session 时验证 SDK API shape；本地 bridge 仍然只是面向 simple text-oriented turns 的 experimental bridge。Direct provider 路径继续支持 Node.js `>=18`。
+`0.1.3` 是当前已发布的 Copilot login hotfix 线。当前实现边界是：Copilot 路径要求 Node.js `>=20`，受管安装默认固定到 `@github/copilot-sdk@1.0.2`，运行时会额外拒绝过旧版本和 prerelease 版本，并通过显式 `RuntimeConnection.forStdio({ path })` 把官方 SDK 连接到受管安装中的 Copilot runtime loader；本地 bridge 仍然只是面向 simple text-oriented turns 的 experimental bridge。Direct provider 路径继续支持 Node.js `>=18`。

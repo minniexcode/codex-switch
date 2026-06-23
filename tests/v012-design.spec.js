@@ -48,12 +48,22 @@ async function testProbeRuntimeRejectsPrereleaseAndAuthCheckDoesNotCreateSession
       moduleSource: [
         '"use strict";',
         "function approveAll() { return true; }",
+        "const RuntimeConnection = {",
+        "  forStdio(connectionOptions) {",
+        "    if (!connectionOptions || typeof connectionOptions.path !== \"string\") throw new Error(\"RuntimeConnection.forStdio requires path\");",
+        "    return { kind: \"stdio\", path: connectionOptions.path, args: Array.isArray(connectionOptions.args) ? connectionOptions.args : [] };",
+        "  },",
+        "};",
         "class CopilotClient {",
+        "  constructor(clientOptions) {",
+        "    if (!clientOptions || !clientOptions.connection || clientOptions.connection.kind !== \"stdio\") throw new Error(\"RuntimeConnection.forStdio connection is required\");",
+        "    this.connection = clientOptions.connection;",
+        "  }",
         "  async getAuthStatus() { return { authenticated: true }; }",
         "  async createSession() { throw new Error('createSession should not be called during auth check'); }",
         "  async stop() {}",
         "}",
-        "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
+        "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
         "",
       ].join("\n"),
     },
@@ -255,7 +265,17 @@ function buildSdkModuleSource(options) {
   return [
     '"use strict";',
     "function approveAll() { return true; }",
+    "const RuntimeConnection = {",
+    "  forStdio(connectionOptions) {",
+    "    if (!connectionOptions || typeof connectionOptions.path !== \"string\") throw new Error(\"RuntimeConnection.forStdio requires path\");",
+    "    return { kind: \"stdio\", path: connectionOptions.path, args: Array.isArray(connectionOptions.args) ? connectionOptions.args : [] };",
+    "  },",
+    "};",
     "class CopilotClient {",
+    "  constructor(clientOptions) {",
+    "    if (!clientOptions || !clientOptions.connection || clientOptions.connection.kind !== \"stdio\") throw new Error(\"RuntimeConnection.forStdio connection is required\");",
+    "    this.connection = clientOptions.connection;",
+    "  }",
     `  async getAuthStatus() { return { authenticated: ${options.authenticated ? "true" : "false"} }; }`,
     "  async createSession(options) {",
     '    if (!options || typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
@@ -265,7 +285,7 @@ function buildSdkModuleSource(options) {
     "  }",
     "  async stop() {}",
     "}",
-    "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
+    "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
     "",
   ].join("\n");
 }
@@ -273,10 +293,14 @@ function buildSdkModuleSource(options) {
 async function withFakeCopilotSdk(options, run) {
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-switch-v012-sdk-"));
   const packageDir = path.join(runtimeDir, "node_modules", "@github", "copilot-sdk");
+  const copilotDir = path.join(runtimeDir, "node_modules", "@github", "copilot");
   const previousRuntimeDir = process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR;
   fs.mkdirSync(packageDir, { recursive: true });
+  fs.mkdirSync(copilotDir, { recursive: true });
   fs.writeFileSync(path.join(packageDir, "package.json"), `${JSON.stringify({ name: "@github/copilot-sdk", version: options.version }, null, 2)}\n`, "utf8");
   fs.writeFileSync(path.join(packageDir, "index.js"), options.moduleSource, "utf8");
+  fs.writeFileSync(path.join(copilotDir, "package.json"), `${JSON.stringify({ name: "@github/copilot", version: "1.0.64-3" }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(path.join(copilotDir, "npm-loader.js"), "#!/usr/bin/env node\n", "utf8");
   process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR = runtimeDir;
   try {
     await run(runtimeDir);
