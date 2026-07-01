@@ -44,7 +44,6 @@ export type ConfigConsistencyIssue =
       provider: string;
       providerBaseUrl: string;
       configBaseUrl: string;
-      providerType: "direct";
     }
   | {
       code: "DESTRUCTIVE_REMOVE_BLOCKED";
@@ -470,7 +469,6 @@ export function collectConfigConsistencyIssues(
           provider: providerName,
           providerBaseUrl: provider.baseUrl,
           configBaseUrl: activeProviderSection.baseUrl,
-          providerType: "direct",
         });
       }
     }

@@ -120,7 +120,7 @@ export const COMMANDS: CommandDefinition[] = [
     tokens: ["status"],
     handler: handleRegisteredCommand,
     group: "read",
-    summary: "Show tool-home, target-runtime, provider-path, and runtime-health status.",
+    summary: "Show target Codex directory, managed route, and health status.",
     usage: ["codexs status [--json] [--codex-dir <path>]"],
     details: [
       "Reports the target Codex directory, tool-home root, current model, current model_provider, and whether the live route is mapped.",
