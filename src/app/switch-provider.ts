@@ -42,7 +42,9 @@ export async function switchProvider(args: {
   }
 
   const document = readStructuredConfig(args.configPath);
-  const resolvedModel = provider.model ?? document.currentModel;
+  const providerProfileSection = document.profiles.find((entry) => entry.name === provider.profile) ?? null;
+  const providerModelProviderSection = document.modelProviders.find((entry) => entry.name === provider.profile) ?? null;
+  const resolvedModel = provider.model ?? providerProfileSection?.model ?? document.currentModel;
   if (!resolvedModel) {
     throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Provider "${args.providerName}" has no model to switch with.`, {
       provider: args.providerName,
@@ -110,6 +112,10 @@ export async function switchProvider(args: {
             profile: nextProvider.profile,
             portChanged: bridge.portChanged,
             bridgePort: bridge.port,
+            bridgeReused: bridge.reused,
+            bridgeReplaced: bridge.replaced,
+            bridgeRestartReason: bridge.restartReason ?? null,
+            bridgeLogPath: bridge.logPath,
           };
         },
       });
@@ -131,7 +137,8 @@ export async function switchProvider(args: {
     ],
     mutate: () => {
       const directBaseUrl = provider.baseUrl?.trim() ?? "";
-      if (!directBaseUrl) {
+      const resolvedBaseUrl = directBaseUrl || providerModelProviderSection?.baseUrl?.trim() || "";
+      if (!resolvedBaseUrl) {
         throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Provider "${args.providerName}" requires base_url before switching.`, {
           provider: args.providerName,
           modelProvider: provider.profile,
@@ -142,7 +149,7 @@ export async function switchProvider(args: {
         setCurrentModel: resolvedModel,
         setCurrentModelProvider: provider.profile,
         upsertModelProviders: {
-          [provider.profile]: buildDirectModelProviderProjection(provider.profile, directBaseUrl),
+          [provider.profile]: buildDirectModelProviderProjection(provider.profile, resolvedBaseUrl),
         },
         deleteLegacyProfile: true,
         deleteLegacyProfilesByName: [provider.profile],

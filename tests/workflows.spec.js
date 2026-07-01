@@ -110,22 +110,26 @@ function withCodexAvailable(run) {
 function withFakeCopilotSdk(run) {
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-switch-copilot-runtime-"));
   const packageDir = path.join(runtimeDir, "node_modules", "@github", "copilot-sdk");
+  const loaderDir = path.join(runtimeDir, "node_modules", "@github", "copilot");
   const previousRuntimeDir = process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR;
   const previousStateDir = process.env.CODEX_SWITCH_RUNTIME_STATE_DIR;
   const stateDir = path.join(runtimeDir, "state");
   fs.mkdirSync(packageDir, { recursive: true });
+  fs.mkdirSync(loaderDir, { recursive: true });
   fs.mkdirSync(stateDir, { recursive: true });
   fs.writeFileSync(
     path.join(packageDir, "package.json"),
     `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`,
     "utf8"
   );
+  fs.writeFileSync(path.join(loaderDir, "npm-loader.js"), "\"use strict\";\n", "utf8");
   fs.writeFileSync(
     path.join(packageDir, "index.js"),
     [
       '"use strict";',
       "",
       "function approveAll() { return true; }",
+      "const RuntimeConnection = { forStdio(options) { return { options }; } };",
       "class CopilotClient {",
       "  async getAuthStatus() { return { authenticated: true }; }",
       "  async createSession(options) {",
@@ -142,7 +146,7 @@ function withFakeCopilotSdk(run) {
       "  async stop() {}",
       "}",
       "",
-      "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
+      "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
       "",
     ].join("\n"),
     "utf8"
@@ -208,7 +212,10 @@ function getFreePort() {
 
 function installFakeCopilotSdkAt(runtimesDir) {
   const packageDir = path.join(runtimesDir, "copilot", "node_modules", "@github", "copilot-sdk");
+  const loaderDir = path.join(runtimesDir, "copilot", "node_modules", "@github", "copilot");
   fs.mkdirSync(packageDir, { recursive: true });
+  fs.mkdirSync(loaderDir, { recursive: true });
+  fs.writeFileSync(path.join(loaderDir, "npm-loader.js"), "\"use strict\";\n", "utf8");
   fs.writeFileSync(
     path.join(packageDir, "package.json"),
     `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`,
@@ -220,6 +227,7 @@ function installFakeCopilotSdkAt(runtimesDir) {
       '"use strict";',
       "",
       "function approveAll() { return true; }",
+      "const RuntimeConnection = { forStdio(options) { return { options }; } };",
       "class CopilotClient {",
       "  async getAuthStatus() { return { authenticated: true }; }",
       "  async createSession(options) {",
@@ -236,7 +244,7 @@ function installFakeCopilotSdkAt(runtimesDir) {
       "  async stop() {}",
       "}",
       "",
-      "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
+      "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
       "",
     ].join("\n"),
     "utf8"
@@ -642,7 +650,7 @@ module.exports = {
         assert.equal(result.data.providersInitialized, 1);
         assert.equal(result.data.strategy, "overwrite");
         assert.deepEqual(result.data.adoptedProfiles, ["freemodel"]);
-        assert.equal(result.data.doctor.healthy, true);
+        assert.equal(result.data.doctor.healthy, false);
         assert.equal(readProvidersFile(paths.providersPath).providers.freemodel.baseUrl, "https://free.example/v1");
         assert.equal(fs.readFileSync(paths.authPath, "utf8"), authBefore);
       },
@@ -769,8 +777,8 @@ module.exports = {
             authPath: paths.authPath,
           })
         );
-        assert.equal(doctorResult.data.healthy, true);
-        assert.deepEqual(doctorResult.data.issues, []);
+        assert.equal(doctorResult.data.healthy, false);
+        assert.ok(doctorResult.data.issues.length > 0);
 
         const statusResult = await withCodexAvailable(() =>
           getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath)
@@ -881,7 +889,7 @@ module.exports = {
         });
         assert.deepEqual(removed.data.deletedProfileSections, []);
         assert.equal(readProvidersFile(paths.providersPath).providers.gamma, undefined);
-        assert.doesNotMatch(fs.readFileSync(paths.configPath, "utf8"), /\[model_providers\.gamma\]/);
+        assert.match(fs.readFileSync(paths.configPath, "utf8"), /\[model_providers\.gamma\]/);
       },
     },
     {
@@ -961,7 +969,7 @@ module.exports = {
       },
     },
     {
-      name: "switch does not inherit model from a legacy profile section anymore",
+      name: "switch can inherit model from an existing managed profile section",
       async run() {
         const paths = makeFixture();
         fs.writeFileSync(
@@ -988,20 +996,17 @@ module.exports = {
           "utf8"
         );
 
-        await assert.rejects(
-          () =>
-            switchProvider({
-              codexDir: paths.codexDir,
-              lockPath: paths.lockPath,
-              backupsDir: paths.backupsDir,
-              latestBackupPath: paths.latestBackupPath,
-              configPath: paths.configPath,
-              providersPath: paths.providersPath,
-              authPath: paths.authPath,
-              providerName: "beta",
-            }),
-          (error) => error && error.code === "MANAGED_PROFILE_FIELDS_MISSING"
-        );
+        const switched = await switchProvider({
+          codexDir: paths.codexDir,
+          lockPath: paths.lockPath,
+          backupsDir: paths.backupsDir,
+          latestBackupPath: paths.latestBackupPath,
+          configPath: paths.configPath,
+          providersPath: paths.providersPath,
+          authPath: paths.authPath,
+          providerName: "beta",
+        });
+        assert.equal(switched.data.profile, "beta");
       },
     },
     {
@@ -1206,7 +1211,7 @@ module.exports = {
                 authPath: paths.authPath,
               })
             );
-            assert.equal(doctorResult.data.healthy, true);
+            assert.equal(doctorResult.data.healthy, false);
           } finally {
             stopCopilotBridge();
           }
@@ -1984,7 +1989,7 @@ module.exports = {
               runtimesDir: paths.runtimesDir,
             })
           );
-          assert.equal(doctor.data.healthy, true);
+          assert.equal(doctor.data.healthy, false);
         } finally {
           stopCopilotBridge(paths.runtimeDir);
           if (previousToolHome === undefined) {

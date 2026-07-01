@@ -90,6 +90,7 @@ export async function runDoctor(args: {
     issues.push({
       code: "BRIDGE_STATE_STALE",
       message: `Copilot bridge runtime state is unreadable: ${runtimeStateInspection.parseError ?? "unknown parse failure"}`,
+      logPath: runtimeState?.logPath ?? null,
     });
   }
 
@@ -187,6 +188,7 @@ export async function runDoctor(args: {
       }),
       liveState: drift,
       auth: authState,
+      copilotRuntimeState: runtimeState,
     },
     warnings: issues.length === 0 ? [] : [`doctor found ${issues.length} issue(s)`],
   };

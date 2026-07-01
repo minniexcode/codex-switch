@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.5 - 2026-07-01
+
+Copilot Bridge process-visibility and redaction patch release.
+
+### Changed
+
+- Added stable Copilot bridge runtime events for assistant intent, message deltas, reasoning deltas, tool lifecycle, permission lifecycle, user-input requests, exit-plan-mode requests, and session status signals.
+- Projected Copilot process/status events into Responses streaming commentary items and reasoning/progress updates into Responses reasoning summary events.
+- Forwarded adapter runtime events through the bridge worker while keeping Chat Completions streaming text-only.
+- Hardened unknown SDK event summaries with key-aware and value-aware redaction plus bounded truncation.
+- Added adapter-level regression coverage for raw SDK session event normalization.
+
+## 0.1.4 - Unreleased
+
+Bridge stability and observability release.
+
+### Changed
+
+- Reworked Copilot bridge reuse to retry transient health/auth probe failures before replacing an existing worker.
+- Added persisted bridge runtime logging, restart reason tracking, and surfaced `logPath` metadata across bridge, switch, status, and doctor flows.
+- Extended bridge runtime state and start results with persisted probe/restart metadata for diagnostics.
+- Restored the interactive provider picker `current` hint for legacy top-level `profile` state when `model_provider` is absent or unresolved.
+- Replaced the hard-coded test runner with deterministic `tests/*.spec.js` discovery and aligned the widened release gate with the current help, runtime, and workflow contracts.
+
 ## 0.1.3 - Unreleased
 
 Copilot login hotfix release.

@@ -6,8 +6,8 @@ This file summarizes the current operational contract for AI agents, automation 
 
 - Package: `@minniexcode/codex-switch`
 - CLI name: `codexs`
-- Current repository version: `0.1.1`
-- Version status: stable release line
+- Current repository version: `0.1.5`
+- Version status: development line
 - Runtime contract target: Codex `0.134.0+`
 
 ## Product Role
@@ -22,7 +22,7 @@ Direct provider workflow:
 
 ```bash
 codexs init
-codexs add <provider> --model <model> --api-key <key> [--base-url <url>]
+codexs add <provider> --profile <model-provider-id> --model <model> --api-key <key> [--base-url <url>]
 codexs switch <provider>
 codexs status
 codexs doctor
@@ -33,7 +33,7 @@ GitHub Copilot workflow:
 ```bash
 codexs init
 codexs login copilot
-codexs add <provider> --copilot --model <model>
+codexs add <provider> --copilot --profile <model-provider-id> --model <model>
 codexs switch <provider>
 codexs status
 codexs doctor
@@ -130,9 +130,11 @@ Important behavioral constraints:
 - `login copilot` requires a real TTY and does not support `--json`.
 - `login copilot` currently installs the local Copilot SDK when needed, tries the bundled runtime CLI first, falls back to `PATH` when necessary, and rechecks auth readiness before reporting success.
 - `add --copilot` assumes SDK install and upstream Copilot auth are already ready.
+- Non-interactive automation should pass `--profile` explicitly. In TTY mode, `add` and `edit` can prompt for missing required fields.
 - `migrate` remains interactive when provider adoption requires human input.
 - `status` is the main dual-path summary command.
 - `doctor` is the deeper repair-oriented diagnostic command.
+- The current `0.1.5` line focuses on Copilot Bridge process visibility, Responses commentary/reasoning stream events, defensive SDK-event normalization, and unknown-event redaction hardening rather than command-surface expansion.
 
 ## Safety Notes
 

@@ -20,18 +20,22 @@ const { stopCopilotBridge } = require("../dist/runtime/copilot-bridge.js");
 function withFakeCopilotSdk(run) {
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-switch-cli-e2e-copilot-"));
   const packageDir = path.join(runtimeDir, "node_modules", "@github", "copilot-sdk");
+  const loaderDir = path.join(runtimeDir, "node_modules", "@github", "copilot");
   const stateDir = path.join(runtimeDir, "state");
   const previousRuntimeDir = process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR;
   const previousStateDir = process.env.CODEX_SWITCH_RUNTIME_STATE_DIR;
   fs.mkdirSync(packageDir, { recursive: true });
+  fs.mkdirSync(loaderDir, { recursive: true });
   fs.mkdirSync(stateDir, { recursive: true });
   fs.writeFileSync(path.join(packageDir, "package.json"), `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(path.join(loaderDir, "npm-loader.js"), "\"use strict\";\n", "utf8");
   fs.writeFileSync(
     path.join(packageDir, "index.js"),
     [
       '"use strict";',
       "",
       "function approveAll() { return true; }",
+      "const RuntimeConnection = { forStdio(options) { return { options }; } };",
       "class CopilotClient {",
       "  async getAuthStatus() { return { authenticated: true }; }",
       "  async createSession(options) {",
@@ -48,7 +52,7 @@ function withFakeCopilotSdk(run) {
       "  async stop() {}",
       "}",
       "",
-      "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
+      "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
       "",
     ].join("\n"),
     "utf8"
@@ -130,7 +134,7 @@ module.exports = {
         const help = await runBuiltCli(["--help"]);
         assert.equal(help.status, 0);
         assert.match(help.stdout, /codexs init/);
-        assert.match(help.stdout, /codexs add packycode --profile packycode --api-key sk-xxx/);
+        assert.match(help.stdout, /codexs add packycode --profile packycode --model gpt-5 --api-key sk-xxx/);
         assert.match(help.stdout, /codexs status/);
         assert.match(help.stdout, /codexs doctor/);
         assert.match(help.stdout, /codexs migrate/);
@@ -437,7 +441,7 @@ module.exports = {
         });
         assert.equal(missingProfile.status, 1);
         assert.equal(missingProfile.payload.ok, false);
-        assert.equal(missingProfile.payload.error.code, "PROFILE_NOT_FOUND");
+        assert.equal(missingProfile.payload.error.code, "MANAGED_PROFILE_FIELDS_MISSING");
       },
     },
     {

@@ -78,18 +78,22 @@ function writeBridgeFixture(root, bridgePort) {
 function withFakeCopilotSdk(run) {
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-switch-commands-copilot-"));
   const packageDir = path.join(runtimeDir, "node_modules", "@github", "copilot-sdk");
+  const loaderDir = path.join(runtimeDir, "node_modules", "@github", "copilot");
   const stateDir = path.join(runtimeDir, "state");
   const previousRuntimeDir = process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR;
   const previousStateDir = process.env.CODEX_SWITCH_RUNTIME_STATE_DIR;
   fs.mkdirSync(packageDir, { recursive: true });
+  fs.mkdirSync(loaderDir, { recursive: true });
   fs.mkdirSync(stateDir, { recursive: true });
   fs.writeFileSync(path.join(packageDir, "package.json"), `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(path.join(loaderDir, "npm-loader.js"), "\"use strict\";\n", "utf8");
   fs.writeFileSync(
     path.join(packageDir, "index.js"),
     [
       '"use strict";',
       "",
       "function approveAll() { return true; }",
+      "const RuntimeConnection = { forStdio(options) { return { options }; } };",
       "class CopilotClient {",
       "  async getAuthStatus() { return { authenticated: true }; }",
       "  async createSession(options) {",
@@ -106,7 +110,7 @@ function withFakeCopilotSdk(run) {
       "  async stop() {}",
       "}",
       "",
-      "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
+      "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
       "",
     ].join("\n"),
     "utf8"
@@ -164,18 +168,22 @@ function writeBundledCopilotShim(runtimeDir) {
 function withBrokenCopilotAuth(run) {
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-switch-commands-copilot-auth-"));
   const packageDir = path.join(runtimeDir, "node_modules", "@github", "copilot-sdk");
+  const loaderDir = path.join(runtimeDir, "node_modules", "@github", "copilot");
   const stateDir = path.join(runtimeDir, "state");
   const previousRuntimeDir = process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR;
   const previousStateDir = process.env.CODEX_SWITCH_RUNTIME_STATE_DIR;
   fs.mkdirSync(packageDir, { recursive: true });
+  fs.mkdirSync(loaderDir, { recursive: true });
   fs.mkdirSync(stateDir, { recursive: true });
   fs.writeFileSync(path.join(packageDir, "package.json"), `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(path.join(loaderDir, "npm-loader.js"), "\"use strict\";\n", "utf8");
   fs.writeFileSync(
     path.join(packageDir, "index.js"),
     [
       '"use strict";',
       "",
       "function approveAll() { return true; }",
+      "const RuntimeConnection = { forStdio(options) { return { options }; } };",
       "class CopilotClient {",
       "  async getAuthStatus() { return { authenticated: false }; }",
       "  async createSession() {",
@@ -184,7 +192,7 @@ function withBrokenCopilotAuth(run) {
       "  async stop() {}",
       "}",
       "",
-      "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
+      "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
       "",
     ].join("\n"),
     "utf8"
@@ -321,7 +329,7 @@ module.exports = {
         const help = buildHelpText();
         assert.match(help, /Primary workflows:/);
         assert.match(help, /codexs init/);
-        assert.match(help, /codexs add packycode --profile packycode --api-key sk-xxx/);
+        assert.match(help, /codexs add packycode --profile packycode --model gpt-5 --api-key sk-xxx/);
         assert.match(help, /login copilot -> add --copilot -> switch -> status -> doctor/);
         assert.match(help, /codexs migrate/);
         assert.ok(help.indexOf("codexs switch packycode") < help.indexOf("codexs migrate"));
@@ -400,6 +408,8 @@ module.exports = {
           {
             name: "alpha",
             profile: "alpha",
+            modelProvider: "alpha",
+            model: null,
             providerType: "direct",
             isActive: false,
             note: null,

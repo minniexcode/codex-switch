@@ -1,6 +1,6 @@
 # codex-switch CLI Usage
 
-This document describes the current `0.1.3` CLI contract for `@minniexcode/codex-switch`, including the Copilot login hotfix boundary.
+This document describes the current `0.1.5` repository development-line CLI contract for `@minniexcode/codex-switch`, including the Copilot Bridge process-visibility boundary.
 
 Executable command name:
 
@@ -10,9 +10,9 @@ codexs
 
 ## 1. Version Context
 
-The current package version in this repository is `0.1.3`.
+The current package version in this repository is `0.1.5`.
 
-This release line targets Codex `0.134.0+`. The public contract assumes runtime routing is selected by top-level `model` plus `model_provider`, while legacy `profile` and `[profiles.*]` remain inspect-and-adopt inputs instead of the recommended runtime path.
+This release line targets Codex `0.134.0+`. The public contract assumes runtime routing is selected by top-level `model` plus `model_provider`, while legacy `profile` and `[profiles.*]` remain inspect-and-adopt inputs instead of the recommended runtime path. The current `0.1.5` development line adds Copilot Bridge process visibility, defensive SDK-event normalization, and unknown-event redaction hardening without expanding the provider command surface.
 
 ## 2. Primary Workflows
 
@@ -20,7 +20,7 @@ This release line targets Codex `0.134.0+`. The public contract assumes runtime 
 
 ```bash
 codexs init
-codexs add <provider> --model <model> --api-key <key> [--base-url <url>]
+codexs add <provider> --profile <model-provider-id> --model <model> --api-key <key> [--base-url <url>]
 codexs switch <provider>
 codexs status
 codexs doctor
@@ -30,6 +30,7 @@ Intent:
 
 - `init` prepares the `codex-switch` tool home.
 - `add` creates a managed provider record with a target model and provider route identity.
+- Non-interactive runs should pass `--profile` explicitly; TTY mode can prompt for missing required fields.
 - `switch` projects the selected provider into the target Codex runtime.
 - `status` summarizes tool-home, runtime, provider, and health state.
 - `doctor` gives deeper repair-oriented diagnostics.
@@ -39,7 +40,7 @@ Intent:
 ```bash
 codexs init
 codexs login copilot
-codexs add <provider> --copilot --model <model>
+codexs add <provider> --copilot --profile <model-provider-id> --model <model>
 codexs switch <provider>
 codexs status
 codexs doctor
@@ -51,6 +52,7 @@ Important notes:
 - The current implementation prefers the bundled Copilot CLI from the managed runtime and falls back to `PATH` when needed.
 - `login copilot` succeeds only after auth readiness is rechecked.
 - `add --copilot` does not install or log in to Copilot for you.
+- Non-interactive Copilot adds should also pass `--profile` explicitly; TTY mode can still collect missing required fields.
 - Copilot runtime paths require Node.js `>=20`; direct providers remain supported on Node.js `>=18`.
 - The Copilot bridge is experimental and targets simple text-oriented turns through the local OpenAI-compatible bridge.
 
@@ -82,6 +84,7 @@ Copilot bridge projection also writes:
 Compatibility notes:
 
 - `--profile` is accepted as an alias for the managed `model_provider` id.
+- automation should still pass `--profile` explicitly instead of relying on prompts
 - legacy top-level `profile` and `[profiles.*]` may still appear in existing runtime state
 - `migrate`, `config show`, `config list-profiles`, and `doctor` can still inspect those legacy structures
 - new managed runtime projection should be described as route-first, not profile-first
@@ -262,6 +265,7 @@ codexs rollback [backup-id]
 
 - Create or update managed provider records rather than editing runtime files directly.
 - Treat `--profile` only as an alias for the managed `model_provider` id.
+- Require explicit `--profile` in non-interactive usage; allow TTY prompts to fill it when omitted.
 - Clean old `env_key` and `env_key_instructions` fields from managed projection during subsequent switching.
 
 ### `migrate`
@@ -288,5 +292,7 @@ codexs rollback [backup-id]
 - [PRD 0.1.1](./PRD/codex-switch-prd-v0.1.1.md)
 - [PRD 0.1.2](./PRD/codex-switch-prd-v0.1.2.md)
 - [PRD 0.1.3](./PRD/codex-switch-prd-v0.1.3.md)
+- [PRD 0.1.5](./PRD/codex-switch-prd-v0.1.5.md)
 - [Design 0.1.2](./Design/codex-switch-v0.1.2-design.md)
 - [Design 0.1.3](./Design/codex-switch-v0.1.3-design.md)
+- [Design 0.1.5](./Design/codex-switch-v0.1.5-design.md)

@@ -47,3 +47,6 @@ temp/
 
 dev-codex
 
+# agents
+.omo
+.agents

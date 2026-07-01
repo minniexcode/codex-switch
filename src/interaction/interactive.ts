@@ -29,19 +29,27 @@ export async function promptForProviderSelection(
   message: string
 ): Promise<string> {
   const providers = readProvidersFile(providersPath);
-  const currentModelProvider = fs.existsSync(configPath) ? readStructuredConfig(configPath).currentModelProvider : null;
+  const document = fs.existsSync(configPath) ? readStructuredConfig(configPath) : null;
+  const currentModelProvider = document?.currentModelProvider ?? null;
   const liveState = inspectLiveStateDrift(currentModelProvider, providers);
+  const legacyCurrentProvider =
+    !liveState.providerResolvable &&
+    document?.legacyProfile &&
+    providers.providers[document.legacyProfile]
+      ? document.legacyProfile
+      : null;
   const choices = Object.entries(providers.providers)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([providerName, provider]) => {
       const providerType = isCopilotBridgeProvider(provider) ? "copilot" : "direct";
       const currentMarker = liveState.providerResolvable && liveState.mappedProvider === providerName ? " | current" : "";
+      const legacyMarker = !currentMarker && legacyCurrentProvider === providerName ? " | current" : "";
       const ambiguousMarker =
         !liveState.providerResolvable && liveState.mappedProviders.includes(providerName) ? " | current=ambiguous" : "";
       return {
         value: providerName,
         label: providerName,
-        hint: `profile=${provider.profile} | type=${providerType}${currentMarker}${ambiguousMarker}`,
+        hint: `profile=${provider.profile} | type=${providerType}${currentMarker}${legacyMarker}${ambiguousMarker}`,
       };
     });
 

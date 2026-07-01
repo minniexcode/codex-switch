@@ -8,6 +8,8 @@ const { startCopilotBridgeServer } = require("../dist/runtime/copilot-bridge.js"
 async function run() {
   await testChatCompletionTimeoutForwardingAndErrorMapping();
   await testResponsesTimeoutForwarding();
+  await testResponsesStreamingRuntimeEvents();
+  await testChatStreamingIgnoresRuntimeEvents();
 }
 
 async function testChatCompletionTimeoutForwardingAndErrorMapping() {
@@ -180,6 +182,127 @@ async function testResponsesTimeoutForwarding() {
   }
 }
 
+async function testResponsesStreamingRuntimeEvents() {
+  const port = await getFreePort();
+  const server = await startCopilotBridgeServer({
+    host: "127.0.0.1",
+    port,
+    apiKey: "bridge-secret",
+    executeChatCompletion: async (_payload, options) => {
+      options.onRuntimeEvent({ type: "assistant.intent", text: "Inspecting workspace" });
+      options.onRuntimeEvent({ type: "tool.execution_start", name: "shell", requestId: "req-1", summary: "Get-ChildItem" });
+      options.onRuntimeEvent({ type: "assistant.reasoning_delta", text: "Need a quick file check." });
+      options.onRuntimeEvent({ type: "permission.requested", kind: "shell", requestId: "perm-1", summary: "auto approval" });
+      options.onRuntimeEvent({ type: "user_input.requested", requestId: "input-1", summary: "Need clarification" });
+      options.onRuntimeEvent({ type: "exit_plan_mode.requested", requestId: "plan-1", summary: "Ready to implement" });
+      options.onRuntimeEvent({ type: "session.unknown", sdkType: "future.event", summary: "ignored" });
+      options.onRuntimeEvent({ type: "tool.execution_partial_result", name: "shell", requestId: "req-1", summary: "x".repeat(900) });
+      options.onTextDelta("final ");
+      options.onTextDelta("answer");
+      return {
+        id: "responses-streaming-runtime-test",
+        object: "chat.completion",
+        created: 3,
+        model: "gpt-5",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "final answer" },
+            finish_reason: "stop",
+          },
+        ],
+      };
+    },
+  });
+
+  try {
+    const stream = await requestRaw({
+      host: "127.0.0.1",
+      port,
+      method: "POST",
+      path: "/v1/responses",
+      headers: {
+        authorization: "Bearer bridge-secret",
+        "content-type": "application/json",
+      },
+      body: {
+        model: "gpt-5",
+        stream: true,
+        input: "hello",
+      },
+    });
+    assert.equal(stream.statusCode, 200);
+    const events = parseSse(stream.body);
+    assert.deepEqual(events.slice(0, 2).map((event) => event.event), ["response.created", "response.in_progress"]);
+    assert.ok(events.some((event) => event.event === "response.output_text.delta" && event.data.delta === "final "));
+    assert.ok(events.some((event) => event.event === "response.output_text.delta" && event.data.delta === "answer"));
+    assert.ok(events.some((event) => event.event === "response.completed"));
+
+    const commentary = events.filter((event) => event.event === "response.output_item.done" && event.data.item?.phase === "commentary");
+    assert.ok(commentary.some((event) => event.data.item.content[0].text.includes("Inspecting workspace")));
+    assert.ok(commentary.some((event) => event.data.item.content[0].text.includes("Copilot started tool shell")));
+    assert.ok(commentary.some((event) => event.data.item.content[0].text.includes("Copilot requested permission")));
+    assert.ok(commentary.some((event) => event.data.item.content[0].text.includes("Copilot requested user input")));
+    assert.ok(commentary.some((event) => event.data.item.content[0].text.includes("Copilot requested to exit plan mode")));
+    assert.ok(commentary.some((event) => event.data.item.content[0].text.includes("[truncated]")));
+    assert.equal(commentary.some((event) => event.data.item.content[0].text.includes("future.event")), false);
+
+    assert.ok(events.some((event) => event.event === "response.reasoning_summary_part.added"));
+    assert.ok(events.some((event) => event.event === "response.reasoning_summary_text.delta" && event.data.delta.includes("Need a quick file check")));
+  } finally {
+    await closeServer(server);
+  }
+}
+
+async function testChatStreamingIgnoresRuntimeEvents() {
+  const port = await getFreePort();
+  const server = await startCopilotBridgeServer({
+    host: "127.0.0.1",
+    port,
+    apiKey: "bridge-secret",
+    executeChatCompletion: async (_payload, options) => {
+      options.onRuntimeEvent?.({ type: "assistant.intent", text: "hidden from chat" });
+      options.onTextDelta?.("chat text");
+      return {
+        id: "chat-streaming-runtime-test",
+        object: "chat.completion",
+        created: 4,
+        model: "gpt-5",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "chat text" },
+            finish_reason: "stop",
+          },
+        ],
+      };
+    },
+  });
+
+  try {
+    const stream = await requestRaw({
+      host: "127.0.0.1",
+      port,
+      method: "POST",
+      path: "/v1/chat/completions",
+      headers: {
+        authorization: "Bearer bridge-secret",
+        "content-type": "application/json",
+      },
+      body: {
+        model: "gpt-5",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }],
+      },
+    });
+    assert.equal(stream.statusCode, 200);
+    assert.match(stream.body, /chat text/);
+    assert.doesNotMatch(stream.body, /hidden from chat/);
+    assert.doesNotMatch(stream.body, /response\.output_item\.done/);
+  } finally {
+    await closeServer(server);
+  }
+}
 function getFreePort() {
   return new Promise((resolve, reject) => {
     const server = http.createServer();
@@ -228,6 +351,50 @@ function requestJson(options) {
   });
 }
 
+function requestRaw(options) {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        host: options.host,
+        port: options.port,
+        method: options.method,
+        path: options.path,
+        headers: options.headers,
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => {
+          resolve({
+            statusCode: response.statusCode,
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
+        });
+      }
+    );
+    request.on("error", reject);
+    if (options.body !== undefined) {
+      request.write(JSON.stringify(options.body));
+    }
+    request.end();
+  });
+}
+
+function parseSse(raw) {
+  return raw
+    .split("\n\n")
+    .map((frame) => frame.trim())
+    .filter((frame) => frame.length > 0 && !frame.startsWith(":"))
+    .map((frame) => {
+      const lines = frame.split("\n");
+      const eventLine = lines.find((line) => line.startsWith("event: "));
+      const dataLine = lines.find((line) => line.startsWith("data: "));
+      return {
+        event: eventLine ? eventLine.slice("event: ".length) : "message",
+        data: dataLine ? JSON.parse(dataLine.slice("data: ".length)) : null,
+      };
+    });
+}
 function closeServer(server) {
   return new Promise((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));

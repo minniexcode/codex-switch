@@ -64,6 +64,9 @@ export async function getStatus(
         runtime: "copilot-bridge" as const,
         reason: "failed" as const,
         cause: runtimeStateInspection.parseError ?? "Failed to parse Copilot bridge runtime state.",
+        details: {
+          logPath: runtimeState?.logPath ?? null,
+        },
       }
     : bridgeProbeTarget
       ? await probeCopilotBridgeRuntime(bridgeProbeTarget, runtimeState, options?.runtimeDir)
@@ -73,7 +76,10 @@ export async function getStatus(
             runtime: "copilot-bridge" as const,
             reason: "failed" as const,
             cause: "Copilot bridge runtime state exists but no matching managed Copilot provider is active.",
-            details: runtimeState,
+            details: {
+              ...runtimeState,
+              logPath: runtimeState.logPath ?? null,
+            },
           }
         : null;
   const copilotAuth =
@@ -128,6 +134,8 @@ export async function getStatus(
         copilotAuth,
         copilotBridge,
         copilotRuntimeState: runtimeState,
+        copilotBridgeLogPath: runtimeState?.logPath ?? null,
+        copilotBridgeRestartReason: runtimeState?.lastRestartReason ?? null,
         liveState,
         auth: authState,
         configProfiles: configViews,

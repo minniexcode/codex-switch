@@ -94,28 +94,33 @@ function withFakeCopilotSdk(options, run) {
   const path = require("node:path");
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-switch-runtime-sdk-"));
   const packageDir = path.join(runtimeDir, "node_modules", "@github", "copilot-sdk");
+  const loaderDir = path.join(runtimeDir, "node_modules", "@github", "copilot");
   const previousRuntimeDir = process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR;
   fs.mkdirSync(packageDir, { recursive: true });
+  fs.mkdirSync(loaderDir, { recursive: true });
   fs.writeFileSync(
     path.join(packageDir, "package.json"),
     `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`,
     "utf8"
   );
+  fs.writeFileSync(path.join(loaderDir, "npm-loader.js"), "\"use strict\";\n", "utf8");
   const moduleSource = options.failAuth
     ? [
         '"use strict";',
         "function approveAll() { return true; }",
+        "const RuntimeConnection = { forStdio(options) { return { options }; } };",
         "class CopilotClient {",
         "  async getAuthStatus() { return { authenticated: false }; }",
         "  async createSession() { throw new Error('auth required'); }",
         "  async stop() {}",
         "}",
-        "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
+        "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
         "",
       ].join("\n")
     : [
         '"use strict";',
         "function approveAll() { return true; }",
+        "const RuntimeConnection = { forStdio(options) { return { options }; } };",
         "class CopilotClient {",
         "  async getAuthStatus() { return { authenticated: true }; }",
         "  async createSession(options) {",
@@ -130,7 +135,7 @@ function withFakeCopilotSdk(options, run) {
         "  }",
         "  async stop() {}",
         "}",
-        "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
+        "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
         "",
       ].join("\n");
   fs.writeFileSync(path.join(packageDir, "index.js"), moduleSource, "utf8");
@@ -417,18 +422,22 @@ module.exports = {
         const os = require("node:os");
         const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-switch-runtime-sdk-binding-"));
         const packageDir = path.join(runtimeDir, "node_modules", "@github", "copilot-sdk");
+        const loaderDir = path.join(runtimeDir, "node_modules", "@github", "copilot");
         const previousRuntimeDir = process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR;
         fs.mkdirSync(packageDir, { recursive: true });
+        fs.mkdirSync(loaderDir, { recursive: true });
         fs.writeFileSync(
           path.join(packageDir, "package.json"),
           `${JSON.stringify({ name: "@github/copilot-sdk", version: "1.0.2" }, null, 2)}\n`,
           "utf8"
         );
+        fs.writeFileSync(path.join(loaderDir, "npm-loader.js"), "\"use strict\";\n", "utf8");
         fs.writeFileSync(
           path.join(packageDir, "index.js"),
           [
             '"use strict";',
             "function approveAll() { return true; }",
+            "const RuntimeConnection = { forStdio(options) { return { options }; } };",
             "class CopilotClient {",
             "  constructor() {",
             "    this.connection = { ok: true };",
@@ -447,7 +456,7 @@ module.exports = {
             "  }",
             "  async stop() {}",
             "}",
-            "module.exports = { CopilotClient, approveAll, default: { CopilotClient, approveAll } };",
+            "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
             "",
           ].join("\n"),
           "utf8"
@@ -475,6 +484,87 @@ module.exports = {
       },
     },
     {
+      name: "Copilot adapter maps raw SDK session events into bridge runtime events",
+      async run() {
+        await withFakeCopilotSdk({ failAuth: false }, async () => {
+          const runtimeDir = process.env.CODEX_SWITCH_COPILOT_RUNTIME_DIR;
+          const packageDir = path.join(runtimeDir, "node_modules", "@github", "copilot-sdk");
+          fs.writeFileSync(
+            path.join(packageDir, "index.js"),
+            [
+              '"use strict";',
+              "function approveAll() { return true; }",
+              "const RuntimeConnection = { forStdio(options) { return { options }; } };",
+              "class CopilotClient {",
+              "  async getAuthStatus() { return { authenticated: true }; }",
+              "  async createSession(options) {",
+              '    if (!options || options.streaming !== true) throw new Error("streaming is required");',
+              '    if (typeof options.onPermissionRequest !== "function") throw new Error("onPermissionRequest is required");',
+              "    const listeners = new Map();",
+              "    return {",
+              "      on(event, listener) { listeners.set(event, listener); },",
+              "      off(event, listener) { if (listeners.get(event) === listener) listeners.delete(event); },",
+              "      async sendAndWait(args) {",
+              "        const emit = listeners.get('event');",
+              "        emit({ type: 'assistant.intent', text: 'Inspecting workspace' });",
+              "        emit({ type: 'assistant.message.delta', delta: 'streamed text' });",
+              "        emit({ type: 'assistant.reasoning.delta', summary: 'Need context' });",
+              "        emit({ type: 'tool.execution.start', toolName: 'shell', requestId: 'tool-1', summary: 'Get-ChildItem' });",
+              "        emit({ type: 'permission.requested', kind: 'shell', requestId: 'perm-1', summary: 'auto' });",
+              "        emit({ type: 'user.input.requested', requestId: 'input-1', summary: 'clarify' });",
+              "        emit({ type: 'exit.plan.mode.requested', requestId: 'plan-1', summary: 'ready' });",
+              "        emit({ type: 'future.event', apiKey: 'sk-secret123', token: 'plain-secret', payload: 'x'.repeat(900) });",
+              "        emit({ accessToken: 'plain-access-token', note: 'untagged object' });",
+              '        return { data: { content: `mock:${String(args.prompt ?? "")}` } };',
+              "      },",
+              "      async abort() {},",
+              "      async disconnect() {},",
+              "    };",
+              "  }",
+              "  async stop() {}",
+              "}",
+              "module.exports = { CopilotClient, RuntimeConnection, approveAll, default: { CopilotClient, RuntimeConnection, approveAll } };",
+              "",
+            ].join("\n"),
+            "utf8"
+          );
+
+          const streamEvents = [];
+          const completion = await sendCopilotChatCompletion({
+            provider: "copilot",
+            payload: {
+              model: "gpt-test",
+              messages: [{ role: "user", content: "hello" }],
+            },
+            onStreamEvent: (event) => streamEvents.push(event),
+          });
+
+          assert.match(completion.choices[0].message.content, /^mock:user: hello/);
+          assert.ok(streamEvents.some((event) => event.type === "delta" && event.delta === "streamed text"));
+
+          const runtimeEvents = streamEvents.filter((event) => event.type === "runtime").map((event) => event.event);
+          assert.ok(runtimeEvents.some((event) => event.type === "assistant.intent" && event.text === "Inspecting workspace"));
+          assert.ok(runtimeEvents.some((event) => event.type === "assistant.message_delta" && event.text === "streamed text"));
+          assert.ok(runtimeEvents.some((event) => event.type === "assistant.reasoning_delta" && event.text === "Need context"));
+          assert.ok(runtimeEvents.some((event) => event.type === "tool.execution_start" && event.name === "shell" && event.requestId === "tool-1"));
+          assert.ok(runtimeEvents.some((event) => event.type === "permission.requested" && event.kind === "shell" && event.requestId === "perm-1"));
+          assert.ok(runtimeEvents.some((event) => event.type === "user_input.requested" && event.requestId === "input-1"));
+          assert.ok(runtimeEvents.some((event) => event.type === "exit_plan_mode.requested" && event.requestId === "plan-1"));
+
+          const typedUnknown = runtimeEvents.find((event) => event.type === "session.unknown" && event.sdkType === "future.event");
+          assert.ok(typedUnknown);
+          assert.match(typedUnknown.summary, /\[redacted\]/);
+          assert.doesNotMatch(typedUnknown.summary, /sk-secret123|plain-secret/);
+          assert.match(typedUnknown.summary, /\[truncated\]/);
+
+          const untypedUnknown = runtimeEvents.find((event) => event.type === "session.unknown" && event.sdkType === "unknown");
+          assert.ok(untypedUnknown);
+          assert.match(untypedUnknown.summary, /\[redacted\]/);
+          assert.doesNotMatch(untypedUnknown.summary, /plain-access-token/);
+        });
+      },
+    },
+    {
       name: "Copilot adapter surfaces auth-required failures from the official SDK session path",
       async run() {
         await withFakeCopilotSdk({ failAuth: true }, async () => {
@@ -495,6 +585,7 @@ module.exports = {
             path.join(packageDir, "index.js"),
             [
               '"use strict";',
+              "const RuntimeConnection = { forStdio(options) { return { options }; } };",
               "class CopilotClient {",
               "  async getAuthStatus() { return { authenticated: true }; }",
               "  async createSession() {",
@@ -502,7 +593,7 @@ module.exports = {
               "  }",
               "  async stop() {}",
               "}",
-              "module.exports = { CopilotClient, default: { CopilotClient } };",
+              "module.exports = { CopilotClient, RuntimeConnection, default: { CopilotClient, RuntimeConnection } };",
               "",
             ].join("\n"),
             "utf8"
@@ -777,26 +868,28 @@ module.exports = {
         const blocker = net.createServer();
         await new Promise((resolve, reject) => blocker.listen(port, "127.0.0.1", (error) => (error ? reject(error) : resolve())));
         try {
-          await withRuntimeStateDir(async () => {
-            const bridge = await ensureCopilotBridge("copilot", {
-              profile: "copilot",
-              apiKey: "bridge-secret",
-              baseUrl: `http://127.0.0.1:${String(port)}/v1`,
-              runtime: {
-                kind: "copilot-sdk-bridge",
-                upstream: "github-copilot",
-                bridgeHost: "127.0.0.1",
-                bridgePort: port,
-                bridgePath: "/v1",
-                premiumRequests: true,
-                authSource: "official-sdk",
-                sdkInstallMode: "lazy",
-              },
+          await withFakeCopilotSdk({ failAuth: false }, async () => {
+            await withRuntimeStateDir(async () => {
+              const bridge = await ensureCopilotBridge("copilot", {
+                profile: "copilot",
+                apiKey: "bridge-secret",
+                baseUrl: `http://127.0.0.1:${String(port)}/v1`,
+                runtime: {
+                  kind: "copilot-sdk-bridge",
+                  upstream: "github-copilot",
+                  bridgeHost: "127.0.0.1",
+                  bridgePort: port,
+                  bridgePath: "/v1",
+                  premiumRequests: true,
+                  authSource: "official-sdk",
+                  sdkInstallMode: "lazy",
+                },
+              });
+              assert.equal(bridge.reused, false);
+              assert.equal(bridge.portChanged, true);
+              assert.match(String(bridge.port), /^\d{5}$/);
+              assert.notEqual(bridge.port, port);
             });
-            assert.equal(bridge.reused, false);
-            assert.equal(bridge.portChanged, true);
-            assert.match(String(bridge.port), /^\d{5}$/);
-            assert.notEqual(bridge.port, port);
           });
         } finally {
           await new Promise((resolve, reject) => blocker.close((error) => (error ? reject(error) : resolve())));
@@ -849,36 +942,38 @@ module.exports = {
         });
 
         try {
-          await withRuntimeStateDir(async () => {
-            writeCopilotBridgeState({
-              provider: "copilot-old",
-              pid: null,
-              host: "127.0.0.1",
-              port: previousPort,
-              baseUrl: `http://127.0.0.1:${String(previousPort)}/v1`,
-              startedAt: new Date().toISOString(),
-              lastHealthcheckAt: new Date().toISOString(),
-            });
+          await withFakeCopilotSdk({ failAuth: false }, async () => {
+            await withRuntimeStateDir(async () => {
+              writeCopilotBridgeState({
+                provider: "copilot-old",
+                pid: null,
+                host: "127.0.0.1",
+                port: previousPort,
+                baseUrl: `http://127.0.0.1:${String(previousPort)}/v1`,
+                startedAt: new Date().toISOString(),
+                lastHealthcheckAt: new Date().toISOString(),
+              });
 
-            const bridge = await ensureCopilotBridge("copilot-new", {
-              profile: "copilot-new",
-              apiKey: "bridge-secret",
-              baseUrl: `http://127.0.0.1:${String(nextPort)}/v1`,
-              runtime: {
-                kind: "copilot-sdk-bridge",
-                upstream: "github-copilot",
-                bridgeHost: "127.0.0.1",
-                bridgePort: nextPort,
-                bridgePath: "/v1",
-                premiumRequests: true,
-                authSource: "official-sdk",
-                sdkInstallMode: "lazy",
-              },
-            });
+              const bridge = await ensureCopilotBridge("copilot-new", {
+                profile: "copilot-new",
+                apiKey: "bridge-secret",
+                baseUrl: `http://127.0.0.1:${String(nextPort)}/v1`,
+                runtime: {
+                  kind: "copilot-sdk-bridge",
+                  upstream: "github-copilot",
+                  bridgeHost: "127.0.0.1",
+                  bridgePort: nextPort,
+                  bridgePath: "/v1",
+                  premiumRequests: true,
+                  authSource: "official-sdk",
+                  sdkInstallMode: "lazy",
+                },
+              });
 
-            assert.equal(bridge.reused, false);
-            assert.equal(bridge.replaced, true);
-            assert.equal(readCopilotBridgeState().provider, "copilot-new");
+              assert.equal(bridge.reused, false);
+              assert.equal(bridge.replaced, true);
+              assert.equal(readCopilotBridgeState().provider, "copilot-new");
+            });
           });
         } finally {
           await new Promise((resolve, reject) => previousServer.close((error) => (error ? reject(error) : resolve())));
@@ -900,47 +995,49 @@ module.exports = {
         });
 
         try {
-          await withRuntimeStateDir(async () => {
-            writeCopilotBridgeState({
-              provider: "copilot",
-              pid: null,
-              host: "127.0.0.1",
-              port: previousPort,
-              baseUrl: `http://127.0.0.1:${String(previousPort)}/v1`,
-              startedAt: new Date().toISOString(),
-              lastHealthcheckAt: new Date().toISOString(),
-            });
+          await withFakeCopilotSdk({ failAuth: false }, async () => {
+            await withRuntimeStateDir(async () => {
+              writeCopilotBridgeState({
+                provider: "copilot",
+                pid: null,
+                host: "127.0.0.1",
+                port: previousPort,
+                baseUrl: `http://127.0.0.1:${String(previousPort)}/v1`,
+                startedAt: new Date().toISOString(),
+                lastHealthcheckAt: new Date().toISOString(),
+              });
 
-            const bridge = await ensureCopilotBridge("copilot", {
-              profile: "copilot",
-              apiKey: "new-secret",
-              baseUrl: `http://127.0.0.1:${String(previousPort)}/v1`,
-              runtime: {
-                kind: "copilot-sdk-bridge",
-                upstream: "github-copilot",
-                bridgeHost: "127.0.0.1",
-                bridgePort: previousPort,
-                bridgePath: "/v1",
-                premiumRequests: true,
-                authSource: "official-sdk",
-                sdkInstallMode: "lazy",
-              },
-            });
+              const bridge = await ensureCopilotBridge("copilot", {
+                profile: "copilot",
+                apiKey: "new-secret",
+                baseUrl: `http://127.0.0.1:${String(previousPort)}/v1`,
+                runtime: {
+                  kind: "copilot-sdk-bridge",
+                  upstream: "github-copilot",
+                  bridgeHost: "127.0.0.1",
+                  bridgePort: previousPort,
+                  bridgePath: "/v1",
+                  premiumRequests: true,
+                  authSource: "official-sdk",
+                  sdkInstallMode: "lazy",
+                },
+              });
 
-            assert.equal(bridge.reused, false);
-            assert.equal(bridge.replaced, true);
-            assert.notEqual(bridge.port, previousPort);
+              assert.equal(bridge.reused, false);
+              assert.equal(bridge.replaced, true);
+              assert.notEqual(bridge.port, previousPort);
 
-            const authorized = await requestJson({
-              host: "127.0.0.1",
-              port: bridge.port,
-              method: "GET",
-              path: "/v1/models",
-              headers: {
-                authorization: "Bearer new-secret",
-              },
+              const authorized = await requestJson({
+                host: "127.0.0.1",
+                port: bridge.port,
+                method: "GET",
+                path: "/v1/models",
+                headers: {
+                  authorization: "Bearer new-secret",
+                },
+              });
+              assert.equal(authorized.statusCode, 200);
             });
-            assert.equal(authorized.statusCode, 200);
           });
         } finally {
           await new Promise((resolve, reject) => previousServer.close((error) => (error ? reject(error) : resolve())));
@@ -962,39 +1059,41 @@ module.exports = {
         });
 
         try {
-          await withRuntimeStateDir(async () => {
-            writeCopilotBridgeState({
-              provider: "copilot",
-              pid: null,
-              host: "127.0.0.1",
-              port: previousPort,
-              baseUrl: `http://127.0.0.1:${String(previousPort)}/v1`,
-              startedAt: new Date().toISOString(),
-              lastHealthcheckAt: new Date().toISOString(),
+          await withFakeCopilotSdk({ failAuth: false }, async () => {
+            await withRuntimeStateDir(async () => {
+              writeCopilotBridgeState({
+                provider: "copilot",
+                pid: null,
+                host: "127.0.0.1",
+                port: previousPort,
+                baseUrl: `http://127.0.0.1:${String(previousPort)}/v1`,
+                startedAt: new Date().toISOString(),
+                lastHealthcheckAt: new Date().toISOString(),
+              });
+
+              const bridge = await ensureCopilotBridge("copilot", {
+                profile: "copilot",
+                apiKey: "bridge-secret",
+                baseUrl: `http://127.0.0.1:${String(previousPort)}/v1`,
+                runtime: {
+                  kind: "copilot-sdk-bridge",
+                  upstream: "github-copilot",
+                  bridgeHost: "127.0.0.1",
+                  bridgePort: previousPort,
+                  bridgePath: "/v1",
+                  premiumRequests: true,
+                  authSource: "official-sdk",
+                  sdkInstallMode: "lazy",
+                },
+              });
+
+              assert.equal(bridge.reused, false);
+              assert.equal(bridge.replaced, true);
+
+              const state = readCopilotBridgeState();
+              assert.equal(typeof state.workerBuildId, "string");
+              assert.notEqual(state.workerBuildId, undefined);
             });
-
-            const bridge = await ensureCopilotBridge("copilot", {
-              profile: "copilot",
-              apiKey: "bridge-secret",
-              baseUrl: `http://127.0.0.1:${String(previousPort)}/v1`,
-              runtime: {
-                kind: "copilot-sdk-bridge",
-                upstream: "github-copilot",
-                bridgeHost: "127.0.0.1",
-                bridgePort: previousPort,
-                bridgePath: "/v1",
-                premiumRequests: true,
-                authSource: "official-sdk",
-                sdkInstallMode: "lazy",
-              },
-            });
-
-            assert.equal(bridge.reused, false);
-            assert.equal(bridge.replaced, true);
-
-            const state = readCopilotBridgeState();
-            assert.equal(typeof state.workerBuildId, "string");
-            assert.notEqual(state.workerBuildId, undefined);
           });
         } finally {
           await new Promise((resolve, reject) => previousServer.close((error) => (error ? reject(error) : resolve())));

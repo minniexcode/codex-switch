@@ -16,6 +16,9 @@ export type CopilotBridgeState = {
   startedAt: string;
   lastHealthcheckAt: string;
   workerBuildId?: string;
+  logPath?: string;
+  lastProbeAt?: string;
+  lastRestartReason?: string;
 };
 
 export type CopilotBridgeStateInspection = {
@@ -35,6 +38,14 @@ export function getCopilotBridgeStatePath(runtimeDir?: string): string {
   }
   const baseRuntimeDir = runtimeDir ? path.resolve(runtimeDir) : path.join(resolveCodexSwitchHome(), "runtime");
   return path.join(baseRuntimeDir, "copilot-bridge-state.json");
+}
+
+/**
+ * Returns the persisted bridge runtime log path colocated with the bridge state manifest.
+ */
+export function getCopilotBridgeLogPath(runtimeDir?: string): string {
+  const statePath = getCopilotBridgeStatePath(runtimeDir);
+  return path.join(path.dirname(statePath), "copilot-bridge.log");
 }
 
 /**
@@ -67,7 +78,7 @@ export function inspectCopilotBridgeState(runtimeDir?: string): CopilotBridgeSta
       exists: true,
       valid: true,
       parseError: null,
-       state: readCopilotBridgeState(runtimeDir),
+      state: readCopilotBridgeState(runtimeDir),
     };
   } catch (error: unknown) {
     return {

@@ -6,9 +6,9 @@
 
 ## 版本定位
 
-当前包版本：`0.1.2`
+当前包版本：`0.1.5`
 
-这是当前稳定发布线。`0.1.2` 是 Copilot runtime 修复版本，包含受管 SDK 固定版本与 Copilot 专用的 `stream_idle_timeout_ms = 300000` 投影，用于避免长 prompt 的空闲超时。
+这是当前仓库开发线。`0.1.5` 是 Copilot Bridge 过程可见性补丁，聚焦于 commentary/reasoning 流式信号、SDK 事件防御性归一化，以及未知运行态事件的更安全脱敏，同时不扩展 provider 命令面。
 
 ## 安装
 
@@ -34,7 +34,7 @@ Direct provider 主路径：
 
 ```bash
 codexs init
-codexs add my-provider --model gpt-5.5 --base-url https://gateway.example.com/v1 --api-key sk-xxx
+codexs add my-provider --profile my-provider --model gpt-5.5 --base-url https://gateway.example.com/v1 --api-key sk-xxx
 codexs switch my-provider
 codexs status
 codexs doctor
@@ -45,7 +45,7 @@ GitHub Copilot 主路径：
 ```bash
 codexs init
 codexs login copilot
-codexs add copilot-main --copilot --model gpt-4.1
+codexs add copilot-main --copilot --profile copilot-main --model gpt-4.1
 codexs switch copilot-main
 codexs status
 codexs doctor
@@ -56,6 +56,7 @@ codexs doctor
 - `init` 负责初始化 `codex-switch` 的 tool home 与受管状态文件。
 - `login copilot` 负责上游 Copilot onboarding 和登录可用性检查。
 - `add --copilot` 不负责替你登录，它假设上游 Copilot 已经 ready。
+- 非交互调用请显式传入 `--profile`；在 TTY 模式下，`add` 和 `edit` 可以补问缺失的必填项。
 - `switch` 会把选中的 provider 投影到目标 Codex runtime 的顶层 `model` 与 `model_provider`。
 - `status` 是切换后的主读取命令。
 - `doctor` 是主诊断命令，用于解释问题和下一步修复动作。
@@ -116,8 +117,8 @@ codexs current
 codexs status
 codexs config show [profile]
 codexs config list-profiles
-codexs add <provider> --model <model> --api-key <key> [--base-url <url>]
-codexs add <provider> --copilot --model <model>
+codexs add <provider> --profile <model-provider-id> --model <model> --api-key <key> [--base-url <url>]
+codexs add <provider> --copilot --profile <model-provider-id> --model <model>
 codexs edit <provider>
 codexs switch <provider>
 codexs remove <provider> [--force] [--switch-to <provider>]
@@ -209,6 +210,8 @@ npm pack --dry-run
 - [Design 0.1.1](./docs/Design/codex-switch-v0.1.1-design.md)
 - [PRD 0.1.2](./docs/PRD/codex-switch-prd-v0.1.2.md)
 - [Design 0.1.2](./docs/Design/codex-switch-v0.1.2-design.md)
+- [PRD 0.1.5](./docs/PRD/codex-switch-prd-v0.1.5.md)
+- [Design 0.1.5](./docs/Design/codex-switch-v0.1.5-design.md)
 
 ## License
 

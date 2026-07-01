@@ -8,12 +8,60 @@ import { cliError } from "../domain/errors";
 import {
   clearCopilotBridgeState,
   CopilotBridgeState,
+  getCopilotBridgeLogPath,
   readCopilotBridgeState,
   writeCopilotBridgeState,
 } from "../storage/runtime-state-repo";
 import { RuntimeAvailability } from "./types";
+import { CopilotBridgeRuntimeEvent } from "./copilot-adapter";
 
 type SpawnLike = typeof spawn;
+
+type BridgeProbeStage = "health" | "auth" | "startup";
+
+type BridgeProbeCause =
+  | "health-non-200"
+  | "auth-rejected"
+  | "provider-mismatch"
+  | "base-url-mismatch"
+  | "worker-build-stale"
+  | "transport-timeout"
+  | "transport-error"
+  | "startup-timeout"
+  | "startup-failed";
+
+type BridgeProbeResult =
+  | { ok: true; stage: BridgeProbeStage; attempts: number }
+  | {
+      ok: false;
+      stage: BridgeProbeStage;
+      attempts: number;
+      cause: BridgeProbeCause;
+      retryable: boolean;
+      message: string;
+      statusCode?: number;
+    };
+
+type BridgeReuseDecision =
+  | {
+      reuse: true;
+      health: Extract<BridgeProbeResult, { ok: true }>;
+      auth: Extract<BridgeProbeResult, { ok: true }>;
+      probeAt: string;
+      logPath: string;
+    }
+  | {
+      reuse: false;
+      reason: string;
+      replacedExisting: boolean;
+      probeAt: string;
+      logPath: string;
+      probe?: Extract<BridgeProbeResult, { ok: false }>;
+    };
+
+const BRIDGE_REUSE_ATTEMPTS = 2;
+const BRIDGE_REUSE_TIMEOUT_MS = 2500;
+const BRIDGE_REUSE_DELAY_MS = 250;
 
 let spawnImplementation: SpawnLike = spawn;
 let cachedBridgeWorkerBuildId: string | null = null;
@@ -85,6 +133,7 @@ type BridgeRequestContext = {
 type BridgeExecutionOptions = {
   onTextDelta?: (delta: string) => void;
   onTextDone?: (text: string) => void;
+  onRuntimeEvent?: (event: CopilotBridgeRuntimeEvent) => void;
   timeoutMs?: number;
 };
 
@@ -98,6 +147,8 @@ export type CopilotBridgeStartResult = {
   reused: boolean;
   portChanged: boolean;
   replaced: boolean;
+  logPath: string;
+  restartReason?: string;
 };
 
 /**
@@ -109,13 +160,17 @@ export async function probeCopilotBridgeRuntime(
   runtimeDir?: string
 ): Promise<RuntimeAvailability> {
   const state = persistedState === undefined ? readCopilotBridgeState(runtimeDir) : persistedState;
+  const logPath = state?.logPath ?? getCopilotBridgeLogPath(runtimeDir);
   if (state && (!provider || !isCopilotBridgeProvider(provider))) {
     return {
       ok: false,
       runtime: "copilot-bridge",
       reason: "failed",
       cause: "Copilot bridge runtime state exists but no active Copilot bridge provider is selected.",
-      details: state,
+      details: {
+        ...state,
+        logPath,
+      },
     };
   }
   if (!provider || !isCopilotBridgeProvider(provider)) {
@@ -140,6 +195,7 @@ export async function probeCopilotBridgeRuntime(
       cause: "Copilot bridge state manifest is missing.",
       details: {
         expectedBaseUrl: buildCopilotBridgeBaseUrl(runtime),
+        logPath,
       },
     };
   }
@@ -152,27 +208,44 @@ export async function probeCopilotBridgeRuntime(
       details: {
         stateBaseUrl: state.baseUrl,
         providerBaseUrl: buildCopilotBridgeBaseUrl(runtime),
+        logPath,
       },
     };
   }
-  const healthy = await healthcheckCopilotBridge(state.host, state.port);
+  const healthy = await probeBridgeEndpoint({
+    host: state.host,
+    port: state.port,
+    stage: "health",
+  });
   if (!healthy.ok) {
     return {
       ok: false,
       runtime: "copilot-bridge",
       reason: "failed",
-      cause: healthy.cause,
-      details: state,
+      cause: healthy.message,
+      details: {
+        ...state,
+        logPath,
+        probeStage: healthy.stage,
+        probeCause: healthy.cause,
+        retryable: healthy.retryable,
+      },
     };
   }
   writeCopilotBridgeState({
     ...state,
     lastHealthcheckAt: new Date().toISOString(),
+    lastProbeAt: new Date().toISOString(),
+    logPath,
   }, runtimeDir);
   return {
     ok: true,
     runtime: "copilot-bridge",
-    details: state,
+    details: {
+      ...state,
+      logPath,
+      lastProbeAt: new Date().toISOString(),
+    },
   };
 }
 
@@ -212,49 +285,52 @@ export async function startOrReuseCopilotBridge(
   const current = readCopilotBridgeState(runtimeDir);
   const workerBuildId = getCopilotBridgeWorkerBuildId();
   let replaced = false;
-  if (current && current.provider === providerName && current.baseUrl === expectedBaseUrl) {
-    if (current.workerBuildId === workerBuildId) {
-      const healthy = await healthcheckCopilotBridge(current.host, current.port);
-      if (healthy.ok) {
-        const compatible = await verifyCopilotBridgeAuthorization(current.host, current.port, provider.apiKey);
-        if (compatible.ok) {
-          writeCopilotBridgeState({
-            ...current,
-            lastHealthcheckAt: new Date().toISOString(),
-            workerBuildId,
-          }, runtimeDir);
-          return {
-            baseUrl: expectedBaseUrl,
-            host: current.host,
-            port: current.port,
-            reused: true,
-            portChanged: false,
-            replaced: false,
-          };
-        }
-      }
-      stopCopilotBridge(runtimeDir);
-      replaced = true;
-    } else {
-      stopCopilotBridge(runtimeDir);
-      replaced = true;
-    }
+  const logPath = current?.logPath ?? getCopilotBridgeLogPath(runtimeDir);
+  const reuseDecision = await evaluateBridgeReuse({
+    current,
+    providerName,
+    expectedBaseUrl,
+    expectedApiKey: provider.apiKey,
+    workerBuildId,
+    runtimeDir,
+    logPath,
+  });
+  if (reuseDecision.reuse) {
+    writeCopilotBridgeState({
+      ...current!,
+      lastHealthcheckAt: new Date().toISOString(),
+      lastProbeAt: reuseDecision.probeAt,
+      workerBuildId,
+      logPath: reuseDecision.logPath,
+    }, runtimeDir);
+    appendBridgeLifecycleLog(logPath, `startup success reused provider=${providerName} host=${current!.host} port=${String(current!.port)}`);
+    return {
+      baseUrl: expectedBaseUrl,
+      host: current!.host,
+      port: current!.port,
+      reused: true,
+      portChanged: false,
+      replaced: false,
+      logPath: reuseDecision.logPath,
+    };
   }
-
-  if (current && current.provider !== providerName) {
+  if (reuseDecision.replacedExisting) {
     stopCopilotBridge(runtimeDir);
     replaced = true;
+    appendBridgeLifecycleLog(logPath, `replacement reason=${reuseDecision.reason}`);
   }
 
   const selectedPort = await selectBridgePort(runtime.bridgeHost, runtime.bridgePort);
   const selectedBaseUrl = `http://${runtime.bridgeHost}:${selectedPort}${runtime.bridgePath}`;
 
   const workerPath = path.join(__dirname, "copilot-bridge-worker.js");
+  ensureBridgeLogFile(logPath);
+  appendBridgeLifecycleLog(logPath, `worker start provider=${providerName} host=${runtime.bridgeHost} port=${String(selectedPort)} replaced=${String(replaced)}`);
   let child;
   try {
     child = spawnImplementation(process.execPath, [workerPath], {
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", openBridgeLogFd(logPath), openBridgeLogFd(logPath)],
       env: {
         ...process.env,
         CODEX_SWITCH_BRIDGE_PROVIDER: providerName,
@@ -264,6 +340,7 @@ export async function startOrReuseCopilotBridge(
         CODEX_SWITCH_BRIDGE_BASE_URL: selectedBaseUrl,
         CODEX_SWITCH_RUNTIME_DIR: runtimeDir ?? "",
         CODEX_SWITCH_RUNTIMES_DIR: runtimesDir ?? "",
+        CODEX_SWITCH_BRIDGE_LOG_PATH: logPath,
       },
     });
   } catch (error: unknown) {
@@ -271,6 +348,12 @@ export async function startOrReuseCopilotBridge(
       provider: providerName,
       host: runtime.bridgeHost,
       port: selectedPort,
+      logPath,
+      probeStage: "startup",
+      probeCause: "startup-failed",
+      retryable: false,
+      replacedExisting: replaced,
+      providerName,
       cause: error instanceof Error ? error.message : String(error),
     });
   }
@@ -282,17 +365,29 @@ export async function startOrReuseCopilotBridge(
   if (!healthy.ok) {
     clearCopilotBridgeState(runtimeDir);
     if (healthy.reason === "start-failed") {
+      appendBridgeLifecycleLog(logPath, `startup failure provider=${providerName} cause=${healthy.cause}`);
       throw cliError("BRIDGE_START_FAILED", "Copilot bridge worker exited before becoming healthy.", {
         provider: providerName,
         host: runtime.bridgeHost,
         port: selectedPort,
+        logPath,
+        probeStage: "startup",
+        probeCause: "startup-failed",
+        retryable: false,
+        replacedExisting: replaced,
         cause: healthy.cause,
       });
     }
+    appendBridgeLifecycleLog(logPath, `startup timeout provider=${providerName} host=${runtime.bridgeHost} port=${String(selectedPort)}`);
     throw cliError("BRIDGE_HEALTHCHECK_FAILED", "Copilot bridge did not become healthy after startup.", {
       provider: providerName,
       host: runtime.bridgeHost,
       port: selectedPort,
+      logPath,
+      probeStage: "startup",
+      probeCause: "startup-timeout",
+      retryable: true,
+      replacedExisting: replaced,
       cause: healthy.cause,
     });
   }
@@ -306,8 +401,12 @@ export async function startOrReuseCopilotBridge(
     startedAt,
     lastHealthcheckAt: new Date().toISOString(),
     workerBuildId,
+    logPath,
+    lastProbeAt: new Date().toISOString(),
+    lastRestartReason: reuseDecision.reuse ? undefined : reuseDecision.reason,
   };
   writeCopilotBridgeState(state, runtimeDir);
+  appendBridgeLifecycleLog(logPath, `startup success provider=${providerName} host=${runtime.bridgeHost} port=${String(selectedPort)}`);
 
   return {
     baseUrl: selectedBaseUrl,
@@ -316,6 +415,8 @@ export async function startOrReuseCopilotBridge(
     reused: false,
     portChanged: selectedPort !== runtime.bridgePort,
     replaced,
+    logPath,
+    restartReason: replaced ? reuseDecision.reason : undefined,
   };
 }
 
@@ -411,9 +512,15 @@ export function createCopilotBridgeRequestHandler(context: BridgeRequestContext)
                 writeResponsesTextDelta(response, messageId, doneText);
               }
             },
+            onRuntimeEvent: (event) => {
+              writeResponsesRuntimeEvent(response, responseId, event);
+            },
           });
           clearInterval(heartbeat);
           const outputText = text || getChatCompletionText(payload);
+          if (text.length === 0 && outputText.length > 0) {
+            writeResponsesTextDelta(response, messageId, outputText);
+          }
           writeResponsesStreamDone(response, responseId, normalized.model, messageId, outputText);
           response.end();
           return;
@@ -837,6 +944,119 @@ function writeResponsesStreamDone(response: http.ServerResponse, responseId: str
   });
 }
 
+function writeResponsesRuntimeEvent(response: http.ServerResponse, responseId: string, event: CopilotBridgeRuntimeEvent): void {
+  if (event.type === "assistant.message_delta") {
+    return;
+  }
+  if (event.type === "assistant.reasoning_delta") {
+    writeResponsesReasoningDelta(response, responseId, formatRuntimeEventText(event));
+    return;
+  }
+  if (event.type === "session.unknown") {
+    process.stderr.write(`[${new Date().toISOString()}] bridge runtime event ignored type=${event.sdkType} summary=${truncateBridgeText(event.summary, 240)}\n`);
+    return;
+  }
+  const text = formatRuntimeEventText(event);
+  if (text.length === 0) {
+    return;
+  }
+  writeResponsesCommentaryItem(response, responseId, text);
+  process.stderr.write(`[${new Date().toISOString()}] bridge runtime event type=${event.type} summary=${truncateBridgeText(text, 240)}\n`);
+}
+
+function writeResponsesReasoningDelta(response: http.ServerResponse, responseId: string, text: string): void {
+  const reasoningId = `${responseId}_rs_0`;
+  writeSseEvent(response, "response.reasoning_summary_part.added", {
+    type: "response.reasoning_summary_part.added",
+    item_id: reasoningId,
+    output_index: 0,
+    summary_index: 0,
+    part: {
+      type: "summary_text",
+      text: "",
+    },
+  });
+  writeSseEvent(response, "response.reasoning_summary_text.delta", {
+    type: "response.reasoning_summary_text.delta",
+    item_id: reasoningId,
+    output_index: 0,
+    summary_index: 0,
+    delta: text,
+  });
+}
+
+function writeResponsesCommentaryItem(response: http.ServerResponse, responseId: string, text: string): void {
+  const itemId = `${responseId}_commentary_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+  writeSseEvent(response, "response.output_item.done", {
+    type: "response.output_item.done",
+    output_index: 0,
+    item: {
+      id: itemId,
+      type: "message",
+      status: "completed",
+      role: "assistant",
+      phase: "commentary",
+      content: [
+        {
+          type: "output_text",
+          text,
+          annotations: [],
+        },
+      ],
+    },
+  });
+}
+
+function formatRuntimeEventText(event: CopilotBridgeRuntimeEvent): string {
+  switch (event.type) {
+    case "assistant.intent":
+      return truncateBridgeText(event.text, 600);
+    case "assistant.reasoning_delta":
+      return truncateBridgeText(event.text, 600);
+    case "tool.execution_start":
+      return truncateBridgeText(`Copilot started ${formatToolName(event.name)}${formatRequestId(event.requestId)}${formatSummarySuffix(event.summary)}`, 600);
+    case "tool.execution_progress":
+      return truncateBridgeText(`Copilot progress ${formatToolName(event.name)}${formatRequestId(event.requestId)}${formatSummarySuffix(event.summary)}`, 600);
+    case "tool.execution_partial_result":
+      return truncateBridgeText(`Copilot partial result ${formatToolName(event.name)}${formatRequestId(event.requestId)}${formatSummarySuffix(event.summary)}`, 600);
+    case "tool.execution_complete":
+      return truncateBridgeText(`Copilot ${event.success === false ? "failed" : "completed"} ${formatToolName(event.name)}${formatRequestId(event.requestId)}${formatSummarySuffix(event.summary)}`, 600);
+    case "permission.requested":
+      return truncateBridgeText(`Copilot requested permission${event.kind ? `: ${event.kind}` : ""}${formatRequestId(event.requestId)}${formatSummarySuffix(event.summary)}`, 600);
+    case "permission.completed":
+      return truncateBridgeText(`Copilot permission ${event.approved === false ? "denied" : "approved"}${event.kind ? `: ${event.kind}` : ""}${formatRequestId(event.requestId)}${formatSummarySuffix(event.summary)}`, 600);
+    case "user_input.requested":
+      return truncateBridgeText(`Copilot requested user input${formatRequestId(event.requestId)}${formatSummarySuffix(event.summary)}`, 600);
+    case "exit_plan_mode.requested":
+      return truncateBridgeText(`Copilot requested to exit plan mode${formatRequestId(event.requestId)}${formatSummarySuffix(event.summary)}`, 600);
+    case "session.error":
+      return truncateBridgeText(`Copilot session error${formatSummarySuffix(event.summary)}`, 600);
+    case "session.idle":
+      return truncateBridgeText(event.summary, 600);
+    case "assistant.message_delta":
+    case "session.unknown":
+      return "";
+  }
+}
+
+function formatToolName(name: string | undefined): string {
+  return name ? `tool ${name}` : "tool";
+}
+
+function formatRequestId(requestId: string | undefined): string {
+  return requestId ? ` (${requestId})` : "";
+}
+
+function formatSummarySuffix(summary: string): string {
+  return summary.length > 0 ? `: ${summary}` : "";
+}
+
+function truncateBridgeText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength)}... [truncated]`;
+}
 function startSseHeartbeat(response: http.ServerResponse): NodeJS.Timeout {
   return setInterval(() => {
     response.write(": keep-alive\n\n");
@@ -927,9 +1147,9 @@ export function startCopilotBridgeServer(args: {
  */
 export async function waitForCopilotBridgeHealth(host: string, port: number, attempts = 10, delayMs = 150): Promise<{ ok: true } | { ok: false; cause: string }> {
   for (let index = 0; index < attempts; index += 1) {
-    const result = await healthcheckCopilotBridge(host, port);
+    const result = await probeBridgeEndpoint({ host, port, stage: "health" });
     if (result.ok) {
-      return result;
+      return { ok: true };
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
@@ -1023,9 +1243,9 @@ async function waitForCopilotBridgeStartup(
           cause: startupFailure,
         };
       }
-      const result = await healthcheckCopilotBridge(host, port);
+      const result = await probeBridgeEndpoint({ host, port, stage: "health" });
       if (result.ok) {
-        return result;
+        return { ok: true };
       }
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
@@ -1047,15 +1267,175 @@ async function waitForCopilotBridgeStartup(
   }
 }
 
-async function healthcheckCopilotBridge(host: string, port: number): Promise<{ ok: true } | { ok: false; cause: string }> {
+async function evaluateBridgeReuse(args: {
+  current: CopilotBridgeState | null;
+  providerName: string;
+  expectedBaseUrl: string;
+  expectedApiKey: string;
+  workerBuildId: string;
+  runtimeDir?: string;
+  logPath: string;
+}): Promise<BridgeReuseDecision> {
+  const probeAt = new Date().toISOString();
+  if (!args.current) {
+    return {
+      reuse: false,
+      reason: "no persisted bridge state",
+      replacedExisting: false,
+      probeAt,
+      logPath: args.logPath,
+    };
+  }
+  if (args.current.provider !== args.providerName) {
+    return {
+      reuse: false,
+      reason: `provider mismatch: ${args.current.provider} -> ${args.providerName}`,
+      replacedExisting: true,
+      probeAt,
+      logPath: args.logPath,
+      probe: {
+        ok: false,
+        stage: "health",
+        attempts: 0,
+        cause: "provider-mismatch",
+        retryable: false,
+        message: "Persisted bridge provider does not match the requested provider.",
+      },
+    };
+  }
+  if (args.current.baseUrl !== args.expectedBaseUrl) {
+    return {
+      reuse: false,
+      reason: `base URL mismatch: ${args.current.baseUrl} -> ${args.expectedBaseUrl}`,
+      replacedExisting: true,
+      probeAt,
+      logPath: args.logPath,
+      probe: {
+        ok: false,
+        stage: "health",
+        attempts: 0,
+        cause: "base-url-mismatch",
+        retryable: false,
+        message: "Persisted bridge base URL does not match the requested provider runtime base URL.",
+      },
+    };
+  }
+  if (args.current.workerBuildId !== args.workerBuildId) {
+    return {
+      reuse: false,
+      reason: "worker build changed",
+      replacedExisting: true,
+      probeAt,
+      logPath: args.logPath,
+      probe: {
+        ok: false,
+        stage: "health",
+        attempts: 0,
+        cause: "worker-build-stale",
+        retryable: false,
+        message: "Persisted bridge worker build is stale.",
+      },
+    };
+  }
+
+  const health = await probeBridgeEndpoint({
+    host: args.current.host,
+    port: args.current.port,
+    stage: "health",
+  });
+  appendBridgeLifecycleLog(args.logPath, `probe stage=health attempts=${String(health.attempts)} ok=${String(health.ok)}${health.ok ? "" : ` retryable=${String(health.retryable)} cause=${health.cause}`}`);
+  if (!health.ok) {
+    return {
+      reuse: false,
+      reason: `health probe failed: ${health.message}`,
+      replacedExisting: true,
+      probeAt,
+      logPath: args.logPath,
+      probe: health,
+    };
+  }
+
+  const auth = await probeBridgeEndpoint({
+    host: args.current.host,
+    port: args.current.port,
+    stage: "auth",
+    apiKey: args.expectedApiKey,
+  });
+  appendBridgeLifecycleLog(args.logPath, `probe stage=auth attempts=${String(auth.attempts)} ok=${String(auth.ok)}${auth.ok ? "" : ` retryable=${String(auth.retryable)} cause=${auth.cause}`}`);
+  if (!auth.ok) {
+    return {
+      reuse: false,
+      reason: `auth probe failed: ${auth.message}`,
+      replacedExisting: true,
+      probeAt,
+      logPath: args.logPath,
+      probe: auth,
+    };
+  }
+
+  return {
+    reuse: true,
+    health,
+    auth,
+    probeAt,
+    logPath: args.logPath,
+  };
+}
+
+async function probeBridgeEndpoint(args: {
+  host: string;
+  port: number;
+  stage: "health" | "auth";
+  apiKey?: string;
+}): Promise<BridgeProbeResult> {
+  for (let attempt = 1; attempt <= BRIDGE_REUSE_ATTEMPTS; attempt += 1) {
+    const result = await requestBridgeProbe(args);
+    if (result.ok) {
+      return {
+        ok: true,
+        stage: args.stage,
+        attempts: attempt,
+      };
+    }
+    if (!result.retryable || attempt === BRIDGE_REUSE_ATTEMPTS) {
+      return {
+        ...result,
+        stage: args.stage,
+        attempts: attempt,
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, BRIDGE_REUSE_DELAY_MS));
+  }
+  return {
+    ok: false,
+    stage: args.stage,
+    attempts: BRIDGE_REUSE_ATTEMPTS,
+    cause: "transport-timeout",
+    retryable: true,
+    message: "Bridge probe timed out.",
+  };
+}
+
+async function requestBridgeProbe(args: {
+  host: string;
+  port: number;
+  stage: "health" | "auth";
+  apiKey?: string;
+}): Promise<Omit<Extract<BridgeProbeResult, { ok: false }>, "stage" | "attempts"> | { ok: true }> {
   return new Promise((resolve) => {
     const request = http.request(
       {
-        host,
-        port,
+        host: args.host,
+        port: args.port,
         method: "GET",
-        path: "/healthz",
-        timeout: 1000,
+        path: args.stage === "health" ? "/healthz" : "/v1/models",
+        timeout: BRIDGE_REUSE_TIMEOUT_MS,
+        headers:
+          args.stage === "auth"
+            ? {
+                authorization: `Bearer ${args.apiKey ?? ""}`,
+              }
+            : undefined,
       },
       (response) => {
         response.resume();
@@ -1063,68 +1443,79 @@ async function healthcheckCopilotBridge(host: string, port: number): Promise<{ o
           resolve({ ok: true });
           return;
         }
+        if (args.stage === "auth" && (response.statusCode === 401 || response.statusCode === 403)) {
+          resolve({
+            ok: false,
+            cause: "auth-rejected",
+            retryable: false,
+            statusCode: response.statusCode,
+            message: `Authorization probe returned status ${String(response.statusCode)}.`,
+          });
+          return;
+        }
         resolve({
           ok: false,
-          cause: `Health endpoint returned status ${String(response.statusCode ?? 0)}.`,
+          cause: args.stage === "health" ? "health-non-200" : "transport-error",
+          retryable: false,
+          statusCode: response.statusCode,
+          message:
+            args.stage === "health"
+              ? `Health endpoint returned status ${String(response.statusCode ?? 0)}.`
+              : `Authorization probe returned status ${String(response.statusCode ?? 0)}.`,
         });
       }
     );
     request.on("error", (error) => {
+      const classified = classifyProbeTransportError(error);
       resolve({
         ok: false,
-        cause: error.message,
+        cause: classified.cause,
+        retryable: classified.retryable,
+        message: error.message,
       });
     });
     request.on("timeout", () => {
-      request.destroy(new Error("Health endpoint timed out."));
+      request.destroy(new Error(args.stage === "health" ? "Health endpoint timed out." : "Authorization probe timed out."));
     });
     request.end();
   });
 }
 
-/**
- * Checks whether a healthy bridge still accepts the provider's current bearer secret.
- */
-async function verifyCopilotBridgeAuthorization(
-  host: string,
-  port: number,
-  apiKey: string
-): Promise<{ ok: true } | { ok: false; cause: string }> {
-  return new Promise((resolve) => {
-    const request = http.request(
-      {
-        host,
-        port,
-        method: "GET",
-        path: "/v1/models",
-        timeout: 1000,
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-        },
-      },
-      (response) => {
-        response.resume();
-        if (response.statusCode === 200) {
-          resolve({ ok: true });
-          return;
-        }
-        resolve({
-          ok: false,
-          cause: `Authorization probe returned status ${String(response.statusCode ?? 0)}.`,
-        });
-      }
-    );
-    request.on("error", (error) => {
-      resolve({
-        ok: false,
-        cause: error.message,
-      });
-    });
-    request.on("timeout", () => {
-      request.destroy(new Error("Authorization probe timed out."));
-    });
-    request.end();
-  });
+function classifyProbeTransportError(error: Error): { cause: "transport-timeout" | "transport-error"; retryable: boolean } {
+  const message = error.message.toLowerCase();
+  if (
+    message.includes("timed out") ||
+    message.includes("econnrefused") ||
+    message.includes("econnreset") ||
+    message.includes("socket hang up") ||
+    message.includes("epipe")
+  ) {
+    return {
+      cause: message.includes("timed out") ? "transport-timeout" : "transport-error",
+      retryable: true,
+    };
+  }
+  return {
+    cause: "transport-error",
+    retryable: false,
+  };
+}
+
+function ensureBridgeLogFile(logPath: string): void {
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  if (!fs.existsSync(logPath)) {
+    fs.writeFileSync(logPath, "", "utf8");
+  }
+}
+
+function openBridgeLogFd(logPath: string): number {
+  ensureBridgeLogFile(logPath);
+  return fs.openSync(logPath, "a");
+}
+
+function appendBridgeLifecycleLog(logPath: string, message: string): void {
+  ensureBridgeLogFile(logPath);
+  fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`, "utf8");
 }
 
 async function readJsonBody(request: http.IncomingMessage): Promise<Record<string, unknown>> {

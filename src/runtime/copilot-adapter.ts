@@ -54,7 +54,27 @@ export type CopilotChatCompletionResponse = {
 
 export type CopilotStreamEvent =
   | { type: "delta"; delta: string }
+  | { type: "runtime"; event: CopilotBridgeRuntimeEvent }
   | { type: "done"; text: string };
+
+/**
+ * Stable process events surfaced by the Copilot bridge without exposing SDK-specific event shapes.
+ */
+export type CopilotBridgeRuntimeEvent =
+  | { type: "assistant.intent"; text: string }
+  | { type: "assistant.message_delta"; text: string }
+  | { type: "assistant.reasoning_delta"; text: string }
+  | { type: "tool.execution_start"; name?: string; requestId?: string; summary: string }
+  | { type: "tool.execution_progress"; name?: string; requestId?: string; summary: string }
+  | { type: "tool.execution_partial_result"; name?: string; requestId?: string; summary: string }
+  | { type: "tool.execution_complete"; name?: string; requestId?: string; success?: boolean; summary: string }
+  | { type: "permission.requested"; kind?: string; requestId?: string; summary: string }
+  | { type: "permission.completed"; kind?: string; requestId?: string; approved?: boolean; summary: string }
+  | { type: "user_input.requested"; requestId?: string; summary: string }
+  | { type: "exit_plan_mode.requested"; requestId?: string; summary: string }
+  | { type: "session.error"; summary: string }
+  | { type: "session.idle"; summary: string }
+  | { type: "session.unknown"; sdkType: string; summary: string };
 
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 300000;
 
@@ -232,6 +252,7 @@ async function createCopilotSession(runtimeClient: CopilotRuntimeClient, payload
   try {
     const session = await Promise.resolve(createSession({
       model: typeof payload.model === "string" ? payload.model : undefined,
+      streaming: true,
       ...createSessionOptions(runtimeClient.sdk),
     }));
     if (!session || typeof session !== "object") {
@@ -272,7 +293,16 @@ async function sendSessionRequest(
       onStreamEvent?.({ type: "delta", delta });
     }
   };
+  const runtimeHandler = (event: unknown) => {
+    for (const runtimeEvent of mapCopilotRuntimeEvent(event)) {
+      onStreamEvent?.({ type: "runtime", event: runtimeEvent });
+      if (runtimeEvent.type === "assistant.message_delta" && runtimeEvent.text.length > 0) {
+        onStreamEvent?.({ type: "delta", delta: runtimeEvent.text });
+      }
+    }
+  };
   if (onStreamEvent && session.on) {
+    session.on("event", runtimeHandler);
     session.on("data", deltaHandler);
     session.on("message", deltaHandler);
     session.on("delta", deltaHandler);
@@ -288,6 +318,7 @@ async function sendSessionRequest(
     return result;
   } finally {
     if (onStreamEvent && session.off) {
+      session.off("event", runtimeHandler);
       session.off("data", deltaHandler);
       session.off("message", deltaHandler);
       session.off("delta", deltaHandler);
@@ -470,6 +501,123 @@ function extractDelta(event: unknown): string | null {
   return null;
 }
 
+/**
+ * Maps SDK session events into the bridge's stable process-event contract.
+ */
+function mapCopilotRuntimeEvent(event: unknown): CopilotBridgeRuntimeEvent[] {
+  if (!event || typeof event !== "object") {
+    return [];
+  }
+  const record = event as Record<string, unknown>;
+  const sdkType = readString(record, ["type", "event", "name", "eventName"]) ?? "unknown";
+
+  const normalizedType = sdkType.replace(/_/g, ".").toLowerCase();
+  const text = readString(record, ["text", "delta", "content", "message", "summary", "description"]);
+  const name = readString(record, ["toolName", "tool", "name"]);
+  const requestId = readString(record, ["requestId", "id", "callId"]);
+  const kind = readString(record, ["kind", "permission", "permissionKind"]);
+  const success = readBoolean(record, ["success", "ok"]);
+  const approved = readBoolean(record, ["approved", "allowed", "accepted"]);
+  const summary = truncateForBridgeLog(text ?? summarizeUnknownObject(record), 600);
+
+  if (normalizedType === "assistant.intent") {
+    return [{ type: "assistant.intent", text: summary }];
+  }
+  if (normalizedType === "assistant.message.delta" || normalizedType === "assistant.message_delta") {
+    return [{ type: "assistant.message_delta", text: text ?? "" }];
+  }
+  if (normalizedType === "assistant.reasoning.delta" || normalizedType === "assistant.reasoning_delta" || normalizedType === "reasoning.delta") {
+    return [{ type: "assistant.reasoning_delta", text: summary }];
+  }
+  if (normalizedType === "tool.execution.start" || normalizedType === "tool.execution_start") {
+    return [{ type: "tool.execution_start", name, requestId, summary: summary || `Tool started: ${name ?? "unknown"}` }];
+  }
+  if (normalizedType === "tool.execution.progress" || normalizedType === "tool.execution_progress") {
+    return [{ type: "tool.execution_progress", name, requestId, summary }];
+  }
+  if (normalizedType === "tool.execution.partial.result" || normalizedType === "tool.execution.partial_result") {
+    return [{ type: "tool.execution_partial_result", name, requestId, summary }];
+  }
+  if (normalizedType === "tool.execution.complete" || normalizedType === "tool.execution_complete") {
+    return [{ type: "tool.execution_complete", name, requestId, success, summary: summary || `Tool completed: ${name ?? "unknown"}` }];
+  }
+  if (normalizedType === "permission.requested" || normalizedType === "permission.request") {
+    return [{ type: "permission.requested", kind, requestId, summary: summary || `Copilot requested permission: ${kind ?? "unknown"}` }];
+  }
+  if (normalizedType === "permission.completed" || normalizedType === "permission.complete") {
+    return [{ type: "permission.completed", kind, requestId, approved, summary }];
+  }
+  if (normalizedType === "user.input.requested" || normalizedType === "user.input_request" || normalizedType === "user_input.requested") {
+    return [{ type: "user_input.requested", requestId, summary }];
+  }
+  if (normalizedType === "exit.plan.mode.requested" || normalizedType === "exit_plan_mode.requested") {
+    return [{ type: "exit_plan_mode.requested", requestId, summary }];
+  }
+  if (normalizedType === "session.error" || normalizedType === "error") {
+    return [{ type: "session.error", summary }];
+  }
+  if (normalizedType === "session.idle" || normalizedType === "idle") {
+    return [{ type: "session.idle", summary: summary || "Copilot session is idle." }];
+  }
+  return [{ type: "session.unknown", sdkType, summary }];
+}
+
+function readString(record: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+    if (value && typeof value === "object") {
+      const nested = value as Record<string, unknown>;
+      for (const nestedKey of ["name", "id", "text", "content", "message", "summary"]) {
+        if (typeof nested[nestedKey] === "string" && nested[nestedKey].length > 0) {
+          return nested[nestedKey] as string;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+function readBoolean(record: Record<string, unknown>, keys: readonly string[]): boolean | undefined {
+  for (const key of keys) {
+    if (typeof record[key] === "boolean") {
+      return record[key] as boolean;
+    }
+  }
+  return undefined;
+}
+
+function summarizeUnknownObject(record: Record<string, unknown>): string {
+  return JSON.stringify(record, (key, value) => {
+    if (isSensitiveKey(key)) {
+      return "[redacted]";
+    }
+    if (typeof value === "string") {
+      return redactSensitiveText(value);
+    }
+    return value;
+  });
+}
+
+function redactSensitiveText(value: string): string {
+  if (/api[_-]?key|token|authorization|bearer\s+|sk-[a-z0-9_-]+/i.test(value)) {
+    return "[redacted]";
+  }
+  return value;
+}
+
+function isSensitiveKey(key: string): boolean {
+  return /^(api[_-]?key|token|access[_-]?token|refresh[_-]?token|authorization|secret|password)$/i.test(key);
+}
+
+function truncateForBridgeLog(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength)}... [truncated]`;
+}
 function isAuthReady(status: unknown): boolean {
   if (status === true) {
     return true;

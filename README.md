@@ -8,9 +8,9 @@ Chinese version: [README.CN.md](./README.CN.md)
 
 ## Version
 
-Current package version: `0.1.3`
+Current package version: `0.1.5`
 
-This is the current stable documentation line. `0.1.3` is the Copilot login hotfix release, repairing the managed SDK client construction against the current official Copilot SDK runtime while keeping the `stream_idle_timeout_ms = 300000` Copilot projection unchanged.
+This is the current repository development line. `0.1.5` is a Copilot Bridge process-visibility patch, focused on streaming commentary/reasoning signals, defensive SDK-event normalization, and safer redaction for unknown runtime events while keeping the provider surface unchanged.
 
 ## Install
 
@@ -36,7 +36,7 @@ Direct provider workflow:
 
 ```bash
 codexs init
-codexs add my-provider --model gpt-5.5 --base-url https://gateway.example.com/v1 --api-key sk-xxx
+codexs add my-provider --profile my-provider --model gpt-5.5 --base-url https://gateway.example.com/v1 --api-key sk-xxx
 codexs switch my-provider
 codexs status
 codexs doctor
@@ -47,7 +47,7 @@ GitHub Copilot workflow:
 ```bash
 codexs init
 codexs login copilot
-codexs add copilot-main --copilot --model gpt-4.1
+codexs add copilot-main --copilot --profile copilot-main --model gpt-4.1
 codexs switch copilot-main
 codexs status
 codexs doctor
@@ -58,6 +58,7 @@ Notes:
 - `init` prepares the `codex-switch` tool home and managed state.
 - `login copilot` handles upstream Copilot onboarding and auth readiness.
 - `add --copilot` does not perform login for you; it assumes Copilot login is already ready.
+- For non-interactive use, pass `--profile` explicitly. In TTY mode, `add` and `edit` can prompt for missing required fields.
 - Copilot support is an experimental local bridge. The managed installer defaults to `@github/copilot-sdk@1.0.2`, Copilot runtime paths require Node.js `>=20`, and runtime checks separately reject older or prerelease SDK installs while validating API shape when the client or session is used.
 - `switch` projects the selected provider into the target Codex runtime as top-level `model` plus `model_provider`.
 - `status` is the main read command after switching.
@@ -125,8 +126,8 @@ codexs current
 codexs status
 codexs config show [profile]
 codexs config list-profiles
-codexs add <provider> --model <model> --api-key <key> [--base-url <url>]
-codexs add <provider> --copilot --model <model>
+codexs add <provider> --profile <model-provider-id> --model <model> --api-key <key> [--base-url <url>]
+codexs add <provider> --copilot --profile <model-provider-id> --model <model>
 codexs edit <provider>
 codexs switch <provider>
 codexs remove <provider> [--force] [--switch-to <provider>]
@@ -218,8 +219,10 @@ npm pack --dry-run
 - [PRD 0.1.1](./docs/PRD/codex-switch-prd-v0.1.1.md)
 - [PRD 0.1.2](./docs/PRD/codex-switch-prd-v0.1.2.md)
 - [PRD 0.1.3](./docs/PRD/codex-switch-prd-v0.1.3.md)
+- [PRD 0.1.5](./docs/PRD/codex-switch-prd-v0.1.5.md)
 - [Design 0.1.2](./docs/Design/codex-switch-v0.1.2-design.md)
 - [Design 0.1.3](./docs/Design/codex-switch-v0.1.3-design.md)
+- [Design 0.1.5](./docs/Design/codex-switch-v0.1.5-design.md)
 
 ## License
 

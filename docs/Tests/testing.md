@@ -2,6 +2,8 @@
 
 This guide records the current `0.1.x` verification contract for release and review work.
 
+The current repository line is `0.1.5` and remains an unreleased development line until an explicit release task says otherwise.
+
 ## Required checks
 
 Run these commands before publishing or reviewing release changes:
@@ -23,6 +25,7 @@ node dist/cli.js --version
 - `--json` envelope: top-level `ok`, `command`, `data`, `warnings`, and `error` must remain stable
 - `migrate`: advanced adopt helper only
 - `setup`: deprecated entry only
+- Release hygiene: `package.json`, `package-lock.json`, current-line docs, changelog top entry, and current PRD/Design fact sources must agree on the `0.1.5` development line
 
 ## Fixture guidance
 

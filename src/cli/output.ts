@@ -164,6 +164,12 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`  mapped provider: ${renderStatusMappedProvider(data)}`);
       lines.push(`  provider path: ${renderStatusProviderPath(data)}`);
       lines.push(`  runtime health: ${renderStatusHealth(data)}`);
+      if (data?.copilotBridgeLogPath) {
+        lines.push(`  bridge log: ${String(data.copilotBridgeLogPath)}`);
+      }
+      if (data?.copilotBridgeRestartReason) {
+        lines.push(`  bridge restart reason: ${String(data.copilotBridgeRestartReason)}`);
+      }
       lines.push(`  warnings: ${warnings.length}`);
       lines.push(`  next step: ${renderStatusNextStep(data, warnings)}`);
       break;
@@ -191,6 +197,15 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
     case "switch":
       lines.push(`Switched to provider ${String(data?.provider ?? "")} using model provider ${String(data?.modelProvider ?? data?.profile ?? "")}.`);
       lines.push(`Model: ${String(data?.model ?? "")}`);
+      if (data?.bridgeReplaced) {
+        lines.push(`Bridge replaced: true`);
+      }
+      if (data?.bridgeRestartReason) {
+        lines.push(`Bridge restart reason: ${String(data?.bridgeRestartReason)}`);
+      }
+      if (data?.bridgeLogPath) {
+        lines.push(`Bridge log: ${String(data?.bridgeLogPath)}`);
+      }
       lines.push(`Backup: ${String(data?.backupPath ?? "")}`);
       break;
     case "import":
@@ -251,12 +266,49 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       const issues = (data?.issues as Array<Record<string, unknown>>) ?? [];
       lines.push(healthy ? "Doctor summary: healthy. No action required." : `Doctor summary: ${issues.length} issue(s) need attention.`);
       lines.push(`target runtime: ${String(data?.codexDir ?? "")}`);
+      if (data?.copilotRuntimeState && (data.copilotRuntimeState as Record<string, unknown>).logPath) {
+        lines.push(`bridge log: ${String((data.copilotRuntimeState as Record<string, unknown>).logPath)}`);
+      }
       for (const issue of issues) {
         lines.push(`- ${String(issue.code)}: ${String(issue.message)}`);
         lines.push(`  next step: ${renderDoctorIssueNextStep(issue)}`);
       }
       break;
     }
+    case "bridge-start":
+      lines.push(`Bridge ready for provider ${String(data?.provider ?? "")}.`);
+      lines.push(`Endpoint: ${String(data?.baseUrl ?? "")}`);
+      lines.push(`Reused: ${String(data?.reused ?? false)}`);
+      lines.push(`Replaced existing: ${String(data?.replaced ?? false)}`);
+      if (data?.restartReason) {
+        lines.push(`Restart reason: ${String(data?.restartReason)}`);
+      }
+      if (data?.logPath) {
+        lines.push(`Bridge log: ${String(data?.logPath)}`);
+      }
+      break;
+    case "bridge-status":
+      lines.push(`Bridge provider: ${String(data?.provider ?? "")}`);
+      lines.push(`Active: ${String(data?.active ?? false)}`);
+      lines.push(`Expected base URL: ${String(data?.expectedBaseUrl ?? "")}`);
+      lines.push(`Matches runtime state: ${String(data?.matches ?? false)}`);
+      if (data?.lastRestartReason) {
+        lines.push(`Last restart reason: ${String(data?.lastRestartReason)}`);
+      }
+      if (data?.logPath) {
+        lines.push(`Bridge log: ${String(data?.logPath)}`);
+      }
+      break;
+    case "bridge-stop":
+      lines.push(`Bridge stopped for provider ${String(data?.provider ?? "(none)")}.`);
+      lines.push(`Had runtime state: ${String(data?.hadRuntimeState ?? false)}`);
+      if (data?.lastRestartReason) {
+        lines.push(`Last restart reason: ${String(data?.lastRestartReason)}`);
+      }
+      if (data?.logPath) {
+        lines.push(`Bridge log: ${String(data?.logPath)}`);
+      }
+      break;
     case "backups-list": {
       const backups = (data?.backups as Array<Record<string, unknown>>) ?? [];
       for (const backup of backups) {
@@ -375,7 +427,7 @@ function renderDoctorIssueNextStep(issue: Record<string, unknown>): string {
     case "BRIDGE_STATE_STALE":
     case "BRIDGE_STATE_MISSING":
     case "BRIDGE_HEALTHCHECK_FAILED":
-      return "reselect the provider with `codexs switch <provider>` or inspect bridge state";
+      return "reselect the provider with `codexs switch <provider>` or inspect the bridge log/state";
     case "UNMANAGED_ACTIVE_PROFILE":
       return "switch to a managed provider or adopt the active route with `codexs migrate`";
     case "LEGACY_PROFILE_SELECTOR":

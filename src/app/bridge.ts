@@ -84,6 +84,9 @@ export async function startBridge(args: {
       port: bridge.port,
       reused: bridge.reused,
       portChanged: bridge.portChanged,
+      replaced: bridge.replaced,
+      restartReason: bridge.restartReason ?? null,
+      logPath: bridge.logPath,
       defaultPort: DEFAULT_BRIDGE_PORT,
     },
   };
@@ -109,6 +112,8 @@ export async function stopBridge(args: {
         provider: null,
         stopped: true,
         hadRuntimeState: false,
+        logPath: null,
+        lastRestartReason: null,
       },
     };
   }
@@ -120,6 +125,8 @@ export async function stopBridge(args: {
         provider: args.providerName,
         stopped: true,
         hadRuntimeState: false,
+        logPath: null,
+        lastRestartReason: null,
       },
     };
   }
@@ -148,6 +155,8 @@ export async function stopBridge(args: {
       provider: target.providerName,
       stopped: true,
       hadRuntimeState: Boolean(state),
+      logPath: state?.logPath ?? null,
+      lastRestartReason: state?.lastRestartReason ?? null,
     },
   };
 }
@@ -196,6 +205,8 @@ export async function statusBridge(args: {
       matches: Boolean(state && state.provider === target.providerName && state.baseUrl === expectedBaseUrl),
       active: runtimeStatus.ok,
       health: runtimeStatus,
+      logPath: state?.logPath ?? null,
+      lastRestartReason: state?.lastRestartReason ?? null,
     },
   };
 }

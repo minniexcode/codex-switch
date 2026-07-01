@@ -66,6 +66,7 @@ function writeProviders(toolHome, contents) {
 async function run() {
   await testHelpAndVersion();
   testReleaseDocsExist();
+  testReleaseMetadataAndDocsStayAligned();
   await testDirectProviderLifecycle();
   await testDirectProviderBaseUrlDriftDiagnostics();
   await testEditBaseUrlSyncsExistingDirectProjection();
@@ -80,13 +81,61 @@ async function testHelpAndVersion() {
   assert.match(help, /Deprecated entry: setup still exists only to point callers to init or migrate\./);
 
   const version = (await runCli(["--version"])).trim();
-  assert.equal(version, "0.1.3");
+  assert.equal(version, "0.1.5");
 }
 
 function testReleaseDocsExist() {
   assert.ok(fs.existsSync(path.join(repoRoot, "docs", "Tests", "testing.md")));
   assert.ok(fs.existsSync(path.join(repoRoot, "CHANGELOG.md")));
-  assert.ok(fs.existsSync(path.join(repoRoot, "docs", "Design", "codex-switch-v0.1.1-design.md")));
+  assert.ok(fs.existsSync(path.join(repoRoot, "docs", "PRD", "codex-switch-prd-v0.1.5.md")));
+  assert.ok(fs.existsSync(path.join(repoRoot, "docs", "Design", "codex-switch-v0.1.5-design.md")));
+}
+
+function testReleaseMetadataAndDocsStayAligned() {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  const packageLock = JSON.parse(fs.readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));
+  assert.equal(packageJson.version, "0.1.5");
+  assert.equal(packageLock.version, packageJson.version);
+  assert.equal(packageLock.packages[""].version, packageJson.version);
+
+  const readme = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
+  assert.match(readme, /Current package version: `0\.1\.5`/);
+  assert.match(readme, /current repository development line/i);
+  assert.doesNotMatch(readme, /Current package version: `0\.1\.4`/);
+  assert.match(readme, /\[PRD 0\.1\.5\]/);
+  assert.match(readme, /\[Design 0\.1\.5\]/);
+
+  const readmeCn = fs.readFileSync(path.join(repoRoot, "README.CN.md"), "utf8");
+  assert.match(readmeCn, /当前包版本：`0\.1\.5`/);
+  assert.match(readmeCn, /当前仓库开发线/);
+  assert.doesNotMatch(readmeCn, /当前包版本：`0\.1\.3`/);
+  assert.match(readmeCn, /\[PRD 0\.1\.5\]/);
+  assert.match(readmeCn, /\[Design 0\.1\.5\]/);
+
+  const readmeAi = fs.readFileSync(path.join(repoRoot, "README.AI.md"), "utf8");
+  assert.match(readmeAi, /Current repository version: `0\.1\.5`/);
+  assert.match(readmeAi, /Version status: development line/);
+  assert.doesNotMatch(readmeAi, /Current repository version: `0\.1\.1`/);
+
+  const cliUsage = fs.readFileSync(path.join(repoRoot, "docs", "cli-usage.md"), "utf8");
+  assert.match(cliUsage, /current `0\.1\.5` repository development-line CLI contract/i);
+  assert.match(cliUsage, /The current package version in this repository is `0\.1\.5`\./);
+  assert.doesNotMatch(cliUsage, /The current package version in this repository is `0\.1\.4`\./);
+  assert.match(cliUsage, /\[PRD 0\.1\.5\]/);
+  assert.match(cliUsage, /\[Design 0\.1\.5\]/);
+
+  const productOverview = fs.readFileSync(path.join(repoRoot, "docs", "codex-switch-product-overview.md"), "utf8");
+  assert.match(productOverview, /当前仓库开发线 fact source/);
+  assert.match(productOverview, /`0\.1\.5` 是当前仓库开发线/);
+  assert.match(productOverview, /codex-switch-prd-v0\.1\.5\.md/);
+  assert.match(productOverview, /codex-switch-v0\.1\.5-design\.md/);
+
+  const technicalArchitecture = fs.readFileSync(path.join(repoRoot, "docs", "codex-switch-technical-architecture.md"), "utf8");
+  assert.match(technicalArchitecture, /codex-switch-prd-v0\.1\.5\.md/);
+  assert.match(technicalArchitecture, /codex-switch-v0\.1\.5-design\.md/);
+
+  const changelog = fs.readFileSync(path.join(repoRoot, "CHANGELOG.md"), "utf8");
+  assert.match(changelog, /^# Changelog\r?\n\r?\n## 0\.1\.5 - 2026-07-01/m);
 }
 
 async function testDirectProviderLifecycle() {
