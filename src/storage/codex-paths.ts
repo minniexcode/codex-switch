@@ -15,8 +15,6 @@ export type CodexPaths = {
   backupsDir: string;
   latestBackupPath: string;
   lockPath: string;
-  runtimeDir: string;
-  runtimesDir: string;
   codexDir: string;
   configPath: string;
   authPath: string;
@@ -84,8 +82,6 @@ export function createCodexPaths(args: { codexDir: string; toolHomeDir?: string 
     backupsDir: path.join(toolHomeDir, "backups"),
     latestBackupPath: path.join(toolHomeDir, "backups", "latest.json"),
     lockPath: path.join(toolHomeDir, ".codex-switch.lock"),
-    runtimeDir: path.join(toolHomeDir, "runtime"),
-    runtimesDir: path.join(toolHomeDir, "runtimes"),
     codexDir,
     configPath: path.join(codexDir, "config.toml"),
     authPath: path.join(codexDir, "auth.json"),

@@ -1,5 +1,5 @@
 import { cliError } from "../domain/errors";
-import { buildDirectModelProviderProjection, cleanProviderRecord } from "../domain/providers";
+import { buildModelProviderProjection, cleanProviderRecord } from "../domain/providers";
 import {
   applyConfigMutation,
   createConfigMutationPlan,
@@ -68,34 +68,20 @@ export function editProvider(args: {
   const oldProfile = current.profile;
   const newProfile = nextProfile;
   const targetModelProviderSection = document.modelProviders.find((entry) => entry.name === newProfile) ?? null;
-  let upsertModelProviders: Record<string, { baseUrl?: string; name?: string; requiresOpenAiAuth?: boolean; wireApi?: string }> | undefined;
   const resolvedBaseUrl = (args.baseUrl ?? current.baseUrl ?? targetModelProviderSection?.baseUrl ?? "").trim();
-  if (!current.runtime) {
-    if (!resolvedBaseUrl) {
-      throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${newProfile}" requires base_url.`, {
-        profile: newProfile,
-        modelProvider: newProfile,
-        missingFields: ["base_url"],
-      });
-    }
-    upsertModelProviders = {
-      [newProfile]: buildDirectModelProviderProjection(newProfile, resolvedBaseUrl),
-    };
-  } else if (targetModelProviderSection || args.profile !== undefined) {
-    upsertModelProviders = {
-      ...(upsertModelProviders ?? {}),
-      [newProfile]: {
-        ...(current.runtime
-          ? {
-              baseUrl: current.baseUrl ?? targetModelProviderSection?.baseUrl ?? "",
-              name: "copilot",
-              requiresOpenAiAuth: true,
-              wireApi: "responses",
-            }
-          : buildDirectModelProviderProjection(newProfile, resolvedBaseUrl)),
-      },
-    };
+
+  if (!resolvedBaseUrl) {
+    throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Model provider "${newProfile}" requires base_url.`, {
+      profile: newProfile,
+      modelProvider: newProfile,
+      missingFields: ["base_url"],
+    });
   }
+
+  const upsertModelProviders = {
+    [newProfile]: buildModelProviderProjection(newProfile, resolvedBaseUrl),
+  };
+
   const nextRecord = cleanProviderRecord({
     profile: newProfile,
     apiKey: args.apiKey ?? current.apiKey,
@@ -103,7 +89,6 @@ export function editProvider(args: {
     baseUrl: args.baseUrl === null ? undefined : args.baseUrl ?? current.baseUrl,
     note: args.note === null ? undefined : args.note ?? current.note,
     tags: args.tags ?? current.tags,
-    runtime: current.runtime,
   });
   const isActive = document.currentModelProvider === oldProfile;
 
@@ -131,22 +116,21 @@ export function editProvider(args: {
           [args.providerName]: nextRecord,
         },
       };
-      // Write providers first so the registry and config move together inside the managed backup boundary.
       writeProvidersFile(args.providersPath, nextProviders);
       applyConfigMutation(args.configPath, document, configPlan);
 
-        return {
-          provider: args.providerName,
-          modelProvider: newProfile,
-          updatedFields,
-          createdProfileSections: configPlan.createdProfileSections,
-          createdModelProviderSections: configPlan.createdModelProviderSections,
-          deletedProfileSections: configPlan.deletedProfileSections,
-          keptSharedProfiles: [],
-          switchedActiveProfile: isActive && newProfile !== oldProfile,
-          adoptedProfiles: [],
-          repairedProfiles: [],
-        };
+      return {
+        provider: args.providerName,
+        modelProvider: newProfile,
+        updatedFields,
+        createdProfileSections: configPlan.createdProfileSections,
+        createdModelProviderSections: configPlan.createdModelProviderSections,
+        deletedProfileSections: configPlan.deletedProfileSections,
+        keptSharedProfiles: [],
+        switchedActiveProfile: isActive && newProfile !== oldProfile,
+        adoptedProfiles: [],
+        repairedProfiles: [],
+      };
     },
   });
 }

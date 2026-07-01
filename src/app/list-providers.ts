@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import { CommandResult } from "./types";
-import { isCopilotBridgeProvider } from "../domain/providers";
 import { inspectLiveStateDrift } from "../domain/runtime-state";
 import { readStructuredConfig } from "../storage/config-repo";
 import { readProvidersFile } from "../storage/providers-repo";
@@ -10,7 +9,6 @@ export type ProviderListItem = {
   profile: string;
   modelProvider: string;
   model: string | null;
-  providerType: "direct" | "copilot";
   isActive: boolean;
   note: string | null;
   tags: string[];
@@ -36,21 +34,20 @@ export function listProviders(providersPath: string, configPath?: string): Comma
     profile: providers.providers[name].profile,
     modelProvider: providers.providers[name].profile,
     model: providers.providers[name].model ?? null,
-    providerType: isCopilotBridgeProvider(providers.providers[name]) ? "copilot" : "direct",
     isActive: liveState.providerResolvable && liveState.mappedProvider === name,
     note: providers.providers[name].note ?? null,
     tags: providers.providers[name].tags ?? [],
   }));
 
   return {
-      data: {
-        providers: items,
-        count: items.length,
-        currentModel,
-        currentModelProvider,
-        activeProvider: liveState.mappedProvider,
-        activeProviderResolvable: liveState.providerResolvable,
-        activeProviderCandidates: liveState.mappedProviders,
+    data: {
+      providers: items,
+      count: items.length,
+      currentModel,
+      currentModelProvider,
+      activeProvider: liveState.mappedProvider,
+      activeProviderResolvable: liveState.providerResolvable,
+      activeProviderCandidates: liveState.mappedProviders,
     },
   };
 }

@@ -460,7 +460,6 @@ export function collectConfigConsistencyIssues(
     if (linkedProviders.length === 1 && activeProviderSection?.baseUrl) {
       const [providerName, provider] = linkedProviders[0];
       if (
-        !provider.runtime &&
         typeof provider.baseUrl === "string" &&
         provider.baseUrl.trim() !== "" &&
         provider.baseUrl !== activeProviderSection.baseUrl

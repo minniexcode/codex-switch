@@ -5,17 +5,10 @@ import {
   readStructuredConfig,
 } from "../storage/config-repo";
 import { writeOpenAiApiKeyAuth } from "../storage/auth-repo";
-import { readProvidersFile, writeProvidersFile } from "../storage/providers-repo";
-import { ensureCopilotBridge, stopCopilotBridge } from "../runtime/copilot-bridge";
-import { readGithubToken, exchangeForCopilotToken } from "../runtime/copilot-token";
+import { readProvidersFile } from "../storage/providers-repo";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
-import {
-  buildCopilotModelProviderProjection,
-  buildDirectModelProviderProjection,
-  cleanProviderRecord,
-  isCopilotBridgeProvider,
-} from "../domain/providers";
+import { buildModelProviderProjection } from "../domain/providers";
 
 /**
  * Switches the active Codex route to the target provider.
@@ -28,9 +21,6 @@ export async function switchProvider(args: {
   configPath: string;
   providersPath: string;
   authPath: string;
-  runtimeDir?: string;
-  runtimesDir?: string;
-  toolHomeDir?: string;
   providerName: string;
 }): Promise<CommandResult> {
   const providers = readProvidersFile(args.providersPath);
@@ -52,76 +42,7 @@ export async function switchProvider(args: {
       suggestion: "Run `codexs edit <provider> --model <name>` or `codexs add <provider> --model <name>`.",
     });
   }
-  if (isCopilotBridgeProvider(provider)) {
-    const githubToken = readGithubToken(args.toolHomeDir);
-    if (!githubToken) {
-      throw cliError("COPILOT_AUTH_REQUIRED", "GitHub Copilot authentication is required. Run `codexs login copilot` first.");
-    }
-    await exchangeForCopilotToken(githubToken);
-    const bridge = await ensureCopilotBridge(args.providerName, provider, args.runtimeDir, args.runtimesDir, args.toolHomeDir);
-    const nextProvider = bridge.portChanged
-      ? cleanProviderRecord({
-          ...provider,
-          baseUrl: bridge.baseUrl,
-          runtime: {
-            ...provider.runtime!,
-            bridgePort: bridge.port,
-          },
-        })
-      : provider;
-    try {
-      return runMutation({
-        lockPath: args.lockPath,
-        backupsDir: args.backupsDir,
-        latestBackupPath: args.latestBackupPath,
-        operation: "switch",
-        files: [
-          { absolutePath: args.authPath, relativePath: "auth.json" },
-          { absolutePath: args.providersPath, relativePath: "providers.json" },
-          { absolutePath: args.configPath, relativePath: "config.toml" },
-        ],
-        mutate: () => {
-          const configPlan = createConfigMutationPlan(document, {
-            setCurrentModel: resolvedModel,
-            setCurrentModelProvider: provider.profile,
-            upsertModelProviders: {
-              [provider.profile]: buildCopilotModelProviderProjection(nextProvider.runtime!),
-            },
-            deleteLegacyProfile: true,
-            deleteLegacyProfilesByName: [provider.profile],
-            scrubModelProviderEnvKeys: [provider.profile],
-          });
-          if (bridge.portChanged) {
-            writeProvidersFile(args.providersPath, {
-              providers: {
-                ...providers.providers,
-                [args.providerName]: nextProvider,
-              },
-            });
-          }
-          applyConfigMutation(args.configPath, document, configPlan);
-          writeOpenAiApiKeyAuth(args.authPath, provider.apiKey);
-          return {
-            provider: args.providerName,
-            model: resolvedModel,
-            modelProvider: nextProvider.profile,
-            profile: nextProvider.profile,
-            portChanged: bridge.portChanged,
-            bridgePort: bridge.port,
-            bridgeReused: bridge.reused,
-            bridgeReplaced: bridge.replaced,
-            bridgeRestartReason: bridge.restartReason ?? null,
-            bridgeLogPath: bridge.logPath,
-          };
-        },
-      });
-    } catch (error: unknown) {
-      if (!bridge.reused) {
-        stopCopilotBridge(args.runtimeDir);
-      }
-      throw error;
-    }
-  }
+
   return runMutation({
     lockPath: args.lockPath,
     backupsDir: args.backupsDir,
@@ -145,7 +66,7 @@ export async function switchProvider(args: {
         setCurrentModel: resolvedModel,
         setCurrentModelProvider: provider.profile,
         upsertModelProviders: {
-          [provider.profile]: buildDirectModelProviderProjection(provider.profile, resolvedBaseUrl),
+          [provider.profile]: buildModelProviderProjection(provider.profile, resolvedBaseUrl),
         },
         deleteLegacyProfile: true,
         deleteLegacyProfilesByName: [provider.profile],

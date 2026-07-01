@@ -1,17 +1,5 @@
 import { checkCodexAvailable, checkCodexVersion, readCodexVersion } from "./codex-cli";
-import { RuntimeAvailability, RuntimeDependencyProbe } from "./types";
-
-/**
- * Default dependency probe implementation for the local codex CLI runtime.
- */
-export const codexRuntimeProbe: RuntimeDependencyProbe = {
-  probe(options) {
-    if (options?.minVersion) {
-      return probeCodexRuntime(options.minVersion);
-    }
-    return probeCodexRuntime();
-  },
-};
+import { RuntimeAvailability } from "./types";
 
 /**
  * Checks whether the codex CLI is installed and, optionally, satisfies a minimum version.

@@ -12,16 +12,15 @@ import { listProviders } from "../app/list-providers";
 import { removeProvider } from "../app/remove-provider";
 import { rollbackBackup } from "../app/rollback-backup";
 import { runDoctor } from "../app/run-doctor";
-import { startBridge, statusBridge, stopBridge } from "../app/bridge";
 import { migrateCodex } from "../app/setup-codex";
 import { showConfig } from "../app/show-config";
 import { showProvider } from "../app/show-provider";
 import { switchProvider } from "../app/switch-provider";
 import { buildManagedProfileViews } from "../domain/config";
-import { cliError, normalizeError } from "../domain/errors";
+import { cliError } from "../domain/errors";
 import { collectMigrateAdoptability, SetupProviderDetails } from "../domain/setup";
 import { validateProvidersShape } from "../domain/providers";
-import { collectAddInput, collectCopilotAddInput, createNonInteractiveAddError } from "../interaction/add-interactive";
+import { collectAddInput, createNonInteractiveAddError } from "../interaction/add-interactive";
 import {
   canPrompt,
   chooseCodexDir,
@@ -36,14 +35,7 @@ import {
   exportTargetExists,
   promptForProviderSelection,
 } from "../interaction/interactive";
-import { CliPromptRuntime, createPromptRuntime } from "../interaction/prompt";
-import {
-  startDeviceFlow,
-  pollDeviceFlowToken,
-  exchangeForCopilotToken,
-  readGithubToken,
-  writeGithubToken,
-} from "../runtime/copilot-token";
+import { createPromptRuntime } from "../interaction/prompt";
 import { findCodexDirCandidates, readStructuredConfig } from "../storage/config-repo";
 import { createCodexPaths } from "../storage/codex-paths";
 import { mergeProviders, readProvidersFileIfExists } from "../storage/providers-repo";
@@ -86,48 +78,7 @@ export async function handleRegisteredCommand(
     case "current":
       return getCurrentProfile(paths.configPath, paths.providersPath);
     case "status":
-      return getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath, {
-        runtimeDir: paths.runtimeDir,
-        runtimesDir: paths.runtimesDir,
-        toolHomeDir: paths.toolHomeDir,
-      });
-    case "bridge-start": {
-      const providerName = parsed.positionals[0] ?? null;
-      return startBridge({
-        providersPath: paths.providersPath,
-        configPath: paths.configPath,
-        runtimeDir: paths.runtimeDir,
-        runtimesDir: paths.runtimesDir,
-        toolHomeDir: paths.toolHomeDir,
-        providerName,
-        runtime,
-        json: ctx.options.json,
-      });
-    }
-    case "bridge-stop": {
-      const providerName = parsed.positionals[0] ?? null;
-      return stopBridge({
-        providersPath: paths.providersPath,
-        configPath: paths.configPath,
-        runtimeDir: paths.runtimeDir,
-        runtimesDir: paths.runtimesDir,
-        providerName,
-        runtime,
-        json: ctx.options.json,
-      });
-    }
-    case "bridge-status": {
-      const providerName = parsed.positionals[0] ?? null;
-      return statusBridge({
-        providersPath: paths.providersPath,
-        configPath: paths.configPath,
-        runtimeDir: paths.runtimeDir,
-        runtimesDir: paths.runtimesDir,
-        providerName,
-        runtime,
-        json: ctx.options.json,
-      });
-    }
+      return getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath);
     case "init": {
       return initCodex({
         toolHomeDir: setupPaths.toolHomeDir,
@@ -136,62 +87,6 @@ export async function handleRegisteredCommand(
         version: packageVersion,
         defaultCodexDir: ctx.options.codexDirExplicit ? setupPaths.codexDir : null,
       });
-    }
-    case "login": {
-      const upstream = (parsed.positionals[0] ?? "").toLowerCase();
-      if (ctx.options.json || !runtime.isInteractive()) {
-        throw cliError("COPILOT_LOGIN_REQUIRES_TTY", "login requires an interactive TTY and does not support --json.");
-      }
-      if (upstream !== "copilot" && upstream !== "github-copilot") {
-        throw cliError("INVALID_ARGUMENT", `Unsupported upstream "${parsed.positionals[0] ?? ""}".`, {
-          supportedUpstreams: ["copilot", "github-copilot"],
-        });
-      }
-
-      // Check if already authenticated
-      const existingToken = readGithubToken(paths.toolHomeDir);
-      if (existingToken) {
-        try {
-          await exchangeForCopilotToken(existingToken);
-          return {
-            data: {
-              upstream: "github-copilot",
-              authReady: true,
-              loginLaunched: false,
-              authSource: "github-pat",
-            },
-          };
-        } catch {
-          // Token is invalid, proceed with new login
-        }
-      }
-
-      // Start GitHub OAuth Device Flow
-      runtime.writeLine("Starting GitHub authentication...");
-      const deviceFlow = await startDeviceFlow();
-      runtime.writeLine(`\nPlease visit: ${deviceFlow.verificationUri}`);
-      runtime.writeLine(`And enter code: ${deviceFlow.userCode}\n`);
-      runtime.writeLine("Waiting for authorization...");
-
-      const githubPat = await pollDeviceFlowToken(
-        deviceFlow.deviceCode,
-        deviceFlow.interval,
-        deviceFlow.expiresIn
-      );
-
-      // Validate the token by doing a test exchange
-      await exchangeForCopilotToken(githubPat);
-      writeGithubToken(githubPat, paths.toolHomeDir);
-      runtime.writeLine("GitHub Copilot authentication successful!");
-
-      return {
-        data: {
-          upstream: "github-copilot",
-          authReady: true,
-          loginLaunched: true,
-          authSource: "github-pat",
-        },
-      };
     }
     case "config-show":
       return showConfig({
@@ -213,11 +108,6 @@ export async function handleRegisteredCommand(
       if (!providerName) {
         throw cliError("PROVIDER_NOT_FOUND", "Missing provider name for switch command.");
       }
-      if (hasFlag(parsed.commandOptions, "--install-copilot-sdk")) {
-        throw cliError("INVALID_ARGUMENT", "--install-copilot-sdk is no longer supported with switch. Run `codexs login copilot` instead.", {
-          suggestion: "Run `codexs login copilot` first, then rerun switch without --install-copilot-sdk.",
-        });
-      }
 
       return switchProvider({
         codexDir: paths.codexDir,
@@ -227,9 +117,6 @@ export async function handleRegisteredCommand(
         configPath: paths.configPath,
         providersPath: paths.providersPath,
         authPath: paths.authPath,
-        runtimeDir: paths.runtimeDir,
-        runtimesDir: paths.runtimesDir,
-        toolHomeDir: paths.toolHomeDir,
         providerName,
       });
     }
@@ -293,91 +180,40 @@ export async function handleRegisteredCommand(
       let note = getSingleOption(parsed.commandOptions, "--note", false);
       let tags = parsed.commandOptions.get("--tag") ?? [];
       let createProfile = hasFlag(parsed.commandOptions, "--create-profile");
-      const copilot = hasFlag(parsed.commandOptions, "--copilot");
-      let bridgeHost = getSingleOption(parsed.commandOptions, "--bridge-host", false);
-      const bridgePortValue = getSingleOption(parsed.commandOptions, "--bridge-port", false);
-      let bridgeApiKey = getSingleOption(parsed.commandOptions, "--bridge-api-key", false);
-      const installCopilotSdk = hasFlag(parsed.commandOptions, "--install-copilot-sdk");
-      let bridgePort = bridgePortValue ? Number(bridgePortValue) : null;
 
-      if (copilot && apiKey) {
-        throw cliError("INVALID_ARGUMENT", "--copilot does not allow --api-key. Use --bridge-api-key for the local bridge secret.");
-      }
-      if (copilot && installCopilotSdk) {
-        throw cliError("INVALID_ARGUMENT", "--install-copilot-sdk is no longer supported with add --copilot. Run `codexs login copilot` instead.", {
-          suggestion: "Run `codexs login copilot` first, then rerun add --copilot.",
-        });
-      }
-      if (bridgePortValue && (!Number.isInteger(bridgePort) || bridgePort === null || bridgePort <= 0)) {
-        throw cliError("INVALID_ARGUMENT", "--bridge-port must be a positive integer.");
-      }
-
-      if (!providerName || !profile || (!apiKey && !copilot)) {
+      if (!providerName || !profile || !apiKey) {
         if (ctx.options.json || !runtime.isInteractive()) {
-          throw createNonInteractiveAddError({ copilot });
+          throw createNonInteractiveAddError({});
         }
 
-        if (copilot) {
-          const prompted = await collectCopilotAddInput(
-            runtime,
-            {
-              providerName,
-              profile,
-              model,
-              note,
-              tags,
-            },
-            (candidate) => Boolean(readProvidersFileIfExists(paths.providersPath).providers[candidate]),
-            (candidate) => Boolean(readStructuredConfig(paths.configPath).profiles.find((profileView) => profileView.name === candidate)),
-            {
-              bridgeHost,
-              bridgePort,
-              bridgeApiKey,
-            }
-          );
+        const prompted = await collectAddInput(
+          runtime,
+          {
+            providerName,
+            profile,
+            apiKey,
+            model,
+            baseUrl,
+            note,
+            tags,
+          },
+          (candidate) => Boolean(readProvidersFileIfExists(paths.providersPath).providers[candidate]),
+          (candidate) => Boolean(readStructuredConfig(paths.configPath).profiles.find((profileView) => profileView.name === candidate))
+        );
 
-          providerName = prompted.providerName;
-          profile = prompted.profile;
-          model = prompted.model ?? null;
-          note = prompted.note ?? null;
-          tags = prompted.tags;
-          createProfile = createProfile || prompted.createProfile;
-          baseUrl = null;
-          bridgeHost = prompted.bridgeHost ?? bridgeHost;
-          bridgePort = prompted.bridgePort ?? bridgePort;
-          bridgeApiKey = prompted.bridgeApiKey ?? bridgeApiKey;
-        } else {
-          const prompted = await collectAddInput(
-            runtime,
-            {
-              providerName,
-              profile,
-              apiKey,
-              model,
-              baseUrl,
-              note,
-              tags,
-            },
-            (candidate) => Boolean(readProvidersFileIfExists(paths.providersPath).providers[candidate]),
-            (candidate) => Boolean(readStructuredConfig(paths.configPath).profiles.find((profileView) => profileView.name === candidate))
-          );
-
-          providerName = prompted.providerName;
-          profile = prompted.profile;
-          apiKey = prompted.apiKey;
-          model = prompted.model ?? null;
-          baseUrl = prompted.baseUrl ?? null;
-          note = prompted.note ?? null;
-          tags = prompted.tags;
-          createProfile = createProfile || prompted.createProfile;
-        }
+        providerName = prompted.providerName;
+        profile = prompted.profile;
+        apiKey = prompted.apiKey;
+        model = prompted.model ?? null;
+        baseUrl = prompted.baseUrl ?? null;
+        note = prompted.note ?? null;
+        tags = prompted.tags;
+        createProfile = createProfile || prompted.createProfile;
       }
 
       return addProvider({
         codexDir: paths.codexDir,
-        toolHomeDir: paths.toolHomeDir,
         lockPath: paths.lockPath,
-        runtimesDir: paths.runtimesDir,
         backupsDir: paths.backupsDir,
         latestBackupPath: paths.latestBackupPath,
         providersPath: paths.providersPath,
@@ -391,10 +227,6 @@ export async function handleRegisteredCommand(
         note,
         tags,
         createProfile,
-        copilot,
-        bridgeHost,
-        bridgePort,
-        bridgeApiKey,
       });
     }
     case "edit": {
@@ -499,9 +331,6 @@ export async function handleRegisteredCommand(
         configPath: paths.configPath,
         providersPath: paths.providersPath,
         authPath: paths.authPath,
-        runtimeDir: paths.runtimeDir,
-        runtimesDir: paths.runtimesDir,
-        toolHomeDir: paths.toolHomeDir,
       });
     case "migrate": {
       let codexDir = ctx.options.codexDir;
@@ -614,8 +443,6 @@ export async function handleRegisteredCommand(
         configPath: setupPaths.configPath,
         providersPath: setupPaths.providersPath,
         authPath: setupPaths.authPath,
-        runtimeDir: setupPaths.runtimeDir,
-        runtimesDir: setupPaths.runtimesDir,
         backupsDir: setupPaths.backupsDir,
         latestBackupPath: setupPaths.latestBackupPath,
         strategy: strategy ?? "overwrite",

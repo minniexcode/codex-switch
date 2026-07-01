@@ -1,26 +1,4 @@
-/**
- * Supported runtime-backed provider configuration.
- */
-export type ProviderRuntime = {
-  kind: "copilot-http-proxy" | "copilot-sdk-bridge";
-  upstream: "github-copilot";
-  bridgeHost: string;
-  bridgePort: number;
-  bridgePath: "/v1";
-  premiumRequests: true;
-  authSource: "github-pat" | "official-sdk";
-  sdkInstallMode?: "lazy";
-};
-
-export type CopilotModelProviderProjection = {
-  baseUrl: string;
-  name: "copilot";
-  requiresOpenAiAuth: true;
-  wireApi: "responses";
-  streamIdleTimeoutMs: 300000;
-};
-
-export type DirectModelProviderProjection = {
+export type ModelProviderProjection = {
   baseUrl: string;
   name: string;
   requiresOpenAiAuth: true;
@@ -31,16 +9,12 @@ export type DirectModelProviderProjection = {
  * Provider definition stored in providers.json.
  */
 export type ProviderRecord = {
-  /**
-   * Stored model_provider id alias used when projecting the active route.
-   */
   profile: string;
   apiKey: string;
   model?: string;
   baseUrl?: string;
   note?: string;
   tags?: string[];
-  runtime?: ProviderRuntime;
 };
 
 /**
@@ -92,15 +66,7 @@ export function validateProvidersShape(input: unknown): ProvidersFile {
     ) {
       throw new Error(`Provider "${name}" has invalid tags.`);
     }
-    if (provider.runtime !== undefined) {
-      validateProviderRuntime(name, provider.runtime);
-      const expectedBaseUrl = buildCopilotBridgeBaseUrl(provider.runtime as ProviderRuntime);
-      if (typeof provider.baseUrl !== "string" || provider.baseUrl.trim() !== expectedBaseUrl) {
-        throw new Error(`Provider "${name}" baseUrl must match runtime bridge base URL "${expectedBaseUrl}".`);
-      }
-    }
 
-    // Normalize provider fields during validation so the persisted format stays clean.
     providers[name] = cleanProviderRecord({
       profile: provider.profile,
       apiKey: provider.apiKey,
@@ -108,7 +74,6 @@ export function validateProvidersShape(input: unknown): ProvidersFile {
       baseUrl: provider.baseUrl as string | undefined,
       note: provider.note as string | undefined,
       tags: provider.tags as string[] | undefined,
-      runtime: provider.runtime as ProviderRuntime | undefined,
     });
   }
 
@@ -135,21 +100,6 @@ export function cleanProviderRecord(record: ProviderRecord): ProviderRecord {
   }
   if (record.tags && record.tags.length > 0) {
     next.tags = record.tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0);
-  }
-  if (record.runtime) {
-    const cleanedRuntime: ProviderRuntime = {
-      kind: record.runtime.kind,
-      upstream: record.runtime.upstream,
-      bridgeHost: record.runtime.bridgeHost.trim(),
-      bridgePort: record.runtime.bridgePort,
-      bridgePath: record.runtime.bridgePath,
-      premiumRequests: record.runtime.premiumRequests,
-      authSource: record.runtime.authSource,
-    };
-    if (record.runtime.sdkInstallMode) {
-      cleanedRuntime.sdkInstallMode = record.runtime.sdkInstallMode;
-    }
-    next.runtime = cleanedRuntime;
   }
 
   return next;
@@ -203,46 +153,12 @@ export function maskSecret(value: string): string {
 }
 
 /**
- * Returns whether one provider record relies on an auxiliary runtime component.
+ * Builds the Codex-facing custom model_provider projection for a provider.
  */
-export function isRuntimeBackedProvider(provider: ProviderRecord): boolean {
-  return Boolean(provider.runtime);
-}
-
-/**
- * Returns whether one provider uses the GitHub Copilot bridge runtime.
- */
-export function isCopilotBridgeProvider(provider: ProviderRecord): boolean {
-  return provider.runtime?.kind === "copilot-http-proxy" || provider.runtime?.kind === "copilot-sdk-bridge";
-}
-
-/**
- * Builds the canonical local bridge URL for one Copilot runtime provider.
- */
-export function buildCopilotBridgeBaseUrl(runtime: ProviderRuntime): string {
-  return `http://${runtime.bridgeHost}:${runtime.bridgePort}${runtime.bridgePath}`;
-}
-
-/**
- * Builds the Codex-facing custom model_provider projection for the managed Copilot bridge.
- */
-export function buildCopilotModelProviderProjection(runtime: ProviderRuntime): CopilotModelProviderProjection {
-  return {
-    baseUrl: buildCopilotBridgeBaseUrl(runtime),
-    name: "copilot",
-    requiresOpenAiAuth: true,
-    wireApi: "responses",
-    streamIdleTimeoutMs: 300000,
-  };
-}
-
-/**
- * Builds the Codex-facing custom model_provider projection for a direct provider.
- */
-export function buildDirectModelProviderProjection(profile: string, baseUrl: string): DirectModelProviderProjection {
+export function buildModelProviderProjection(profile: string, baseUrl: string): ModelProviderProjection {
   const normalizedBaseUrl = baseUrl.trim();
   if (!normalizedBaseUrl) {
-    throw new Error(`Direct model provider "${profile}" requires a non-empty base_url.`);
+    throw new Error(`Model provider "${profile}" requires a non-empty base_url.`);
   }
 
   return {
@@ -251,35 +167,4 @@ export function buildDirectModelProviderProjection(profile: string, baseUrl: str
     requiresOpenAiAuth: true,
     wireApi: "responses",
   };
-}
-
-/**
- * Validates one runtime-backed provider block.
- */
-function validateProviderRuntime(name: string, runtime: unknown): void {
-  if (!runtime || typeof runtime !== "object" || Array.isArray(runtime)) {
-    throw new Error(`Provider "${name}" has an invalid runtime block.`);
-  }
-  const record = runtime as Record<string, unknown>;
-  if (record.kind !== "copilot-http-proxy" && record.kind !== "copilot-sdk-bridge") {
-    throw new Error(`Provider "${name}" has an unsupported runtime kind.`);
-  }
-  if (record.upstream !== "github-copilot") {
-    throw new Error(`Provider "${name}" has an invalid runtime upstream.`);
-  }
-  if (typeof record.bridgeHost !== "string" || record.bridgeHost.trim() === "") {
-    throw new Error(`Provider "${name}" has an invalid runtime bridgeHost.`);
-  }
-  if (typeof record.bridgePort !== "number" || !Number.isInteger(record.bridgePort) || record.bridgePort <= 0) {
-    throw new Error(`Provider "${name}" has an invalid runtime bridgePort.`);
-  }
-  if (record.bridgePath !== "/v1") {
-    throw new Error(`Provider "${name}" has an invalid runtime bridgePath.`);
-  }
-  if (record.premiumRequests !== true) {
-    throw new Error(`Provider "${name}" must enable runtime premiumRequests.`);
-  }
-  if (record.authSource !== "github-pat" && record.authSource !== "official-sdk") {
-    throw new Error(`Provider "${name}" has an invalid runtime authSource.`);
-  }
 }

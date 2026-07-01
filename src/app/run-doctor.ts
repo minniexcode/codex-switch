@@ -1,16 +1,12 @@
 import * as fs from "node:fs";
 import { collectConfigConsistencyIssues, ConfigConsistencyIssue, ParsedConfigDocument } from "../domain/config";
-import { getStorageRoles, inspectLiveStateDrift } from "../domain/runtime-state";
+import { inspectLiveStateDrift } from "../domain/runtime-state";
 import { readStructuredConfig } from "../storage/config-repo";
 import { readProvidersFile } from "../storage/providers-repo";
 import { normalizeError } from "../domain/errors";
 import { CommandResult } from "./types";
 import { probeCodexRuntime } from "../runtime/codex-probe";
 import { readAuthFileState } from "../storage/auth-repo";
-import { findProvidersByProfile, isCopilotBridgeProvider } from "../domain/providers";
-import { readGithubToken, exchangeForCopilotToken } from "../runtime/copilot-token";
-import { probeCopilotBridgeRuntime } from "../runtime/copilot-bridge";
-import { inspectCopilotBridgeState } from "../storage/runtime-state-repo";
 import { MIN_SUPPORTED_CODEX_VERSION } from "../runtime/codex-version";
 
 /**
@@ -21,9 +17,6 @@ export async function runDoctor(args: {
   configPath: string;
   providersPath: string;
   authPath: string;
-  runtimeDir?: string;
-  runtimesDir?: string;
-  toolHomeDir?: string;
 }): Promise<CommandResult> {
   const issues: Array<Record<string, unknown>> = [];
   let currentModelProvider: string | null = null;
@@ -58,7 +51,6 @@ export async function runDoctor(args: {
     try {
       providers = readProvidersFile(args.providersPath);
       if (document) {
-        // Preserve domain issue codes while translating them into user-facing diagnostic messages.
         for (const issue of collectConfigConsistencyIssues(document, providers)) {
           issues.push({
             ...issue,
@@ -77,8 +69,6 @@ export async function runDoctor(args: {
   }
 
   const authState = readAuthFileState(args.authPath);
-  const runtimeStateInspection = inspectCopilotBridgeState(args.runtimeDir);
-  const runtimeState = runtimeStateInspection.state;
   if (authState.exists && !authState.valid) {
     issues.push({
       code: "AUTH_JSON_INVALID",
@@ -86,70 +76,7 @@ export async function runDoctor(args: {
       file: args.authPath,
     });
   }
-  if (runtimeStateInspection.exists && !runtimeStateInspection.valid) {
-    issues.push({
-      code: "BRIDGE_STATE_STALE",
-      message: `Copilot bridge runtime state is unreadable: ${runtimeStateInspection.parseError ?? "unknown parse failure"}`,
-      logPath: runtimeState?.logPath ?? null,
-    });
-  }
 
-  if (document?.currentModelProvider && providers) {
-    const matches = findProvidersByProfile(providers, document.currentModelProvider);
-    if (matches.length === 1) {
-      const activeProvider = providers.providers[matches[0]];
-      if (isCopilotBridgeProvider(activeProvider)) {
-        const githubToken = readGithubToken(args.toolHomeDir);
-        if (!githubToken) {
-          issues.push({
-            code: "COPILOT_AUTH_REQUIRED",
-            message: "GitHub Copilot authentication is required. Run `codexs login copilot`.",
-          });
-        } else {
-          try {
-            await exchangeForCopilotToken(githubToken);
-          } catch (error: unknown) {
-            const normalized = normalizeError(error);
-            issues.push({
-              code: normalized.code,
-              message: normalized.message,
-              ...(normalized.details ?? {}),
-            });
-          }
-        }
-        const bridge = await probeCopilotBridgeRuntime(activeProvider, runtimeState, args.runtimeDir);
-        if (!bridge.ok) {
-          issues.push({
-            code: mapBridgeDiagnosticCode(bridge.cause),
-            message: bridge.cause,
-            ...(bridge.details ?? {}),
-          });
-        }
-      }
-    }
-  }
-
-  if (runtimeState && providers) {
-    const runtimeProvider = providers.providers[runtimeState.provider] ?? null;
-    if (!runtimeProvider || !isCopilotBridgeProvider(runtimeProvider)) {
-      issues.push({
-        code: "BRIDGE_STATE_STALE",
-        message: "Copilot bridge runtime state exists but no matching managed Copilot provider is available.",
-        ...runtimeState,
-      });
-    } else if (!document?.currentModelProvider || runtimeProvider.profile !== document.currentModelProvider) {
-      issues.push({
-        code: "BRIDGE_STATE_STALE",
-        message: "Copilot bridge runtime state exists for a provider that is not the current active model_provider.",
-        activeModelProvider: document?.currentModelProvider ?? null,
-        runtimeProvider: runtimeState.provider,
-        runtimeProfile: runtimeProvider.profile,
-        ...runtimeState,
-      });
-    }
-  }
-
-  // Drift inspection still runs when files are missing so status output can explain partial state.
   const drift = inspectLiveStateDrift(currentModelProvider, providers);
 
   const codexCheck = probeCodexRuntime(MIN_SUPPORTED_CODEX_VERSION);
@@ -177,38 +104,13 @@ export async function runDoctor(args: {
       healthy: issues.length === 0,
       issues,
       codexDir: args.codexDir,
-      storage: getStorageRoles({
-        codexDir: args.codexDir,
-        providersPath: args.providersPath,
-        configPath: args.configPath,
-        authPath: args.authPath,
-        runtimeDir: args.runtimeDir,
-        runtimesDir: args.runtimesDir,
-      }),
       liveState: drift,
       auth: authState,
-      copilotRuntimeState: runtimeState,
     },
     warnings: issues.length === 0 ? [] : [`doctor found ${issues.length} issue(s)`],
   };
 }
 
-function mapBridgeDiagnosticCode(cause: string): string {
-  if (cause === "Copilot bridge state manifest is missing.") {
-    return "BRIDGE_STATE_MISSING";
-  }
-  if (cause === "Copilot bridge runtime state exists but no active Copilot bridge provider is selected.") {
-    return "BRIDGE_STATE_STALE";
-  }
-  if (cause === "Copilot bridge state base URL does not match the provider runtime configuration.") {
-    return "PROVIDER_BASE_URL_MISMATCH";
-  }
-  return "BRIDGE_HEALTHCHECK_FAILED";
-}
-
-/**
- * Maps structured config consistency issues onto stable human-readable diagnostic text.
- */
 function renderConfigIssueMessage(issue: ConfigConsistencyIssue | Record<string, unknown>): string {
   switch (issue.code) {
     case "MODEL_MISSING":
@@ -226,11 +128,9 @@ function renderConfigIssueMessage(issue: ConfigConsistencyIssue | Record<string,
     case "LEGACY_MODEL_PROVIDER_ENV_KEY":
       return `Model provider "${issue.modelProvider}" still contains legacy env_key wiring.`;
     case "PROVIDER_BASE_URL_MISMATCH":
-      return issue.providerType === "direct"
-        ? `Direct provider "${issue.provider}" baseUrl does not match config.toml model provider "${issue.modelProvider}" base_url.`
-        : String((issue as { code?: string }).code ?? "UNKNOWN_ISSUE");
+      return `Provider "${issue.provider}" baseUrl does not match config.toml model provider "${issue.modelProvider}" base_url.`;
     case "AUTH_JSON_INVALID":
-      return String((issue as { reason?: string; message?: string }).message ?? (issue as { reason?: string }).reason ?? "auth.json is invalid.");
+      return String((issue as { message?: string }).message ?? "auth.json is invalid.");
     case "DESTRUCTIVE_REMOVE_BLOCKED":
       return `Provider "${issue.provider}" cannot be removed while "${issue.activeModelProvider}" remains active.`;
     default:

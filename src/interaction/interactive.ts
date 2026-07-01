@@ -3,7 +3,6 @@ import * as path from "node:path";
 import { BackupManifest } from "../domain/backup";
 import { cliError } from "../domain/errors";
 import { getBackupId } from "../domain/backups";
-import { isCopilotBridgeProvider } from "../domain/providers";
 import { inspectLiveStateDrift } from "../domain/runtime-state";
 import { resolveCodexDir } from "../storage/codex-paths";
 import { readStructuredConfig } from "../storage/config-repo";
@@ -41,7 +40,6 @@ export async function promptForProviderSelection(
   const choices = Object.entries(providers.providers)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([providerName, provider]) => {
-      const providerType = isCopilotBridgeProvider(provider) ? "copilot" : "direct";
       const currentMarker = liveState.providerResolvable && liveState.mappedProvider === providerName ? " | current" : "";
       const legacyMarker = !currentMarker && legacyCurrentProvider === providerName ? " | current" : "";
       const ambiguousMarker =
@@ -49,7 +47,7 @@ export async function promptForProviderSelection(
       return {
         value: providerName,
         label: providerName,
-        hint: `profile=${provider.profile} | type=${providerType}${currentMarker}${legacyMarker}${ambiguousMarker}`,
+        hint: `profile=${provider.profile}${currentMarker}${legacyMarker}${ambiguousMarker}`,
       };
     });
 

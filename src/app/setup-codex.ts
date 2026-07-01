@@ -26,8 +26,6 @@ export async function migrateCodex(args: {
   configPath: string;
   providersPath: string;
   authPath: string;
-  runtimeDir?: string;
-  runtimesDir?: string;
   backupsDir: string;
   latestBackupPath: string;
   strategy: "merge" | "overwrite";
@@ -158,8 +156,6 @@ export async function migrateCodex(args: {
     configPath: args.configPath,
     providersPath: args.providersPath,
     authPath: args.authPath,
-    runtimeDir: args.runtimeDir,
-    runtimesDir: args.runtimesDir,
   });
 
   return {

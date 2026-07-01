@@ -1,7 +1,7 @@
 import { cliError } from "../domain/errors";
 import { applyConfigMutation, createConfigMutationPlan, readStructuredConfig } from "../storage/config-repo";
 import { readProvidersFile, writeProvidersFile } from "../storage/providers-repo";
-import { buildCopilotModelProviderProjection, buildDirectModelProviderProjection, isCopilotBridgeProvider } from "../domain/providers";
+import { buildModelProviderProjection } from "../domain/providers";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 
@@ -57,11 +57,9 @@ export function removeProvider(args: {
     });
   }
   const switchTargetProjection = switchTarget
-    ? isCopilotBridgeProvider(switchTarget)
-      ? buildCopilotModelProviderProjection(switchTarget.runtime!)
-      : switchTarget.baseUrl
-        ? buildDirectModelProviderProjection(switchTarget.profile, switchTarget.baseUrl)
-        : null
+    ? switchTarget.baseUrl
+      ? buildModelProviderProjection(switchTarget.profile, switchTarget.baseUrl)
+      : null
     : null;
   if (switchTargetName && !switchTargetProjection) {
     throw cliError("MANAGED_PROFILE_FIELDS_MISSING", `Provider "${switchTargetName}" requires base_url before it can become active.`, {
