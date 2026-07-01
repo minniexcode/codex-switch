@@ -2,14 +2,14 @@
  * Supported runtime-backed provider configuration.
  */
 export type ProviderRuntime = {
-  kind: "copilot-sdk-bridge";
+  kind: "copilot-http-proxy" | "copilot-sdk-bridge";
   upstream: "github-copilot";
   bridgeHost: string;
   bridgePort: number;
   bridgePath: "/v1";
   premiumRequests: true;
-  authSource: "official-sdk";
-  sdkInstallMode: "lazy";
+  authSource: "github-pat" | "official-sdk";
+  sdkInstallMode?: "lazy";
 };
 
 export type CopilotModelProviderProjection = {
@@ -137,7 +137,7 @@ export function cleanProviderRecord(record: ProviderRecord): ProviderRecord {
     next.tags = record.tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0);
   }
   if (record.runtime) {
-    next.runtime = {
+    const cleanedRuntime: ProviderRuntime = {
       kind: record.runtime.kind,
       upstream: record.runtime.upstream,
       bridgeHost: record.runtime.bridgeHost.trim(),
@@ -145,8 +145,11 @@ export function cleanProviderRecord(record: ProviderRecord): ProviderRecord {
       bridgePath: record.runtime.bridgePath,
       premiumRequests: record.runtime.premiumRequests,
       authSource: record.runtime.authSource,
-      sdkInstallMode: record.runtime.sdkInstallMode,
     };
+    if (record.runtime.sdkInstallMode) {
+      cleanedRuntime.sdkInstallMode = record.runtime.sdkInstallMode;
+    }
+    next.runtime = cleanedRuntime;
   }
 
   return next;
@@ -207,10 +210,10 @@ export function isRuntimeBackedProvider(provider: ProviderRecord): boolean {
 }
 
 /**
- * Returns whether one provider uses the GitHub Copilot SDK bridge runtime.
+ * Returns whether one provider uses the GitHub Copilot bridge runtime.
  */
 export function isCopilotBridgeProvider(provider: ProviderRecord): boolean {
-  return provider.runtime?.kind === "copilot-sdk-bridge";
+  return provider.runtime?.kind === "copilot-http-proxy" || provider.runtime?.kind === "copilot-sdk-bridge";
 }
 
 /**
@@ -258,7 +261,7 @@ function validateProviderRuntime(name: string, runtime: unknown): void {
     throw new Error(`Provider "${name}" has an invalid runtime block.`);
   }
   const record = runtime as Record<string, unknown>;
-  if (record.kind !== "copilot-sdk-bridge") {
+  if (record.kind !== "copilot-http-proxy" && record.kind !== "copilot-sdk-bridge") {
     throw new Error(`Provider "${name}" has an unsupported runtime kind.`);
   }
   if (record.upstream !== "github-copilot") {
@@ -276,10 +279,7 @@ function validateProviderRuntime(name: string, runtime: unknown): void {
   if (record.premiumRequests !== true) {
     throw new Error(`Provider "${name}" must enable runtime premiumRequests.`);
   }
-  if (record.authSource !== "official-sdk") {
+  if (record.authSource !== "github-pat" && record.authSource !== "official-sdk") {
     throw new Error(`Provider "${name}" has an invalid runtime authSource.`);
-  }
-  if (record.sdkInstallMode !== "lazy") {
-    throw new Error(`Provider "${name}" has an invalid runtime sdkInstallMode.`);
   }
 }

@@ -7,8 +7,7 @@ import {
 import { writeOpenAiApiKeyAuth } from "../storage/auth-repo";
 import { readProvidersFile, writeProvidersFile } from "../storage/providers-repo";
 import { ensureCopilotBridge, stopCopilotBridge } from "../runtime/copilot-bridge";
-import { assertCopilotNodeRuntimeSupported, probeCopilotSdkInstall } from "../runtime/copilot-installer";
-import { readCopilotAuthState } from "../runtime/copilot-adapter";
+import { readGithubToken, exchangeForCopilotToken } from "../runtime/copilot-token";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 import {
@@ -31,6 +30,7 @@ export async function switchProvider(args: {
   authPath: string;
   runtimeDir?: string;
   runtimesDir?: string;
+  toolHomeDir?: string;
   providerName: string;
 }): Promise<CommandResult> {
   const providers = readProvidersFile(args.providersPath);
@@ -53,16 +53,12 @@ export async function switchProvider(args: {
     });
   }
   if (isCopilotBridgeProvider(provider)) {
-    assertCopilotNodeRuntimeSupported();
-    const installStatus = probeCopilotSdkInstall(args.runtimesDir);
-    if (!installStatus.installed) {
-      throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed.", {
-        installDir: installStatus.installDir,
-        packageName: installStatus.packageName,
-      });
+    const githubToken = readGithubToken(args.toolHomeDir);
+    if (!githubToken) {
+      throw cliError("COPILOT_AUTH_REQUIRED", "GitHub Copilot authentication is required. Run `codexs login copilot` first.");
     }
-    await readCopilotAuthState(args.runtimesDir);
-    const bridge = await ensureCopilotBridge(args.providerName, provider, args.runtimeDir, args.runtimesDir);
+    await exchangeForCopilotToken(githubToken);
+    const bridge = await ensureCopilotBridge(args.providerName, provider, args.runtimeDir, args.runtimesDir, args.toolHomeDir);
     const nextProvider = bridge.portChanged
       ? cleanProviderRecord({
           ...provider,

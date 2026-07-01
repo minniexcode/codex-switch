@@ -8,9 +8,8 @@ import { CommandResult } from "./types";
 import { probeCodexRuntime } from "../runtime/codex-probe";
 import { readAuthFileState } from "../storage/auth-repo";
 import { findProvidersByProfile, isCopilotBridgeProvider } from "../domain/providers";
-import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import { readGithubToken, exchangeForCopilotToken } from "../runtime/copilot-token";
 import { probeCopilotBridgeRuntime } from "../runtime/copilot-bridge";
-import { readCopilotAuthState } from "../runtime/copilot-adapter";
 import { inspectCopilotBridgeState } from "../storage/runtime-state-repo";
 import { MIN_SUPPORTED_CODEX_VERSION } from "../runtime/codex-version";
 
@@ -24,6 +23,7 @@ export async function runDoctor(args: {
   authPath: string;
   runtimeDir?: string;
   runtimesDir?: string;
+  toolHomeDir?: string;
 }): Promise<CommandResult> {
   const issues: Array<Record<string, unknown>> = [];
   let currentModelProvider: string | null = null;
@@ -99,24 +99,23 @@ export async function runDoctor(args: {
     if (matches.length === 1) {
       const activeProvider = providers.providers[matches[0]];
       if (isCopilotBridgeProvider(activeProvider)) {
-        const installStatus = probeCopilotSdkInstall(args.runtimesDir);
-        if (!installStatus.installed) {
+        const githubToken = readGithubToken(args.toolHomeDir);
+        if (!githubToken) {
           issues.push({
-            code: "COPILOT_SDK_MISSING",
-            message: "The optional Copilot SDK runtime is not installed.",
-            installDir: installStatus.installDir,
-            packageName: installStatus.packageName,
+            code: "COPILOT_AUTH_REQUIRED",
+            message: "GitHub Copilot authentication is required. Run `codexs login copilot`.",
           });
-        }
-        try {
-          await readCopilotAuthState(args.runtimesDir);
-        } catch (error: unknown) {
-          const normalized = normalizeError(error);
-          issues.push({
-            code: normalized.code,
-            message: normalized.message,
-            ...(normalized.details ?? {}),
-          });
+        } else {
+          try {
+            await exchangeForCopilotToken(githubToken);
+          } catch (error: unknown) {
+            const normalized = normalizeError(error);
+            issues.push({
+              code: normalized.code,
+              message: normalized.message,
+              ...(normalized.details ?? {}),
+            });
+          }
         }
         const bridge = await probeCopilotBridgeRuntime(activeProvider, runtimeState, args.runtimeDir);
         if (!bridge.ok) {

@@ -37,9 +37,13 @@ import {
   promptForProviderSelection,
 } from "../interaction/interactive";
 import { CliPromptRuntime, createPromptRuntime } from "../interaction/prompt";
-import { readCopilotAuthState } from "../runtime/copilot-adapter";
-import { checkCopilotCliAvailable, runCopilotLogin } from "../runtime/copilot-cli";
-import { assertCopilotNodeRuntimeSupported, installCopilotSdk as installCopilotSdkRuntime, probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import {
+  startDeviceFlow,
+  pollDeviceFlowToken,
+  exchangeForCopilotToken,
+  readGithubToken,
+  writeGithubToken,
+} from "../runtime/copilot-token";
 import { findCodexDirCandidates, readStructuredConfig } from "../storage/config-repo";
 import { createCodexPaths } from "../storage/codex-paths";
 import { mergeProviders, readProvidersFileIfExists } from "../storage/providers-repo";
@@ -85,6 +89,7 @@ export async function handleRegisteredCommand(
       return getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath, {
         runtimeDir: paths.runtimeDir,
         runtimesDir: paths.runtimesDir,
+        toolHomeDir: paths.toolHomeDir,
       });
     case "bridge-start": {
       const providerName = parsed.positionals[0] ?? null;
@@ -93,6 +98,7 @@ export async function handleRegisteredCommand(
         configPath: paths.configPath,
         runtimeDir: paths.runtimeDir,
         runtimesDir: paths.runtimesDir,
+        toolHomeDir: paths.toolHomeDir,
         providerName,
         runtime,
         json: ctx.options.json,
@@ -141,77 +147,49 @@ export async function handleRegisteredCommand(
           supportedUpstreams: ["copilot", "github-copilot"],
         });
       }
-      assertCopilotNodeRuntimeSupported();
-      const installed = probeCopilotSdkInstall(paths.runtimesDir);
-      let installedNow = false;
-      if (!installed.installed) {
-        const confirmInstall = await runtime.confirmAction("The Copilot SDK runtime is not installed. Install it now?", {
-          defaultValue: true,
-        });
-        if (!confirmInstall) {
-          throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed.", {
-            installDir: installed.installDir,
-            packageName: installed.packageName,
-          });
-        }
-        runtime.writeLine("Installing Copilot SDK runtime...");
-        installCopilotSdkRuntime(paths.runtimesDir);
-        installedNow = true;
-      }
-      const availability = checkCopilotCliAvailable(paths.runtimesDir);
-      try {
-        await readCopilotAuthState(paths.runtimesDir);
-        return {
-          data: {
-            upstream: "github-copilot",
-            sdkInstalled: true,
-            sdkInstalledNow: installedNow,
-            authReady: true,
-            loginLaunched: false,
-            cliSource: availability.ok ? availability.source ?? null : null,
-            cliCommand: availability.command ?? null,
-          },
-        };
-      } catch (error: unknown) {
-        const normalized = normalizeError(error);
-        if (normalized.code !== "COPILOT_AUTH_REQUIRED") {
-          throw error;
+
+      // Check if already authenticated
+      const existingToken = readGithubToken(paths.toolHomeDir);
+      if (existingToken) {
+        try {
+          await exchangeForCopilotToken(existingToken);
+          return {
+            data: {
+              upstream: "github-copilot",
+              authReady: true,
+              loginLaunched: false,
+              authSource: "github-pat",
+            },
+          };
+        } catch {
+          // Token is invalid, proceed with new login
         }
       }
-      if (!availability.ok) {
-        throw cliError("COPILOT_CLI_MISSING", "The official Copilot CLI could not be resolved from the installed runtime or PATH.", {
-          cause: availability.cause,
-          source: availability.source ?? null,
-          command: availability.command ?? null,
-        });
-      }
-      try {
-        runCopilotLogin({ runtimesDir: paths.runtimesDir });
-      } catch (error: unknown) {
-        throw cliError("COPILOT_LOGIN_LAUNCH_FAILED", "Failed to launch `copilot login`.", {
-          cause: error instanceof Error ? error.message : String(error),
-        });
-      }
-      try {
-        await readCopilotAuthState(paths.runtimesDir);
-      } catch (error: unknown) {
-        const normalized = normalizeError(error);
-        if (normalized.code === "COPILOT_AUTH_REQUIRED") {
-          throw cliError("COPILOT_LOGIN_RECHECK_FAILED", "Copilot login completed but auth readiness recheck still failed.", {
-            ...(normalized.details ?? {}),
-          });
-        }
-        throw error;
-      }
+
+      // Start GitHub OAuth Device Flow
+      runtime.writeLine("Starting GitHub authentication...");
+      const deviceFlow = await startDeviceFlow();
+      runtime.writeLine(`\nPlease visit: ${deviceFlow.verificationUri}`);
+      runtime.writeLine(`And enter code: ${deviceFlow.userCode}\n`);
+      runtime.writeLine("Waiting for authorization...");
+
+      const githubPat = await pollDeviceFlowToken(
+        deviceFlow.deviceCode,
+        deviceFlow.interval,
+        deviceFlow.expiresIn
+      );
+
+      // Validate the token by doing a test exchange
+      await exchangeForCopilotToken(githubPat);
+      writeGithubToken(githubPat, paths.toolHomeDir);
+      runtime.writeLine("GitHub Copilot authentication successful!");
+
       return {
         data: {
           upstream: "github-copilot",
-          sdkInstalled: true,
-          sdkInstalledNow: installedNow,
           authReady: true,
           loginLaunched: true,
-          cliSource: availability.source ?? null,
-          cliCommand: availability.command ?? null,
+          authSource: "github-pat",
         },
       };
     }
@@ -251,6 +229,7 @@ export async function handleRegisteredCommand(
         authPath: paths.authPath,
         runtimeDir: paths.runtimeDir,
         runtimesDir: paths.runtimesDir,
+        toolHomeDir: paths.toolHomeDir,
         providerName,
       });
     }
@@ -522,6 +501,7 @@ export async function handleRegisteredCommand(
         authPath: paths.authPath,
         runtimeDir: paths.runtimeDir,
         runtimesDir: paths.runtimesDir,
+        toolHomeDir: paths.toolHomeDir,
       });
     case "migrate": {
       let codexDir = ctx.options.codexDir;

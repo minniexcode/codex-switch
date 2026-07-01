@@ -29,6 +29,7 @@ pnpm-debug.log*
 # editor and OS files
 .vscode/
 .idea/
+bin/
 .DS_Store
 Thumbs.db
 *.swp
@@ -50,3 +51,7 @@ dev-codex
 # agents
 .omo
 .agents
+.claude
+
+# github-router-master
+github-router-master

@@ -14,8 +14,7 @@ import {
 } from "../storage/config-repo";
 import { ensureDir } from "../storage/fs-utils";
 import { readProvidersFileIfExists, writeProvidersFile } from "../storage/providers-repo";
-import { readCopilotAuthState } from "../runtime/copilot-adapter";
-import { assertCopilotNodeRuntimeSupported, probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import { readGithubToken, exchangeForCopilotToken } from "../runtime/copilot-token";
 import { runMutation } from "./run-mutation";
 import { CommandResult } from "./types";
 
@@ -54,33 +53,28 @@ export async function addProvider(args: {
   const bridgePort = args.bridgePort ?? 41415;
   const runtime: ProviderRuntime | undefined = args.copilot
     ? {
-        kind: "copilot-sdk-bridge",
+        kind: "copilot-http-proxy",
         upstream: "github-copilot",
         bridgeHost,
         bridgePort,
         bridgePath: "/v1",
         premiumRequests: true,
-        authSource: "official-sdk",
-        sdkInstallMode: "lazy",
+        authSource: "github-pat",
       }
     : undefined;
   if (args.copilot) {
-    assertCopilotNodeRuntimeSupported();
-    const installStatus = probeCopilotSdkInstall(args.runtimesDir);
-    if (!installStatus.installed) {
-      throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed. Run `codexs login copilot` first.", {
-        installDir: installStatus.installDir,
-        packageName: installStatus.packageName,
-        suggestion: "Run `codexs login copilot` to install the Copilot SDK and complete login.",
+    const githubToken = readGithubToken(args.toolHomeDir);
+    if (!githubToken) {
+      throw cliError("COPILOT_AUTH_REQUIRED", "GitHub Copilot authentication is required. Run `codexs login copilot` first.", {
+        suggestion: "Run `codexs login copilot` to complete GitHub Copilot login.",
       });
     }
     try {
-      await readCopilotAuthState(args.runtimesDir);
+      await exchangeForCopilotToken(githubToken);
     } catch (error: unknown) {
       const normalized = normalizeError(error);
-      if (normalized.code === "COPILOT_AUTH_REQUIRED") {
-        throw cliError("COPILOT_AUTH_REQUIRED", "Copilot authentication is required before a Copilot provider can be added.", {
-          ...(normalized.details ?? {}),
+      if (normalized.code === "COPILOT_AUTH_REQUIRED" || normalized.code === "COPILOT_TOKEN_EXCHANGE_FAILED") {
+        throw cliError("COPILOT_AUTH_REQUIRED", "GitHub token is invalid or expired. Run `codexs login copilot` to re-authenticate.", {
           suggestion: "Run `codexs login copilot` to complete GitHub Copilot login.",
         });
       }

@@ -18,8 +18,7 @@ import { canPrompt } from "../interaction/interactive";
 import { CliPromptRuntime } from "../interaction/prompt";
 import { ensureCopilotBridge, probeCopilotBridgeRuntime, stopCopilotBridge } from "../runtime/copilot-bridge";
 import { readCopilotBridgeState } from "../storage/runtime-state-repo";
-import { assertCopilotNodeRuntimeSupported, probeCopilotSdkInstall } from "../runtime/copilot-installer";
-import { readCopilotAuthState } from "../runtime/copilot-adapter";
+import { readGithubToken, exchangeForCopilotToken } from "../runtime/copilot-token";
 import { CommandResult } from "./types";
 
 const DEFAULT_BRIDGE_PORT = 41415;
@@ -37,6 +36,7 @@ export async function startBridge(args: {
   configPath: string;
   runtimeDir: string;
   runtimesDir: string;
+  toolHomeDir?: string;
   providerName?: string | null;
   runtime: CliPromptRuntime;
   json: boolean;
@@ -53,8 +53,8 @@ export async function startBridge(args: {
     preferRuntimeState: false,
   });
 
-  await requireBridgeRuntimeReadiness(args.runtimesDir);
-  const bridge = await ensureCopilotBridge(target.providerName, target.provider, args.runtimeDir, args.runtimesDir);
+  await requireBridgeRuntimeReadiness(args.runtimesDir, args.toolHomeDir);
+  const bridge = await ensureCopilotBridge(target.providerName, target.provider, args.runtimeDir, args.runtimesDir, args.toolHomeDir);
   const nextProvider = bridge.portChanged ? rewriteBridgeProviderPort(target.provider, bridge.port) : target.provider;
 
   if (bridge.portChanged) {
@@ -329,16 +329,12 @@ async function promptForCopilotBridgeSelection(
 /**
  * Verifies that the local Copilot bridge prerequisites are available before startup.
  */
-async function requireBridgeRuntimeReadiness(runtimesDir: string): Promise<void> {
-  assertCopilotNodeRuntimeSupported();
-  const installStatus = probeCopilotSdkInstall(runtimesDir);
-  if (!installStatus.installed) {
-    throw cliError("COPILOT_SDK_MISSING", "The optional Copilot SDK runtime is not installed.", {
-      installDir: installStatus.installDir,
-      packageName: installStatus.packageName,
-    });
+async function requireBridgeRuntimeReadiness(_runtimesDir: string, toolHomeDir?: string): Promise<void> {
+  const githubToken = readGithubToken(toolHomeDir);
+  if (!githubToken) {
+    throw cliError("COPILOT_AUTH_REQUIRED", "GitHub Copilot authentication is required. Run `codexs login copilot` first.");
   }
-  await readCopilotAuthState(runtimesDir);
+  await exchangeForCopilotToken(githubToken);
 }
 
 /**

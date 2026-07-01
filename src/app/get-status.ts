@@ -5,9 +5,8 @@ import { isCopilotBridgeProvider } from "../domain/providers";
 import { readStructuredConfig } from "../storage/config-repo";
 import { readProvidersFile } from "../storage/providers-repo";
 import { readAuthFileState } from "../storage/auth-repo";
-import { probeCopilotSdkInstall } from "../runtime/copilot-installer";
+import { readGithubToken, exchangeForCopilotToken } from "../runtime/copilot-token";
 import { probeCopilotBridgeRuntime } from "../runtime/copilot-bridge";
-import { readCopilotAuthState } from "../runtime/copilot-adapter";
 import { inspectCopilotBridgeState } from "../storage/runtime-state-repo";
 import { CommandResult } from "./types";
 
@@ -19,7 +18,7 @@ export async function getStatus(
   configPath: string,
   providersPath: string,
   authPath: string,
-  options?: { runtimeDir?: string; runtimesDir?: string }
+  options?: { runtimeDir?: string; runtimesDir?: string; toolHomeDir?: string }
 ): Promise<CommandResult> {
   const configExists = fs.existsSync(configPath);
   const providersExists = fs.existsSync(providersPath);
@@ -48,7 +47,7 @@ export async function getStatus(
     liveState.providerResolvable && providers && liveState.mappedProvider
       ? providers.providers[liveState.mappedProvider]
       : null;
-  const copilotInstall = probeCopilotSdkInstall(options?.runtimesDir);
+  const copilotInstall = { installed: Boolean(readGithubToken(options?.toolHomeDir)), source: "github-pat" };
   const runtimeStateInspection = inspectCopilotBridgeState(options?.runtimeDir);
   const runtimeState = runtimeStateInspection.state;
   const runtimeStateProvider = runtimeState && providers ? providers.providers[runtimeState.provider] ?? null : null;
@@ -84,12 +83,16 @@ export async function getStatus(
         : null;
   const copilotAuth =
     activeProvider && isCopilotBridgeProvider(activeProvider)
-      ? await readCopilotAuthState(options?.runtimesDir).catch((error: unknown) => ({
-          ready: false,
-          source: "official-sdk",
-          mode: "session",
-          error: error instanceof Error ? error.message : String(error),
-        }))
+      ? await (async () => {
+          const token = readGithubToken(options?.toolHomeDir);
+          if (!token) return { ready: false, source: "github-pat", mode: "token", error: "No GitHub token found" };
+          try {
+            await exchangeForCopilotToken(token);
+            return { ready: true, source: "github-pat", mode: "token" };
+          } catch (error: unknown) {
+            return { ready: false, source: "github-pat", mode: "token", error: error instanceof Error ? error.message : String(error) };
+          }
+        })()
       : null;
   if (liveState.canBackfillActiveProvider) {
     // Surface unmanaged live state without mutating anything during a read-only status call.
@@ -127,9 +130,7 @@ export async function getStatus(
         runtimeProvider: activeProvider && isCopilotBridgeProvider(activeProvider) ? activeProvider.runtime?.kind ?? null : null,
         copilotSdk: {
           installed: copilotInstall.installed,
-          installDir: copilotInstall.installDir,
-          packageName: copilotInstall.packageName,
-          packageVersion: copilotInstall.packageVersion ?? null,
+          source: copilotInstall.source,
         },
         copilotAuth,
         copilotBridge,

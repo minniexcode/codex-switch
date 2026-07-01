@@ -13,7 +13,18 @@ import {
   writeCopilotBridgeState,
 } from "../storage/runtime-state-repo";
 import { RuntimeAvailability } from "./types";
-import { CopilotBridgeRuntimeEvent } from "./copilot-adapter";
+
+type CopilotBridgeRuntimeEvent = {
+  type: string;
+  text?: string;
+  sdkType?: string;
+  summary?: string;
+  name?: string;
+  requestId?: string;
+  kind?: string;
+  success?: boolean;
+  approved?: boolean;
+};
 
 type SpawnLike = typeof spawn;
 
@@ -256,9 +267,10 @@ export async function ensureCopilotBridge(
   providerName: string,
   provider: ProviderRecord,
   runtimeDir?: string,
-  runtimesDir?: string
+  runtimesDir?: string,
+  toolHomeDir?: string
 ): Promise<CopilotBridgeStartResult> {
-  return startOrReuseCopilotBridge(providerName, provider, runtimeDir, runtimesDir);
+  return startOrReuseCopilotBridge(providerName, provider, runtimeDir, runtimesDir, toolHomeDir);
 }
 
 /**
@@ -268,7 +280,8 @@ export async function startOrReuseCopilotBridge(
   providerName: string,
   provider: ProviderRecord,
   runtimeDir?: string,
-  runtimesDir?: string
+  runtimesDir?: string,
+  toolHomeDir?: string
 ): Promise<CopilotBridgeStartResult> {
   if (!isCopilotBridgeProvider(provider)) {
     throw cliError("RUNTIME_PROVIDER_INVALID", "Provider is not backed by a Copilot bridge runtime.", {
@@ -323,7 +336,7 @@ export async function startOrReuseCopilotBridge(
   const selectedPort = await selectBridgePort(runtime.bridgeHost, runtime.bridgePort);
   const selectedBaseUrl = `http://${runtime.bridgeHost}:${selectedPort}${runtime.bridgePath}`;
 
-  const workerPath = path.join(__dirname, "copilot-bridge-worker.js");
+  const workerPath = path.join(__dirname, "copilot-http-bridge-worker.js");
   ensureBridgeLogFile(logPath);
   appendBridgeLifecycleLog(logPath, `worker start provider=${providerName} host=${runtime.bridgeHost} port=${String(selectedPort)} replaced=${String(replaced)}`);
   let child;
@@ -341,6 +354,7 @@ export async function startOrReuseCopilotBridge(
         CODEX_SWITCH_RUNTIME_DIR: runtimeDir ?? "",
         CODEX_SWITCH_RUNTIMES_DIR: runtimesDir ?? "",
         CODEX_SWITCH_BRIDGE_LOG_PATH: logPath,
+        CODEX_SWITCH_TOOL_HOME_DIR: toolHomeDir ?? "",
       },
     });
   } catch (error: unknown) {
@@ -456,23 +470,26 @@ export function createCopilotBridgeRequestHandler(context: BridgeRequestContext)
             connection: "keep-alive",
           });
           const heartbeat = startSseHeartbeat(response);
-          const payload = await context.executeChatCompletion(body, {
-            timeoutMs,
-            onTextDelta: (delta) => {
-              response.write(`data: ${JSON.stringify({
-                choices: [
-                  {
-                    index: 0,
-                    delta: { content: delta },
-                    finish_reason: null,
-                  },
-                ],
-              })}\n\n`);
-            },
-          });
-          clearInterval(heartbeat);
-          response.write("data: [DONE]\n\n");
-          response.end();
+          try {
+            const payload = await context.executeChatCompletion(body, {
+              timeoutMs,
+              onTextDelta: (delta) => {
+                response.write(`data: ${JSON.stringify({
+                  choices: [
+                    {
+                      index: 0,
+                      delta: { content: delta },
+                      finish_reason: null,
+                    },
+                  ],
+                })}\n\n`);
+              },
+            });
+            response.write("data: [DONE]\n\n");
+            response.end();
+          } finally {
+            clearInterval(heartbeat);
+          }
           return;
         }
 
@@ -498,31 +515,35 @@ export function createCopilotBridgeRequestHandler(context: BridgeRequestContext)
           const responseId = `resp_${Date.now()}`;
           const messageId = buildResponsesMessageId(responseId);
           writeResponsesStreamStart(response, responseId, normalized.model, messageId);
+          writeResponsesReasoningPartAdded(response, responseId);
           const heartbeat = startSseHeartbeat(response);
           let text = "";
-          const payload = await context.executeChatCompletion(chatPayload, {
-            timeoutMs: normalized.timeoutMs,
-            onTextDelta: (delta) => {
-              text += delta;
-              writeResponsesTextDelta(response, messageId, delta);
-            },
-            onTextDone: (doneText) => {
-              if (text.length === 0) {
-                text = doneText;
-                writeResponsesTextDelta(response, messageId, doneText);
-              }
-            },
-            onRuntimeEvent: (event) => {
-              writeResponsesRuntimeEvent(response, responseId, event);
-            },
-          });
-          clearInterval(heartbeat);
-          const outputText = text || getChatCompletionText(payload);
-          if (text.length === 0 && outputText.length > 0) {
-            writeResponsesTextDelta(response, messageId, outputText);
+          try {
+            const payload = await context.executeChatCompletion(chatPayload, {
+              timeoutMs: normalized.timeoutMs,
+              onTextDelta: (delta) => {
+                text += delta;
+                writeResponsesTextDelta(response, messageId, delta);
+              },
+              onTextDone: (doneText) => {
+                if (text.length === 0) {
+                  text = doneText;
+                  writeResponsesTextDelta(response, messageId, doneText);
+                }
+              },
+              onRuntimeEvent: (event) => {
+                writeResponsesRuntimeEvent(response, responseId, event);
+              },
+            });
+            const outputText = text || getChatCompletionText(payload);
+            if (text.length === 0 && outputText.length > 0) {
+              writeResponsesTextDelta(response, messageId, outputText);
+            }
+            writeResponsesStreamDone(response, responseId, normalized.model, messageId, outputText);
+            response.end();
+          } finally {
+            clearInterval(heartbeat);
           }
-          writeResponsesStreamDone(response, responseId, normalized.model, messageId, outputText);
-          response.end();
           return;
         }
         const payload = await context.executeChatCompletion(chatPayload, {
@@ -541,9 +562,14 @@ export function createCopilotBridgeRequestHandler(context: BridgeRequestContext)
       response.writeHead(404, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { message: "Not found" } }));
     } catch (error: unknown) {
-      const statusCode = mapBridgeErrorStatus(error);
-      response.writeHead(statusCode, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : String(error), code: isCliError(error) ? error.code : "BRIDGE_RUNTIME_FAILURE" } }));
+      if (!response.headersSent) {
+        const statusCode = mapBridgeErrorStatus(error);
+        response.writeHead(statusCode, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : String(error), code: isCliError(error) ? error.code : "BRIDGE_RUNTIME_FAILURE" } }));
+      } else if (!response.writableEnded) {
+        response.write(`data: ${JSON.stringify({ error: { message: error instanceof Error ? error.message : String(error), code: isCliError(error) ? error.code : "BRIDGE_RUNTIME_FAILURE" } })}\n\n`);
+        response.end();
+      }
     }
   };
 }
@@ -778,7 +804,7 @@ function writeResponsesStream(response: http.ServerResponse, payload: ChatComple
   });
   writeSseEvent(response, "response.output_item.added", {
     type: "response.output_item.added",
-    output_index: 0,
+    output_index: 1,
     item: {
       id: messageId,
       type: "message",
@@ -790,7 +816,7 @@ function writeResponsesStream(response: http.ServerResponse, payload: ChatComple
   writeSseEvent(response, "response.content_part.added", {
     type: "response.content_part.added",
     item_id: messageId,
-    output_index: 0,
+    output_index: 1,
     content_index: 0,
     part: {
       type: "output_text",
@@ -801,21 +827,21 @@ function writeResponsesStream(response: http.ServerResponse, payload: ChatComple
   writeSseEvent(response, "response.output_text.delta", {
     type: "response.output_text.delta",
     item_id: messageId,
-    output_index: 0,
+    output_index: 1,
     content_index: 0,
     delta: outputText,
   });
   writeSseEvent(response, "response.output_text.done", {
     type: "response.output_text.done",
     item_id: messageId,
-    output_index: 0,
+    output_index: 1,
     content_index: 0,
     text: outputText,
   });
   writeSseEvent(response, "response.content_part.done", {
     type: "response.content_part.done",
     item_id: messageId,
-    output_index: 0,
+    output_index: 1,
     content_index: 0,
     part: {
       type: "output_text",
@@ -825,7 +851,7 @@ function writeResponsesStream(response: http.ServerResponse, payload: ChatComple
   });
   writeSseEvent(response, "response.output_item.done", {
     type: "response.output_item.done",
-    output_index: 0,
+    output_index: 1,
     item: completedMessage,
   });
   writeSseEvent(response, "response.completed", {
@@ -858,7 +884,7 @@ function writeResponsesStreamStart(response: http.ServerResponse, responseId: st
   });
   writeSseEvent(response, "response.output_item.added", {
     type: "response.output_item.added",
-    output_index: 0,
+    output_index: 1,
     item: {
       id: messageId,
       type: "message",
@@ -870,7 +896,7 @@ function writeResponsesStreamStart(response: http.ServerResponse, responseId: st
   writeSseEvent(response, "response.content_part.added", {
     type: "response.content_part.added",
     item_id: messageId,
-    output_index: 0,
+    output_index: 1,
     content_index: 0,
     part: {
       type: "output_text",
@@ -887,7 +913,7 @@ function writeResponsesTextDelta(response: http.ServerResponse, messageId: strin
   writeSseEvent(response, "response.output_text.delta", {
     type: "response.output_text.delta",
     item_id: messageId,
-    output_index: 0,
+    output_index: 1,
     content_index: 0,
     delta,
   });
@@ -910,14 +936,14 @@ function writeResponsesStreamDone(response: http.ServerResponse, responseId: str
   writeSseEvent(response, "response.output_text.done", {
     type: "response.output_text.done",
     item_id: messageId,
-    output_index: 0,
+    output_index: 1,
     content_index: 0,
     text: outputText,
   });
   writeSseEvent(response, "response.content_part.done", {
     type: "response.content_part.done",
     item_id: messageId,
-    output_index: 0,
+    output_index: 1,
     content_index: 0,
     part: {
       type: "output_text",
@@ -927,7 +953,7 @@ function writeResponsesStreamDone(response: http.ServerResponse, responseId: str
   });
   writeSseEvent(response, "response.output_item.done", {
     type: "response.output_item.done",
-    output_index: 0,
+    output_index: 1,
     item: completedMessage,
   });
   writeSseEvent(response, "response.completed", {
@@ -948,24 +974,42 @@ function writeResponsesRuntimeEvent(response: http.ServerResponse, responseId: s
   if (event.type === "assistant.message_delta") {
     return;
   }
-  if (event.type === "assistant.reasoning_delta") {
-    writeResponsesReasoningDelta(response, responseId, formatRuntimeEventText(event));
-    return;
-  }
   if (event.type === "session.unknown") {
-    process.stderr.write(`[${new Date().toISOString()}] bridge runtime event ignored type=${event.sdkType} summary=${truncateBridgeText(event.summary, 240)}\n`);
+    process.stderr.write(`[${new Date().toISOString()}] bridge runtime event ignored type=${event.sdkType ?? "unknown"} summary=${truncateBridgeText(event.summary ?? "", 240)}\n`);
     return;
   }
   const text = formatRuntimeEventText(event);
   if (text.length === 0) {
     return;
   }
+  writeResponsesReasoningDelta(response, responseId, text);
   writeResponsesCommentaryItem(response, responseId, text);
   process.stderr.write(`[${new Date().toISOString()}] bridge runtime event type=${event.type} summary=${truncateBridgeText(text, 240)}\n`);
 }
 
 function writeResponsesReasoningDelta(response: http.ServerResponse, responseId: string, text: string): void {
   const reasoningId = `${responseId}_rs_0`;
+  writeSseEvent(response, "response.reasoning_summary_text.delta", {
+    type: "response.reasoning_summary_text.delta",
+    item_id: reasoningId,
+    output_index: 0,
+    summary_index: 0,
+    delta: text,
+  });
+}
+
+function writeResponsesReasoningPartAdded(response: http.ServerResponse, responseId: string): void {
+  const reasoningId = `${responseId}_rs_0`;
+  writeSseEvent(response, "response.output_item.added", {
+    type: "response.output_item.added",
+    output_index: 0,
+    item: {
+      id: reasoningId,
+      type: "reasoning",
+      status: "in_progress",
+      summary: [],
+    },
+  });
   writeSseEvent(response, "response.reasoning_summary_part.added", {
     type: "response.reasoning_summary_part.added",
     item_id: reasoningId,
@@ -976,20 +1020,13 @@ function writeResponsesReasoningDelta(response: http.ServerResponse, responseId:
       text: "",
     },
   });
-  writeSseEvent(response, "response.reasoning_summary_text.delta", {
-    type: "response.reasoning_summary_text.delta",
-    item_id: reasoningId,
-    output_index: 0,
-    summary_index: 0,
-    delta: text,
-  });
 }
 
 function writeResponsesCommentaryItem(response: http.ServerResponse, responseId: string, text: string): void {
   const itemId = `${responseId}_commentary_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
   writeSseEvent(response, "response.output_item.done", {
     type: "response.output_item.done",
-    output_index: 0,
+    output_index: 1,
     item: {
       id: itemId,
       type: "message",
@@ -1010,9 +1047,9 @@ function writeResponsesCommentaryItem(response: http.ServerResponse, responseId:
 function formatRuntimeEventText(event: CopilotBridgeRuntimeEvent): string {
   switch (event.type) {
     case "assistant.intent":
-      return truncateBridgeText(event.text, 600);
+      return truncateBridgeText(event.text ?? "", 600);
     case "assistant.reasoning_delta":
-      return truncateBridgeText(event.text, 600);
+      return truncateBridgeText(event.text ?? "", 600);
     case "tool.execution_start":
       return truncateBridgeText(`Copilot started ${formatToolName(event.name)}${formatRequestId(event.requestId)}${formatSummarySuffix(event.summary)}`, 600);
     case "tool.execution_progress":
@@ -1032,9 +1069,11 @@ function formatRuntimeEventText(event: CopilotBridgeRuntimeEvent): string {
     case "session.error":
       return truncateBridgeText(`Copilot session error${formatSummarySuffix(event.summary)}`, 600);
     case "session.idle":
-      return truncateBridgeText(event.summary, 600);
+      return truncateBridgeText(event.summary ?? "", 600);
     case "assistant.message_delta":
     case "session.unknown":
+      return "";
+    default:
       return "";
   }
 }
@@ -1047,8 +1086,11 @@ function formatRequestId(requestId: string | undefined): string {
   return requestId ? ` (${requestId})` : "";
 }
 
-function formatSummarySuffix(summary: string): string {
-  return summary.length > 0 ? `: ${summary}` : "";
+function formatSummarySuffix(summary: string | undefined): string {
+  if (!summary || summary.length === 0) {
+    return "";
+  }
+  return `: ${summary}`;
 }
 
 function truncateBridgeText(value: string, maxLength: number): string {
@@ -1059,7 +1101,9 @@ function truncateBridgeText(value: string, maxLength: number): string {
 }
 function startSseHeartbeat(response: http.ServerResponse): NodeJS.Timeout {
   return setInterval(() => {
-    response.write(": keep-alive\n\n");
+    if (!response.writableEnded) {
+      response.write(": keep-alive\n\n");
+    }
   }, 15000);
 }
 

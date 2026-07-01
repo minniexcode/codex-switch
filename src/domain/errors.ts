@@ -52,7 +52,9 @@ export type ErrorCode =
   | "BRIDGE_UNSUPPORTED_REQUEST"
   | "BRIDGE_UPSTREAM_TIMEOUT"
   | "RUNTIME_PROVIDER_INVALID"
-  | "PROVIDER_BASE_URL_MISMATCH";
+  | "PROVIDER_BASE_URL_MISMATCH"
+  | "GITHUB_DEVICE_FLOW_FAILED"
+  | "COPILOT_TOKEN_EXCHANGE_FAILED";
 
 /**
  * Structured error payload shared by CLI rendering and domain services.

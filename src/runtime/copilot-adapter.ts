@@ -430,7 +430,11 @@ async function stopCopilotClient(client: CopilotClientLike): Promise<void> {
 async function abortCopilotSession(session: CopilotSessionLike): Promise<void> {
   const abort = resolveCallable(session, "abort");
   if (abort) {
-    await Promise.resolve(abort());
+    try {
+      await Promise.resolve(abort());
+    } catch {
+      // Session may already be closed or unknown — safe to ignore
+    }
   }
 }
 

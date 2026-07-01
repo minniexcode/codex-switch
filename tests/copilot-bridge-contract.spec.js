@@ -248,7 +248,13 @@ async function testResponsesStreamingRuntimeEvents() {
     assert.equal(commentary.some((event) => event.data.item.content[0].text.includes("future.event")), false);
 
     assert.ok(events.some((event) => event.event === "response.reasoning_summary_part.added"));
+    assert.ok(events.some((event) => event.event === "response.output_item.added" && event.data.item?.type === "reasoning"));
     assert.ok(events.some((event) => event.event === "response.reasoning_summary_text.delta" && event.data.delta.includes("Need a quick file check")));
+
+    // Commentary events are also projected as reasoning summary deltas for Codex CLI visibility
+    const reasoningDeltas = events.filter((event) => event.event === "response.reasoning_summary_text.delta");
+    assert.ok(reasoningDeltas.some((event) => event.data.delta.includes("Inspecting workspace")));
+    assert.ok(reasoningDeltas.some((event) => event.data.delta.includes("Copilot started tool shell")));
   } finally {
     await closeServer(server);
   }
