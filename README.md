@@ -1,162 +1,112 @@
-# @minniexcode/codex-switch
+# codex-switch
 
-`@minniexcode/codex-switch` is a local-first CLI for managing and switching Codex provider and model-provider routing safely.
+`@minniexcode/codex-switch` is a local-first provider/model-provider management CLI for Codex.
 
-It keeps `codex-switch` tool state separate from the target Codex runtime, so provider management, backup flow, and runtime projection stay explicit instead of relying on manual file edits.
+It keeps `codex-switch` tool state separate from the target Codex directory, so managed providers, backups, and Codex `model_provider` projection are handled through explicit commands instead of manual file edits.
 
-Chinese version: [README.CN.md](./README.CN.md)
+Current package version: `0.2.1`
 
-## Version
-
-Current package version: `0.1.5`
-
-This is the current repository development line. `0.1.5` is a Copilot Bridge process-visibility patch, focused on streaming commentary/reasoning signals, defensive SDK-event normalization, and safer redaction for unknown runtime events while keeping the provider surface unchanged.
+`0.2.1` is the current repository development line. It is a provider-management-only consolidation release: direct OpenAI-compatible provider records are managed locally and projected into Codex config/auth files. This version does not include the previous account-login, local bridge, or background runtime experiments.
 
 ## Install
 
 ```bash
 npm install -g @minniexcode/codex-switch
-```
-
-Run without a global install:
-
-```bash
-npx @minniexcode/codex-switch --help
-```
-
-Built CLI entrypoint:
-
-```bash
 codexs --help
 ```
 
-## Primary Workflows
+For local development:
 
-Direct provider workflow:
+```bash
+npm install
+npm run build
+node dist/cli.js --help
+```
+
+Node.js `>=18` is required.
+
+## Primary Workflow
 
 ```bash
 codexs init
-codexs add my-provider --profile my-provider --model gpt-5.5 --base-url https://gateway.example.com/v1 --api-key sk-xxx
-codexs switch my-provider
+codexs add packycode --profile packycode --model gpt-5 --api-key sk-xxx --base-url https://api.example/v1
+codexs switch packycode
 codexs status
 codexs doctor
 ```
 
-GitHub Copilot workflow:
+What the workflow does:
 
-```bash
+- `init` creates the `codex-switch` tool home files.
+- `add` stores a managed provider in `providers.json` and creates or updates the matching `[model_providers.<id>]` projection in `config.toml`.
+- `switch` writes top-level `model` and `model_provider` in the target Codex config and projects `OPENAI_API_KEY` into `auth.json`.
+- `status` summarizes current mapping, auth projection, and drift.
+- `doctor` reports issue-first diagnostics.
+
+`--profile` is a CLI alias for the managed Codex `model_provider` id. It is not the legacy Codex top-level `profile` selector.
+
+## Commands
+
+Current `0.2.1` command surface:
+
+```text
 codexs init
-codexs login copilot
-codexs add copilot-main --copilot --profile copilot-main --model gpt-4.1
-codexs switch copilot-main
-codexs status
-codexs doctor
-```
-
-Notes:
-
-- `init` prepares the `codex-switch` tool home and managed state.
-- `login copilot` handles upstream Copilot onboarding and auth readiness.
-- `add --copilot` does not perform login for you; it assumes Copilot login is already ready.
-- For non-interactive use, pass `--profile` explicitly. In TTY mode, `add` and `edit` can prompt for missing required fields.
-- Copilot support is an experimental local bridge. The managed installer defaults to `@github/copilot-sdk@1.0.2`, Copilot runtime paths require Node.js `>=20`, and runtime checks separately reject older or prerelease SDK installs while validating API shape when the client or session is used.
-- `switch` projects the selected provider into the target Codex runtime as top-level `model` plus `model_provider`.
-- `status` is the main read command after switching.
-- `doctor` is the main repair-oriented diagnostic command.
-
-## Runtime Routing Model
-
-For Codex `0.134.0+`, the active runtime route is selected through top-level `model` and `model_provider` in `config.toml`.
-
-`codex-switch` treats that route as the runtime contract:
-
-- top-level `model` selects the active model id
-- top-level `model_provider` selects the active provider route
-- managed `[model_providers.<id>]` entries are the projected runtime provider definitions
-- `--profile` is only an alias for the managed `model_provider` id, not the primary runtime selector
-
-Direct-provider projection writes:
-
-- top-level `model`
-- top-level `model_provider`
-- `[model_providers.<id>]`
-- `auth.json` with `OPENAI_API_KEY`
-
-Managed direct-provider projection does not keep `env_key` or `env_key_instructions` in the generated runtime config. `switch`, `add`, and `edit` clean old legacy projection fields before writing the active route.
-
-For managed OpenAI-compatible routes, the projected provider entry keeps the fixed runtime shape:
-
-```toml
-model = "gpt-5.5"
-model_provider = "my-provider"
-
-[model_providers.my-provider]
-name = "my-provider"
-base_url = "https://gateway.example.com/v1"
-wire_api = "responses"
-requires_openai_auth = true
-```
-
-Managed Copilot projection additionally writes:
-
-```toml
-stream_idle_timeout_ms = 300000
-```
-
-## Advanced Adopt Workflow
-
-Use `migrate` only when you already have Codex runtime state that should be adopted into managed `providers.json` state:
-
-```bash
-codexs init
-codexs migrate
-```
-
-`migrate` is an advanced adopt helper. It is not the default first step for a fresh install.
-
-## Command Surface
-
-```bash
-codexs init
-codexs login copilot
 codexs migrate
 codexs list
 codexs show <provider>
 codexs current
 codexs status
-codexs config show [profile]
+codexs config show
 codexs config list-profiles
 codexs add <provider> --profile <model-provider-id> --model <model> --api-key <key> [--base-url <url>]
-codexs add <provider> --copilot --profile <model-provider-id> --model <model>
-codexs edit <provider>
+codexs edit <provider> [options]
 codexs switch <provider>
-codexs remove <provider> [--force] [--switch-to <provider>]
+codexs remove <provider> --force
 codexs import <file>
-codexs export <file> [--force]
-codexs bridge start [provider]
-codexs bridge status [provider]
-codexs bridge stop [provider]
+codexs export <file>
 codexs backups list
 codexs rollback [backup-id]
 codexs doctor
+codexs setup
 ```
 
-`setup` still exists only as a deprecated compatibility entry that points callers to `init` or `migrate`.
+`setup` is deprecated and exists only as a pointer to `init` for fresh state or `migrate` for advanced adoption of existing Codex config.
 
-## Runtime Model
+All commands accept `--json` for the standard JSON envelope where supported by the parser, and `--codex-dir <path>` to target a specific Codex directory.
+
+## Runtime Projection
+
+For Codex `0.134.0+`, the active route is the top-level `model` and `model_provider` in `config.toml`.
+
+Managed OpenAI-compatible provider projection uses this shape:
+
+```toml
+model = "gpt-5"
+model_provider = "packycode"
+
+[model_providers.packycode]
+name = "packycode"
+base_url = "https://api.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+```
+
+`codex-switch` intentionally does not write legacy `[profiles.*]` sections for new managed providers, and it removes legacy `env_key`/`env_key_instructions` fields from managed model-provider projections when it writes them.
+
+Authentication is projected into the target Codex `auth.json` as API-key mode with `OPENAI_API_KEY`. Do not commit real keys or private provider exports.
+
+## Managed State
 
 Tool home:
 
 ```text
-~/.config/codex-switch/
+~/.codex-switch/
   codex-switch.json
   providers.json
   backups/
-  runtime/
-  runtimes/
 ```
 
-Target Codex runtime:
+Target Codex directory:
 
 ```text
 ~/.codex/
@@ -164,66 +114,56 @@ Target Codex runtime:
   auth.json
 ```
 
-Key points:
+Environment variables:
 
-- `providers.json` is the managed provider registry and lives under the tool home.
-- `codex-switch.json` stores tool-level metadata such as `defaultCodexDir`.
-- `config.toml` remains the active runtime routing file in the target Codex directory.
-- `auth.json` remains the active auth projection file in the target Codex directory.
-- Direct providers rewrite `OPENAI_API_KEY` into the active runtime projection.
-- Copilot providers keep upstream GitHub authentication in the official Copilot runtime while `codex-switch` manages local bridge state and routing.
+- `CODEXS_HOME` overrides the `codex-switch` tool home.
+- `CODEXS_CODEX_DIR` provides the default target Codex directory when `--codex-dir` is not passed.
+- In development, `NODE_ENV=development` defaults to `./dev-codex/local-sandbox` when no override is set.
 
-Path controls:
+## Migration And Adoption
 
-- `--codex-dir <path>` targets a specific Codex runtime directory.
-- `CODEXS_CODEX_DIR` provides the default target runtime when `--codex-dir` is not passed.
-- `CODEXS_HOME` overrides the tool home location.
-
-## Automation Notes
-
-This CLI supports both human TTY usage and non-interactive automation.
-
-Global flags:
+Use `migrate` only when you already have Codex runtime config that should be adopted into managed `providers.json` state. It is not the default fresh-install command.
 
 ```bash
---json
---codex-dir <path>
---help
---version
+codexs migrate
+codexs migrate --overwrite --codex-dir ~/.codex
 ```
 
-Operational limits:
+The development-version policy applies to `0.2.1`: old local experimental state is not automatically migrated. Clean up or re-add providers manually when moving from an older local experiment.
 
-- `login copilot` requires a real TTY and does not support `--json`.
-- `migrate` remains interactive when provider adoption requires human input.
-- Automation should pass explicit arguments and prefer `--json` for stable parsing.
+## Current Non-Goals
 
-## Local Development
+`0.2.1` does not implement or reserve runtime code paths for:
+
+- GitHub Copilot SDK integration.
+- GitHub device-flow login.
+- `login copilot`.
+- `add --copilot`.
+- HTTP proxy bridge or local bridge worker commands.
+- Background runtime services, bridge logs, or bridge runtime state.
+- Built-in third-party router packaging.
+- Account systems or cloud sync.
+- Automatic migration of old Copilot or bridge state.
+
+A future release may integrate a third-party router-like capability, but `0.2.1` makes no workflow, schema, or runtime guarantee for that.
+
+## Development
 
 ```bash
 npm run build
-npm test
 npx tsc --noEmit
+npm test
 node dist/cli.js --help
+node dist/cli.js --version
 npm pack --dry-run
 ```
 
-## Documentation
+## Fact Sources
 
-- [Chinese README](./README.CN.md)
-- [AI README](./README.AI.md)
-- [Detailed CLI Usage](./docs/cli-usage.md)
-- [Testing Guide](./docs/Tests/testing.md)
-- [Product Overview](./docs/codex-switch-product-overview.md)
-- [PRD 0.1.0](./docs/PRD/codex-switch-prd-v0.1.0.md)
-- [PRD 0.1.1](./docs/PRD/codex-switch-prd-v0.1.1.md)
-- [PRD 0.1.2](./docs/PRD/codex-switch-prd-v0.1.2.md)
-- [PRD 0.1.3](./docs/PRD/codex-switch-prd-v0.1.3.md)
-- [PRD 0.1.5](./docs/PRD/codex-switch-prd-v0.1.5.md)
-- [Design 0.1.2](./docs/Design/codex-switch-v0.1.2-design.md)
-- [Design 0.1.3](./docs/Design/codex-switch-v0.1.3-design.md)
-- [Design 0.1.5](./docs/Design/codex-switch-v0.1.5-design.md)
+Current fact sources:
 
-## License
+- [PRD 0.2.1](./docs/PRD/codex-switch-prd-v0.2.1.md)
+- [Design 0.2.1](./docs/Design/codex-switch-v0.2.1-design.md)
+- [CLI usage](./docs/cli-usage.md)
 
-MIT
+Historical documents remain under `docs/PRD/` and `docs/Design/` for context only.

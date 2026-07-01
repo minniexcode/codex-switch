@@ -1,24 +1,22 @@
-# AI README
+# README.AI
 
-This file summarizes the current operational contract for AI agents, automation scripts, and contributors.
+This file is the current AI-facing fact sheet for `@minniexcode/codex-switch`.
 
-## Package Context
+Current repository version: `0.2.1`
 
-- Package: `@minniexcode/codex-switch`
-- CLI name: `codexs`
-- Current repository version: `0.1.5`
-- Version status: development line
-- Runtime contract target: Codex `0.134.0+`
+Current fact sources:
 
-## Product Role
+- `docs/PRD/codex-switch-prd-v0.2.1.md`
+- `docs/Design/codex-switch-v0.2.1-design.md`
+- `docs/cli-usage.md`
 
-`codex-switch` is a local-first TypeScript CLI that manages provider and model-provider routing state for Codex while keeping tool-managed state separate from the target Codex runtime.
+## Product Positioning
 
-The managed source of truth is the tool home. Runtime files under the target Codex directory are projected outputs, not the main registry.
+`codex-switch` is a local-first provider/model-provider management CLI for Codex. It manages local provider records, projects Codex `model_provider` sections, writes the active top-level `model` / `model_provider` route, and maintains backups around mutating commands.
 
-## Primary Workflows
+Do not describe the current product as a direct-vs-Copilot dual path. In `0.2.1`, there is only the provider-management workflow for OpenAI-compatible provider endpoints.
 
-Direct provider workflow:
+## Primary Workflow
 
 ```bash
 codexs init
@@ -28,70 +26,47 @@ codexs status
 codexs doctor
 ```
 
-GitHub Copilot workflow:
+`--profile` means managed `model_provider` id alias. It is not the legacy Codex top-level `profile` selector.
 
-```bash
-codexs init
-codexs login copilot
-codexs add <provider> --copilot --profile <model-provider-id> --model <model>
-codexs switch <provider>
-codexs status
-codexs doctor
+## Current Command Surface
+
+Document only these current commands:
+
+```text
+init
+migrate
+list
+show
+current
+status
+config show
+config list-profiles
+add
+edit
+switch
+remove
+import
+export
+backups list
+rollback
+doctor
+setup
 ```
 
-Advanced adopt workflow:
+`setup` is deprecated and only points callers to `init` or `migrate`.
 
-```bash
-codexs init
-codexs migrate
-```
-
-`migrate` is not a fresh-install default. It is an advanced adopt helper for existing runtime state.
-
-## Runtime Route Contract
-
-For Codex `0.134.0+`, the live route is selected by:
-
-- top-level `model`
-- top-level `model_provider`
-
-Important implications for automation:
-
-- treat `model_provider` as the active provider selector
-- treat `--profile` as an alias for a managed `model_provider` id
-- do not describe top-level `profile` or `[profiles.*]` as the primary runtime path
-- managed direct-provider projection does not keep `env_key` or `env_key_instructions`
-- managed provider projection fixes `wire_api = "responses"` and `requires_openai_auth = true`
-
-Expected managed direct-provider projection:
-
-```toml
-model = "gpt-5.5"
-model_provider = "proxy"
-
-[model_providers.proxy]
-name = "proxy"
-base_url = "https://proxy.example.com/v1"
-wire_api = "responses"
-requires_openai_auth = true
-```
-
-Authentication remains projected through `auth.json` with `OPENAI_API_KEY`.
-
-## Important Paths
+## State Model
 
 Tool home:
 
 ```text
-~/.config/codex-switch/
+~/.codex-switch/
   codex-switch.json
   providers.json
   backups/
-  runtime/
-  runtimes/
 ```
 
-Target Codex runtime:
+Target Codex directory:
 
 ```text
 ~/.codex/
@@ -99,45 +74,42 @@ Target Codex runtime:
   auth.json
 ```
 
-Operational meaning:
+Managed projection for current Codex versions is route-first:
 
-- `providers.json` is the managed provider registry.
-- `codex-switch.json` stores tool-level metadata such as the default target Codex directory.
-- `config.toml` is the active runtime routing file.
-- `auth.json` is the active auth projection file.
+- top-level `model`
+- top-level `model_provider`
+- matching `[model_providers.<id>]`
+- API-key auth projection in `auth.json`
 
-## Command Notes
+Do not present top-level `profile` or `[profiles.*]` as the current managed runtime path. They may be inspected for adoption or legacy diagnostics only.
 
-Shared flags:
+## Current Non-Goals
+
+`0.2.1` does not include:
+
+- Copilot SDK integration.
+- GitHub device-flow login.
+- `login copilot`.
+- `add --copilot`.
+- `bridge start`, `bridge status`, or `bridge stop`.
+- HTTP proxy bridge or local bridge worker runtime.
+- `runtime/` or `runtimes/` managed service directories.
+- Bridge logs or bridge runtime state.
+- Built-in third-party router packaging.
+- Automatic migration of old Copilot or bridge state.
+
+A future release may integrate a third-party router-like capability. Do not write current commands, schema, or runtime paths for that in `0.2.1` docs or code.
+
+## Development-Version Policy
+
+Treat `0.2.1` as development-version software unless the user explicitly declares a real release. Do not add automatic migration shims, dual-read/dual-write behavior, or compatibility preservation for old experimental local state unless asked in the current task.
+
+## Verification Commands
 
 ```bash
---json
---codex-dir <path>
---help
---version
+npx tsc --noEmit
+npm test
+node dist/cli.js --help
+node dist/cli.js --version
+npm pack --dry-run
 ```
-
-Relevant environment variables:
-
-```bash
-CODEXS_HOME
-CODEXS_CODEX_DIR
-```
-
-Important behavioral constraints:
-
-- Prefer `--json` for programmatic invocation whenever the command supports it.
-- `login copilot` requires a real TTY and does not support `--json`.
-- `login copilot` currently installs the local Copilot SDK when needed, tries the bundled runtime CLI first, falls back to `PATH` when necessary, and rechecks auth readiness before reporting success.
-- `add --copilot` assumes SDK install and upstream Copilot auth are already ready.
-- Non-interactive automation should pass `--profile` explicitly. In TTY mode, `add` and `edit` can prompt for missing required fields.
-- `migrate` remains interactive when provider adoption requires human input.
-- `status` is the main dual-path summary command.
-- `doctor` is the deeper repair-oriented diagnostic command.
-- The current `0.1.5` line focuses on Copilot Bridge process visibility, Responses commentary/reasoning stream events, defensive SDK-event normalization, and unknown-event redaction hardening rather than command-surface expansion.
-
-## Safety Notes
-
-- Treat `providers.json` as sensitive because it may contain API keys.
-- Human-readable output may mask secrets, but JSON output can expose full provider payloads.
-- Managed write operations rely on backup and rollback flow; do not describe manual file edits as the primary workflow.

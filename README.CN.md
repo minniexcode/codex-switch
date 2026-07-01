@@ -1,153 +1,108 @@
-# @minniexcode/codex-switch
+# codex-switch
 
-`@minniexcode/codex-switch` 是一个本地优先的 CLI，用来安全地管理和切换 Codex 的 provider 与 model-provider 路由配置。
+`@minniexcode/codex-switch` 是一个本地优先的 Codex provider/model-provider 管理 CLI。
 
-它把 `codex-switch` 自己的工具状态和目标 Codex runtime 明确分开，让 provider 管理、备份与 runtime 投影有一套受管流程，而不是依赖手工改文件。
+它把 `codex-switch` 自己的工具状态和目标 Codex 目录分开，让 provider 管理、备份和 `model_provider` 投影通过明确命令完成，而不是手工编辑文件。
 
-## 版本定位
+当前包版本：`0.2.1`
 
-当前包版本：`0.1.5`
-
-这是当前仓库开发线。`0.1.5` 是 Copilot Bridge 过程可见性补丁，聚焦于 commentary/reasoning 流式信号、SDK 事件防御性归一化，以及未知运行态事件的更安全脱敏，同时不扩展 provider 命令面。
+`0.2.1` 是当前仓库开发线，也是 provider-management-only 收敛版本：只管理本地 OpenAI-compatible provider 记录，并把它们投影到 Codex `config.toml` / `auth.json`。本版本不包含之前实验过的账号登录、本地 bridge 或后台 runtime 能力。
 
 ## 安装
 
 ```bash
 npm install -g @minniexcode/codex-switch
-```
-
-不全局安装时也可以直接运行：
-
-```bash
-npx @minniexcode/codex-switch --help
-```
-
-CLI 命令名：
-
-```bash
 codexs --help
 ```
 
+本地开发：
+
+```bash
+npm install
+npm run build
+node dist/cli.js --help
+```
+
+需要 Node.js `>=18`。
+
 ## 主工作流
 
-Direct provider 主路径：
-
 ```bash
 codexs init
-codexs add my-provider --profile my-provider --model gpt-5.5 --base-url https://gateway.example.com/v1 --api-key sk-xxx
-codexs switch my-provider
+codexs add packycode --profile packycode --model gpt-5 --api-key sk-xxx --base-url https://api.example/v1
+codexs switch packycode
 codexs status
 codexs doctor
 ```
 
-GitHub Copilot 主路径：
+- `init` 创建 `codex-switch` 工具状态文件。
+- `add` 在 `providers.json` 中保存受管 provider，并创建或更新对应 `[model_providers.<id>]`。
+- `switch` 写入目标 Codex 配置的顶层 `model` / `model_provider`，并把 `OPENAI_API_KEY` 投影到 `auth.json`。
+- `status` 汇总当前映射、认证投影和漂移状态。
+- `doctor` 输出问题优先的诊断结果。
 
-```bash
-codexs init
-codexs login copilot
-codexs add copilot-main --copilot --profile copilot-main --model gpt-4.1
-codexs switch copilot-main
-codexs status
-codexs doctor
-```
-
-说明：
-
-- `init` 负责初始化 `codex-switch` 的 tool home 与受管状态文件。
-- `login copilot` 负责上游 Copilot onboarding 和登录可用性检查。
-- `add --copilot` 不负责替你登录，它假设上游 Copilot 已经 ready。
-- 非交互调用请显式传入 `--profile`；在 TTY 模式下，`add` 和 `edit` 可以补问缺失的必填项。
-- `switch` 会把选中的 provider 投影到目标 Codex runtime 的顶层 `model` 与 `model_provider`。
-- `status` 是切换后的主读取命令。
-- `doctor` 是主诊断命令，用于解释问题和下一步修复动作。
-
-## Runtime 路由模型
-
-对于 Codex `0.134.0+`，活动 runtime route 由 `config.toml` 顶层的 `model` 和 `model_provider` 决定。
-
-`codex-switch` 按这套 contract 管理运行态：
-
-- 顶层 `model` 表示当前活动模型
-- 顶层 `model_provider` 表示当前活动 provider route
-- 受管的 `[model_providers.<id>]` 是 runtime provider 定义投影
-- `--profile` 只作为受管 `model_provider` id 的 alias，不再是主 runtime selector
-
-Direct provider 的运行态投影会写入：
-
-- 顶层 `model`
-- 顶层 `model_provider`
-- `[model_providers.<id>]`
-- 带 `OPENAI_API_KEY` 的 `auth.json`
-
-受管 direct provider 投影不会再保留 `env_key` 或 `env_key_instructions`。`switch`、`add` 和 `edit` 会在写入活动路由前清理这些旧字段。
-
-对受管的 OpenAI-compatible route，投影后的 provider 结构固定为：
-
-```toml
-model = "gpt-5.5"
-model_provider = "my-provider"
-
-[model_providers.my-provider]
-name = "my-provider"
-base_url = "https://gateway.example.com/v1"
-wire_api = "responses"
-requires_openai_auth = true
-```
-
-## Advanced Adopt 路径
-
-如果你已经有现成的 Codex runtime 状态，希望把它 adopt 到受管 `providers.json`，再使用：
-
-```bash
-codexs init
-codexs migrate
-```
-
-`migrate` 是高级 adopt helper，不是 fresh install 的默认第一步。
+`--profile` 是受管 Codex `model_provider` id 的 CLI alias，不是旧 Codex 顶层 `profile` selector。
 
 ## 命令面
 
-```bash
+`0.2.1` 当前命令：
+
+```text
 codexs init
-codexs login copilot
 codexs migrate
 codexs list
 codexs show <provider>
 codexs current
 codexs status
-codexs config show [profile]
+codexs config show
 codexs config list-profiles
 codexs add <provider> --profile <model-provider-id> --model <model> --api-key <key> [--base-url <url>]
-codexs add <provider> --copilot --profile <model-provider-id> --model <model>
-codexs edit <provider>
+codexs edit <provider> [options]
 codexs switch <provider>
-codexs remove <provider> [--force] [--switch-to <provider>]
+codexs remove <provider> --force
 codexs import <file>
-codexs export <file> [--force]
-codexs bridge start [provider]
-codexs bridge status [provider]
-codexs bridge stop [provider]
+codexs export <file>
 codexs backups list
 codexs rollback [backup-id]
 codexs doctor
+codexs setup
 ```
 
-`setup` 仍然存在，但只作为已弃用兼容入口，用来提示调用方改用 `init` 或 `migrate`。
+`setup` 已废弃，只保留为指向 `init` 或 `migrate` 的兼容入口。
 
-## 双路径模型
+## Runtime 投影
 
-tool home：
+Codex `0.134.0+` 的活动路由由 `config.toml` 顶层 `model` 和 `model_provider` 决定。
+
+受管 provider 的投影形态：
+
+```toml
+model = "gpt-5"
+model_provider = "packycode"
+
+[model_providers.packycode]
+name = "packycode"
+base_url = "https://api.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+```
+
+`codex-switch` 不为新受管 provider 写入旧 `[profiles.*]`，并会在写入受管投影时清理旧 `env_key` / `env_key_instructions` 字段。
+
+认证会投影到目标 Codex `auth.json`，使用 API-key 模式和 `OPENAI_API_KEY`。不要提交真实 API key、`auth.json` 或私有 provider 导出。
+
+## 状态位置
+
+工具 home：
 
 ```text
-~/.config/codex-switch/
+~/.codex-switch/
   codex-switch.json
   providers.json
   backups/
-  runtime/
-  runtimes/
 ```
 
-目标 Codex runtime：
+目标 Codex 目录：
 
 ```text
 ~/.codex/
@@ -155,64 +110,54 @@ tool home：
   auth.json
 ```
 
-关键边界：
+环境变量：
 
-- `providers.json` 是受管 provider 注册表，位于 tool home。
-- `codex-switch.json` 保存工具级元数据，例如 `defaultCodexDir`。
-- `config.toml` 仍然是目标 runtime 里的活动路由文件。
-- `auth.json` 仍然是目标 runtime 里的活动认证投影文件。
-- Direct provider 切换会改写活动 runtime 中的 `OPENAI_API_KEY`。
-- Copilot provider 保持上游 GitHub 登录留在官方 Copilot runtime 中，`codex-switch` 只管理本地 bridge 状态与路由。
+- `CODEXS_HOME` 覆盖 `codex-switch` 工具 home。
+- `CODEXS_CODEX_DIR` 在未传 `--codex-dir` 时提供默认目标 Codex 目录。
+- 开发环境下，`NODE_ENV=development` 且没有显式覆盖时默认使用 `./dev-codex/local-sandbox`。
 
-路径控制：
+## 迁移与采用
 
-- `--codex-dir <path>` 显式指定目标 Codex runtime 目录。
-- `CODEXS_CODEX_DIR` 在未传 `--codex-dir` 时提供默认目标目录。
-- `CODEXS_HOME` 用于覆盖 tool home 位置。
-
-## 自动化说明
-
-这个 CLI 同时支持人类终端使用和非交互自动化。
-
-全局参数：
+只有当你已经有 Codex 配置，并希望把它 adopt 到受管 `providers.json` 时才使用 `migrate`。新安装默认使用 `init`。
 
 ```bash
---json
---codex-dir <path>
---help
---version
+codexs migrate
+codexs migrate --overwrite --codex-dir ~/.codex
 ```
 
-当前实现边界：
+本仓库按开发版本处理，包括 `0.2.1`。旧实验状态不会自动迁移；从旧本地实验切换过来时，请手动清理或重新添加 provider。
 
-- `login copilot` 必须运行在真实 TTY 下，不支持 `--json`。
-- `migrate` 在需要人工补齐 adopt 信息时仍然保持交互式语义。
-- 自动化调用应尽量显式传参，并优先使用 `--json`。
+## 当前非目标
 
-## 本地开发
+`0.2.1` 不实现也不预留以下 runtime 代码路径：
+
+- GitHub Copilot SDK 集成。
+- GitHub device-flow 登录。
+- `login copilot`。
+- `add --copilot`。
+- HTTP proxy bridge 或本地 bridge worker 命令。
+- 后台 runtime service、bridge log 或 bridge runtime state。
+- 内置第三方 router 封装。
+- 账号系统或云同步。
+- 旧 Copilot / bridge 状态的自动迁移。
+
+未来版本可能接入类似第三方 router 的能力，但 `0.2.1` 不承诺工作流、schema 或 runtime 行为。
+
+## 开发
 
 ```bash
 npm run build
-npm test
 npx tsc --noEmit
+npm test
 node dist/cli.js --help
+node dist/cli.js --version
 npm pack --dry-run
 ```
 
-## 相关文档
+## 当前事实源
 
-- [English README](./README.md)
-- [AI README](./README.AI.md)
-- [详细 CLI 文档](./docs/cli-usage.md)
-- [产品概览](./docs/codex-switch-product-overview.md)
-- [测试说明](./docs/Tests/testing.md)
-- [PRD 0.1.1](./docs/PRD/codex-switch-prd-v0.1.1.md)
-- [Design 0.1.1](./docs/Design/codex-switch-v0.1.1-design.md)
-- [PRD 0.1.2](./docs/PRD/codex-switch-prd-v0.1.2.md)
-- [Design 0.1.2](./docs/Design/codex-switch-v0.1.2-design.md)
-- [PRD 0.1.5](./docs/PRD/codex-switch-prd-v0.1.5.md)
-- [Design 0.1.5](./docs/Design/codex-switch-v0.1.5-design.md)
+- [PRD 0.2.1](./docs/PRD/codex-switch-prd-v0.2.1.md)
+- [Design 0.2.1](./docs/Design/codex-switch-v0.2.1-design.md)
+- [CLI usage](./docs/cli-usage.md)
 
-## License
-
-MIT
+旧 `0.1.x` / `0.2.0` 文档保留为历史记录。

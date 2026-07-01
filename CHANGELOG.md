@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 - Unreleased
+
+Provider-management-only consolidation release.
+
+- Repositioned the current development line as a local-first Codex provider/model-provider management CLI.
+- Removed current-facing Copilot login, `add --copilot`, bridge command, SDK, HTTP proxy bridge, and local bridge runtime contracts from docs and command presentation.
+- Added `0.2.1` PRD and design fact sources.
+- Updated release-contract coverage around the reduced provider-management command surface.
 ## 0.1.5 - 2026-07-01
 
 Copilot Bridge process-visibility and redaction patch release.
@@ -80,3 +88,4 @@ First stable documentation baseline.
 - `migrate` remains an advanced adopt helper.
 - `setup` remains a deprecated compatibility entry.
 - Development-version policy remains in effect: no automatic migration shims or backward-compatibility preservation logic unless explicitly requested.
+

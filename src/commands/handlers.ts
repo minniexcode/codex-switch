@@ -183,7 +183,7 @@ export async function handleRegisteredCommand(
 
       if (!providerName || !profile || !apiKey) {
         if (ctx.options.json || !runtime.isInteractive()) {
-          throw createNonInteractiveAddError({});
+          throw createNonInteractiveAddError();
         }
 
         const prompted = await collectAddInput(

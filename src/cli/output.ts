@@ -125,9 +125,7 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
             : "";
           const note = provider.note ? ` note=${provider.note}` : "";
           const current = provider.isActive ? " current" : "";
-          lines.push(
-            `${provider.name} [${String(provider.providerType ?? "direct")}]${current} -> ${provider.modelProvider}${provider.model ? ` model=${provider.model}` : ""}${tags}${note}`
-          );
+          lines.push(`${provider.name}${current} -> ${provider.modelProvider}${provider.model ? ` model=${provider.model}` : ""}${tags}${note}`);
         }
       }
       break;
@@ -164,12 +162,6 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`  mapped provider: ${renderStatusMappedProvider(data)}`);
       lines.push(`  provider path: ${renderStatusProviderPath(data)}`);
       lines.push(`  runtime health: ${renderStatusHealth(data)}`);
-      if (data?.copilotBridgeLogPath) {
-        lines.push(`  bridge log: ${String(data.copilotBridgeLogPath)}`);
-      }
-      if (data?.copilotBridgeRestartReason) {
-        lines.push(`  bridge restart reason: ${String(data.copilotBridgeRestartReason)}`);
-      }
       lines.push(`  warnings: ${warnings.length}`);
       lines.push(`  next step: ${renderStatusNextStep(data, warnings)}`);
       break;
@@ -197,15 +189,6 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
     case "switch":
       lines.push(`Switched to provider ${String(data?.provider ?? "")} using model provider ${String(data?.modelProvider ?? data?.profile ?? "")}.`);
       lines.push(`Model: ${String(data?.model ?? "")}`);
-      if (data?.bridgeReplaced) {
-        lines.push(`Bridge replaced: true`);
-      }
-      if (data?.bridgeRestartReason) {
-        lines.push(`Bridge restart reason: ${String(data?.bridgeRestartReason)}`);
-      }
-      if (data?.bridgeLogPath) {
-        lines.push(`Bridge log: ${String(data?.bridgeLogPath)}`);
-      }
       lines.push(`Backup: ${String(data?.backupPath ?? "")}`);
       break;
     case "import":
@@ -222,19 +205,7 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       lines.push(`tool home created: ${String(data?.createdToolHomeDir ?? false)}`);
       lines.push(`tool config created: ${String(data?.createdToolConfigFile ?? false)}`);
       lines.push(`providers registry created: ${String(data?.createdProvidersFile ?? false)}`);
-      lines.push("next step: run `codexs add ...` for a direct provider, or `codexs login copilot` before `add --copilot`.");
-      break;
-    case "login":
-      lines.push(`Copilot login ready: ${String(data?.authReady ?? false)}`);
-      lines.push(`upstream: ${String(data?.upstream ?? "")}`);
-      lines.push(`sdk installed: ${String(data?.sdkInstalled ?? false)}${data?.sdkInstalledNow ? " (installed now)" : ""}`);
-      lines.push(`copilot cli source: ${String(data?.cliSource ?? "not-needed")}`);
-      if (data?.cliCommand) {
-        lines.push(`copilot cli command: ${String(data?.cliCommand)}`);
-      }
-      lines.push(`login launched: ${String(data?.loginLaunched ?? false)}`);
-      lines.push(`auth ready: ${String(data?.authReady ?? false)}`);
-      lines.push("next step: run `codexs add <provider> --copilot --profile <model-provider-id>` and then `codexs switch <provider>`.");
+      lines.push("next step: run `codexs add <provider> --profile <model-provider-id> --model <model> --api-key <key> --base-url <url>`.");
       break;
     case "migrate":
       lines.push(`Migrated providers in ${String(data?.codexDir ?? "")} using ${String(data?.strategy ?? "")}.`);
@@ -266,49 +237,12 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       const issues = (data?.issues as Array<Record<string, unknown>>) ?? [];
       lines.push(healthy ? "Doctor summary: healthy. No action required." : `Doctor summary: ${issues.length} issue(s) need attention.`);
       lines.push(`target runtime: ${String(data?.codexDir ?? "")}`);
-      if (data?.copilotRuntimeState && (data.copilotRuntimeState as Record<string, unknown>).logPath) {
-        lines.push(`bridge log: ${String((data.copilotRuntimeState as Record<string, unknown>).logPath)}`);
-      }
       for (const issue of issues) {
         lines.push(`- ${String(issue.code)}: ${String(issue.message)}`);
         lines.push(`  next step: ${renderDoctorIssueNextStep(issue)}`);
       }
       break;
     }
-    case "bridge-start":
-      lines.push(`Bridge ready for provider ${String(data?.provider ?? "")}.`);
-      lines.push(`Endpoint: ${String(data?.baseUrl ?? "")}`);
-      lines.push(`Reused: ${String(data?.reused ?? false)}`);
-      lines.push(`Replaced existing: ${String(data?.replaced ?? false)}`);
-      if (data?.restartReason) {
-        lines.push(`Restart reason: ${String(data?.restartReason)}`);
-      }
-      if (data?.logPath) {
-        lines.push(`Bridge log: ${String(data?.logPath)}`);
-      }
-      break;
-    case "bridge-status":
-      lines.push(`Bridge provider: ${String(data?.provider ?? "")}`);
-      lines.push(`Active: ${String(data?.active ?? false)}`);
-      lines.push(`Expected base URL: ${String(data?.expectedBaseUrl ?? "")}`);
-      lines.push(`Matches runtime state: ${String(data?.matches ?? false)}`);
-      if (data?.lastRestartReason) {
-        lines.push(`Last restart reason: ${String(data?.lastRestartReason)}`);
-      }
-      if (data?.logPath) {
-        lines.push(`Bridge log: ${String(data?.logPath)}`);
-      }
-      break;
-    case "bridge-stop":
-      lines.push(`Bridge stopped for provider ${String(data?.provider ?? "(none)")}.`);
-      lines.push(`Had runtime state: ${String(data?.hadRuntimeState ?? false)}`);
-      if (data?.lastRestartReason) {
-        lines.push(`Last restart reason: ${String(data?.lastRestartReason)}`);
-      }
-      if (data?.logPath) {
-        lines.push(`Bridge log: ${String(data?.logPath)}`);
-      }
-      break;
     case "backups-list": {
       const backups = (data?.backups as Array<Record<string, unknown>>) ?? [];
       for (const backup of backups) {
@@ -339,14 +273,9 @@ function renderStatusHealth(data: Record<string, unknown> | null): string {
   const configExists = Boolean(data?.configExists);
   const providersExists = Boolean(data?.providersExists);
   const auth = (data?.auth as Record<string, unknown> | undefined) ?? {};
-  const bridge = (data?.copilotBridge as Record<string, unknown> | null | undefined) ?? null;
   const issues = Array.isArray(data?.issues) ? (data?.issues as Array<Record<string, unknown>>) : [];
   const activeProviderResolvable = data?.activeProviderResolvable !== false;
   const liveState = (data?.liveState as Record<string, unknown> | undefined) ?? {};
-  const copilotSdk = (data?.copilotSdk as Record<string, unknown> | undefined) ?? {};
-  const copilotAuth = (data?.copilotAuth as Record<string, unknown> | null | undefined) ?? null;
-  const runtimeProvider = typeof data?.runtimeProvider === "string" ? data.runtimeProvider : null;
-  const activePathUsesCopilot = runtimeProvider === "copilot-sdk-bridge";
   if (!configExists || !providersExists) {
     return "incomplete local state";
   }
@@ -355,15 +284,6 @@ function renderStatusHealth(data: Record<string, unknown> | null): string {
   }
   if (issues.some((issue) => issue.code === "PROVIDER_BASE_URL_MISMATCH")) {
     return "provider projection drift";
-  }
-  if (activePathUsesCopilot && copilotSdk.installed === false) {
-    return "copilot sdk missing";
-  }
-  if (activePathUsesCopilot && copilotAuth && copilotAuth.ready === false) {
-    return "copilot auth required";
-  }
-  if (activePathUsesCopilot && bridge && bridge.ok === false) {
-    return "copilot runtime needs repair";
   }
   if (auth.exists === false) {
     return "auth projection missing";
@@ -392,7 +312,7 @@ function renderStatusMappedProvider(data: Record<string, unknown> | null): strin
  * Renders the active workflow path in status output.
  */
 function renderStatusProviderPath(data: Record<string, unknown> | null): string {
-  return typeof data?.runtimeProvider === "string" && data.runtimeProvider === "copilot-sdk-bridge" ? "copilot" : "direct";
+  return data?.provider ? "managed provider" : "unmanaged route";
 }
 
 /**
@@ -420,14 +340,6 @@ function renderDoctorIssueNextStep(issue: Record<string, unknown>): string {
       return "restore or create config.toml before switching providers";
     case "PROVIDERS_NOT_FOUND":
       return "run `codexs init` and then add or migrate providers";
-    case "COPILOT_SDK_MISSING":
-      return "run `codexs login copilot` to install the optional Copilot runtime";
-    case "COPILOT_AUTH_REQUIRED":
-      return "run `codexs login copilot` to complete upstream authentication";
-    case "BRIDGE_STATE_STALE":
-    case "BRIDGE_STATE_MISSING":
-    case "BRIDGE_HEALTHCHECK_FAILED":
-      return "reselect the provider with `codexs switch <provider>` or inspect the bridge log/state";
     case "UNMANAGED_ACTIVE_PROFILE":
       return "switch to a managed provider or adopt the active route with `codexs migrate`";
     case "LEGACY_PROFILE_SELECTOR":

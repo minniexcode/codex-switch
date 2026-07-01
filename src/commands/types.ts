@@ -13,11 +13,7 @@ export type GlobalOptions = {
 export type CommandId =
   | "config-show"
   | "config-list-profiles"
-  | "bridge-start"
-  | "bridge-stop"
-  | "bridge-status"
   | "init"
-  | "login"
   | "migrate"
   | "list"
   | "show"

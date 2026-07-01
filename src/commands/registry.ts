@@ -43,7 +43,7 @@ export const COMMANDS: CommandDefinition[] = [
       "Does not create or validate config.toml, auth.json, or the target Codex directory.",
       "When --codex-dir is passed explicitly and codex-switch.json does not exist yet, init persists it as defaultCodexDir.",
       "Otherwise init stays scoped to tool-home state and does not persist fallback Codex directory resolution.",
-      "Use init first for fresh direct-provider or Copilot setups.",
+      "Use init first for fresh provider-management setups.",
     ],
     examples: ["codexs init", "codexs init --json --codex-dir ~/.codex"],
   },
@@ -85,7 +85,7 @@ export const COMMANDS: CommandDefinition[] = [
     summary: "List managed providers with model-provider routing and current-state hints.",
     usage: ["codexs list [--json] [--codex-dir <path>]"],
     details: [
-      "Reads providers.json and prints provider-to-model-provider mappings together with provider type.",
+      "Reads providers.json and prints provider-to-model-provider mappings.",
       "When the active model_provider is shared by multiple providers, list surfaces the ambiguity instead of inventing one current provider.",
       "Use --json for machine-readable automation output.",
     ],
@@ -123,8 +123,7 @@ export const COMMANDS: CommandDefinition[] = [
     summary: "Show tool-home, target-runtime, provider-path, and runtime-health status.",
     usage: ["codexs status [--json] [--codex-dir <path>]"],
     details: [
-      "Reports the target Codex runtime, tool-home storage roles, current model, current model_provider, and whether the live route is mapped.",
-      "When the active provider uses a local runtime bridge, status also reports bridge, Copilot SDK, and upstream auth state.",
+      "Reports the target Codex directory, tool-home root, current model, current model_provider, and whether the live route is mapped.",
       "Surfaces dual-path config consistency signals without mutating any files.",
       "Organizes the human-readable view around current state, health impact, and next step.",
       "Use doctor for deeper diagnostics.",
@@ -172,7 +171,6 @@ export const COMMANDS: CommandDefinition[] = [
     ],
     examples: [
       "codexs add packycode --profile packycode --model gpt-5 --api-key sk-xxx --base-url https://api.example/v1",
-      "codexs add copilot --profile copilot --model gpt-5.5 --api-key dummy --base-url http://127.0.0.1:8787/v1",
       "codexs add",
     ],
   },
@@ -258,7 +256,6 @@ export const COMMANDS: CommandDefinition[] = [
     usage: ["codexs doctor [--json] [--codex-dir <path>]"],
     details: [
       "Checks the expected config files, provider/model-provider consistency, and Codex CLI availability.",
-      "Copilot bridge providers add runtime dependency, auth, and bridge health diagnostics.",
       "Returns structured issues so users and AI agents can act on them.",
     ],
     examples: ["codexs doctor", "codexs doctor --json"],
