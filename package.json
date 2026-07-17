@@ -1,7 +1,7 @@
 {
   "name": "@minniexcode/codex-switch",
-  "version": "0.2.2",
-  "description": "Local-first CLI for managing and switching Codex provider/model-provider routing.",
+  "version": "0.3.0",
+  "description": "Local-first CLI for managing and switching Codex and Claude Code provider routing.",
   "license": "MIT",
   "type": "commonjs",
   "bin": {

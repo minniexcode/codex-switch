@@ -98,6 +98,11 @@ export function outputFailure(ctx: CommandExecutionContext, error: CliErrorShape
  */
 function renderHumanSuccess(command: string, data: Record<string, unknown> | null, warnings: string[]): string[] {
   const lines: string[] = [];
+
+  if (data?.target === "claude") {
+    return renderClaudeHumanSuccess(command, data, warnings);
+  }
+
   switch (command) {
     case "list": {
       const providers = (data?.providers as Array<Record<string, unknown>>) ?? [];
@@ -351,6 +356,87 @@ function renderDoctorIssueNextStep(issue: Record<string, unknown>): string {
     default:
       return "inspect the issue details and rerun `codexs doctor` after fixing the state";
   }
+}
+
+/**
+ * Builds the plain-text success view for Claude Code provider commands.
+ */
+function renderClaudeHumanSuccess(command: string, data: Record<string, unknown>, warnings: string[]): string[] {
+  const lines: string[] = [];
+  switch (command) {
+    case "list": {
+      const providers = (data.providers as Array<Record<string, unknown>>) ?? [];
+      if (providers.length === 0) {
+        lines.push("No Claude providers configured. Run `codexs add --claude <name> --from-file <path>` to add one.");
+      } else {
+        lines.push("Claude Code providers:");
+        for (const provider of providers) {
+          const active = provider.isActive ? " (current)" : "";
+          const model = provider.model ? ` model=${provider.model}` : "";
+          const baseUrl = provider.baseUrl ? ` base=${provider.baseUrl}` : "";
+          const note = provider.note ? ` note=${provider.note}` : "";
+          lines.push(`  ${provider.name}${active}${model}${baseUrl}${note}`);
+        }
+      }
+      break;
+    }
+    case "show": {
+      lines.push(`Claude provider: ${String(data.provider ?? "")}`);
+      if (data.model) lines.push(`  model: ${String(data.model)}`);
+      if (data.baseUrl) lines.push(`  base URL: ${String(data.baseUrl)}`);
+      if (data.theme) lines.push(`  theme: ${String(data.theme)}`);
+      if (data.note) lines.push(`  note: ${String(data.note)}`);
+      if (Array.isArray(data.tags) && data.tags.length > 0) {
+        lines.push(`  tags: ${(data.tags as string[]).join(", ")}`);
+      }
+      const env = data.env as Record<string, string> | undefined;
+      if (env && Object.keys(env).length > 0) {
+        lines.push("  env:");
+        for (const [key, value] of Object.entries(env)) {
+          lines.push(`    ${key}=${value}`);
+        }
+      }
+      break;
+    }
+    case "current": {
+      if (data.status === "no-settings") {
+        lines.push(String(data.message));
+      } else if (data.status === "managed" && data.active) {
+        lines.push(`Active Claude provider: ${String(data.active)}`);
+        if (data.model) lines.push(`  model: ${String(data.model)}`);
+        if (data.baseUrl) lines.push(`  base URL: ${String(data.baseUrl)}`);
+      } else {
+        lines.push("Current Claude settings do not match any registered provider.");
+        if (data.model) lines.push(`  model: ${String(data.model)}`);
+        if (data.baseUrl) lines.push(`  base URL: ${String(data.baseUrl)}`);
+      }
+      break;
+    }
+    case "switch":
+      lines.push(`Switched Claude Code to provider "${String(data.provider ?? "")}".`);
+      if (data.model) lines.push(`  model: ${String(data.model)}`);
+      if (data.baseUrl) lines.push(`  base URL: ${String(data.baseUrl)}`);
+      if (data.backupPath) lines.push(`  backup: ${String(data.backupPath)}`);
+      break;
+    case "add":
+      lines.push(`Added Claude provider "${String(data.provider ?? "")}".`);
+      if (data.model) lines.push(`  model: ${String(data.model)}`);
+      if (data.backupPath) lines.push(`  backup: ${String(data.backupPath)}`);
+      break;
+    case "remove":
+      lines.push(`Removed Claude provider "${String(data.provider ?? "")}".`);
+      if (data.backupPath) lines.push(`  backup: ${String(data.backupPath)}`);
+      break;
+    default:
+      lines.push(JSON.stringify(data, null, 2));
+      break;
+  }
+
+  for (const warning of warnings) {
+    lines.push(`Warning: ${warning}`);
+  }
+
+  return lines;
 }
 
 /**

@@ -1,12 +1,12 @@
 # codex-switch
 
-`@minniexcode/codex-switch` 是一个本地优先的 Codex provider/model-provider 管理 CLI。
+`@minniexcode/codex-switch` 是一个本地优先的 CLI，用于管理和切换 Codex 与 Claude Code 的 provider 路由。
 
-它把 `codex-switch` 自己的工具状态和目标 Codex 目录分开，让 provider 管理、备份和 `model_provider` 投影通过明确命令完成，而不是手工编辑文件。
+它把 `codex-switch` 自己的工具状态和目标运行时目录分开，让 provider 管理、备份和运行时投影通过明确命令完成，而不是手工编辑文件。
 
-当前包版本：`0.2.1`
+当前包版本：`0.3.0`
 
-`0.2.1` 是当前仓库开发线，也是 provider-management-only 收敛版本：只管理本地 OpenAI-compatible provider 记录，并把它们投影到 Codex `config.toml` / `auth.json`。本版本不包含之前实验过的账号登录、本地 bridge 或后台 runtime 能力。
+`0.3.0` 新增了 Claude Code provider 切换功能（通过 `--claude` flag）。工具现在同时支持 Codex（OpenAI-compatible provider 投影到 `config.toml`/`auth.json`）和 Claude Code（完整 `settings.json` 配置切换）。
 
 ## 安装
 
@@ -25,7 +25,7 @@ node dist/cli.js --help
 
 需要 Node.js `>=18`。
 
-## 主工作流
+## 主工作流 (Codex)
 
 ```bash
 codexs init
@@ -43,23 +43,41 @@ codexs doctor
 
 `--profile` 是受管 Codex `model_provider` id 的 CLI alias，不是旧 Codex 顶层 `profile` selector。
 
+## Claude Code 工作流
+
+```bash
+codexs add --claude opus --from-file ~/.claude/settings.json
+codexs add --claude copilot --from-file ~/.claude/settings-copilot.json
+codexs switch --claude copilot
+codexs current --claude
+codexs list --claude
+```
+
+- `add --claude` 导入完整的 Claude Code `settings.json` 为一个命名配置。
+- `switch --claude` 原子替换 `~/.claude/settings.json` 为存储的配置。
+- `current --claude` 检测当前活跃的 Claude 配置。
+- `list --claude` 显示所有 Claude 配置及活跃标记。
+
+Claude provider 存储完整的 `settings.json` 内容（env 变量、模型映射、权限、插件），切换时替换整个文件。
+
 ## 命令面
 
-`0.2.1` 当前命令：
+`0.3.0` 当前命令：
 
 ```text
 codexs init
 codexs migrate
-codexs list
-codexs show <provider>
-codexs current
+codexs list [--claude]
+codexs show <provider> [--claude]
+codexs current [--claude]
 codexs status
 codexs config show
 codexs config list-profiles
-codexs add <provider> --profile <model-provider-id> --model <model> --api-key <key> [--base-url <url>]
+codexs add <provider> --profile <id> --model <model> --api-key <key> [--base-url <url>]
+codexs add --claude <name> --from-file <settings.json>
 codexs edit <provider> [options]
-codexs switch <provider>
-codexs remove <provider> --force
+codexs switch <provider> [--claude]
+codexs remove <provider> [--claude] --force
 codexs import <file>
 codexs export <file>
 codexs backups list
@@ -96,9 +114,10 @@ requires_openai_auth = true
 工具 home：
 
 ```text
-~/.codex-switch/
+~/.config/codex-switch/
   codex-switch.json
   providers.json
+  claude-providers.json
   backups/
 ```
 
@@ -110,10 +129,18 @@ requires_openai_auth = true
   auth.json
 ```
 
+目标 Claude Code 目录：
+
+```text
+~/.claude/
+  settings.json
+```
+
 环境变量：
 
 - `CODEXS_HOME` 覆盖 `codex-switch` 工具 home。
 - `CODEXS_CODEX_DIR` 在未传 `--codex-dir` 时提供默认目标 Codex 目录。
+- `CODEXS_CLAUDE_DIR` 覆盖 Claude Code 目录（默认：`~/.claude`）。
 - 开发环境下，`NODE_ENV=development` 且没有显式覆盖时默认使用 `./dev-codex/local-sandbox`。
 
 ## 迁移与采用
@@ -125,23 +152,18 @@ codexs migrate
 codexs migrate --overwrite --codex-dir ~/.codex
 ```
 
-本仓库按开发版本处理，包括 `0.2.1`。旧实验状态不会自动迁移；从旧本地实验切换过来时，请手动清理或重新添加 provider。
-
 ## 当前非目标
 
-`0.2.1` 不实现也不预留以下 runtime 代码路径：
+`0.3.0` 不实现也不预留以下 runtime 代码路径：
 
 - GitHub Copilot SDK 集成。
 - GitHub device-flow 登录。
-- `login copilot`。
-- `add --copilot`。
 - HTTP proxy bridge 或本地 bridge worker 命令。
 - 后台 runtime service、bridge log 或 bridge runtime state。
 - 内置第三方 router 封装。
 - 账号系统或云同步。
-- 旧 Copilot / bridge 状态的自动迁移。
-
-未来版本可能接入类似第三方 router 的能力，但 `0.2.1` 不承诺工作流、schema 或 runtime 行为。
+- Claude Code 插件市场管理。
+- 泛化的 "target" 抽象或可插拔 provider 类型系统。
 
 ## 开发
 
@@ -156,8 +178,10 @@ npm pack --dry-run
 
 ## 当前事实源
 
+- [PRD 0.3.0](./docs/PRD/codex-switch-prd-v0.3.0.md)
+- [Design 0.3.0](./docs/Design/codex-switch-v0.3.0-design.md)
 - [PRD 0.2.1](./docs/PRD/codex-switch-prd-v0.2.1.md)
 - [Design 0.2.1](./docs/Design/codex-switch-v0.2.1-design.md)
 - [CLI usage](./docs/cli-usage.md)
 
-旧 `0.1.x` / `0.2.0` 文档保留为历史记录。
+旧 `0.1.x` / `0.2.x` 文档保留为历史记录。

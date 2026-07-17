@@ -1,12 +1,12 @@
 # codex-switch
 
-`@minniexcode/codex-switch` is a local-first provider/model-provider management CLI for Codex.
+`@minniexcode/codex-switch` is a local-first CLI for managing and switching Codex and Claude Code provider routing.
 
-It keeps `codex-switch` tool state separate from the target Codex directory, so managed providers, backups, and Codex `model_provider` projection are handled through explicit commands instead of manual file edits.
+It keeps `codex-switch` tool state separate from the target runtime directories, so managed providers, backups, and runtime projection are handled through explicit commands instead of manual file edits.
 
-Current package version: `0.2.1`
+Current package version: `0.3.0`
 
-`0.2.1` is the current repository development line. It is a provider-management-only consolidation release: direct OpenAI-compatible provider records are managed locally and projected into Codex config/auth files. This version does not include the previous account-login, local bridge, or background runtime experiments.
+`0.3.0` adds Claude Code provider switching via the `--claude` flag. The tool now supports both Codex (OpenAI-compatible providers projected into `config.toml`/`auth.json`) and Claude Code (full `settings.json` profile switching).
 
 ## Install
 
@@ -25,7 +25,7 @@ node dist/cli.js --help
 
 Node.js `>=18` is required.
 
-## Primary Workflow
+## Primary Workflow (Codex)
 
 ```bash
 codexs init
@@ -45,23 +45,43 @@ What the workflow does:
 
 `--profile` is a CLI alias for the managed Codex `model_provider` id. It is not the legacy Codex top-level `profile` selector.
 
+## Claude Code Workflow
+
+```bash
+codexs add --claude opus --from-file ~/.claude/settings.json
+codexs add --claude copilot --from-file ~/.claude/settings-copilot.json
+codexs switch --claude copilot
+codexs current --claude
+codexs list --claude
+```
+
+What the workflow does:
+
+- `add --claude` imports a complete Claude Code `settings.json` as a named profile into `claude-providers.json`.
+- `switch --claude` atomically replaces `~/.claude/settings.json` with the stored profile.
+- `current --claude` detects which registered profile matches the active settings.
+- `list --claude` shows all Claude profiles with an active indicator.
+
+Claude providers store the full `settings.json` content (env vars, model mappings, permissions, plugins) as an opaque blob. Switching replaces the entire file.
+
 ## Commands
 
-Current `0.2.1` command surface:
+Current `0.3.0` command surface:
 
 ```text
 codexs init
 codexs migrate
-codexs list
-codexs show <provider>
-codexs current
+codexs list [--claude]
+codexs show <provider> [--claude]
+codexs current [--claude]
 codexs status
 codexs config show
 codexs config list-profiles
-codexs add <provider> --profile <model-provider-id> --model <model> --api-key <key> [--base-url <url>]
+codexs add <provider> --profile <id> --model <model> --api-key <key> [--base-url <url>]
+codexs add --claude <name> --from-file <settings.json>
 codexs edit <provider> [options]
-codexs switch <provider>
-codexs remove <provider> --force
+codexs switch <provider> [--claude]
+codexs remove <provider> [--claude] --force
 codexs import <file>
 codexs export <file>
 codexs backups list
@@ -100,9 +120,10 @@ Authentication is projected into the target Codex `auth.json` as API-key mode wi
 Tool home:
 
 ```text
-~/.codex-switch/
+~/.config/codex-switch/
   codex-switch.json
   providers.json
+  claude-providers.json
   backups/
 ```
 
@@ -114,10 +135,18 @@ Target Codex directory:
   auth.json
 ```
 
+Target Claude Code directory:
+
+```text
+~/.claude/
+  settings.json
+```
+
 Environment variables:
 
 - `CODEXS_HOME` overrides the `codex-switch` tool home.
 - `CODEXS_CODEX_DIR` provides the default target Codex directory when `--codex-dir` is not passed.
+- `CODEXS_CLAUDE_DIR` overrides the Claude Code directory (default: `~/.claude`).
 - In development, `NODE_ENV=development` defaults to `./dev-codex/local-sandbox` when no override is set.
 
 ## Migration And Adoption
@@ -129,23 +158,18 @@ codexs migrate
 codexs migrate --overwrite --codex-dir ~/.codex
 ```
 
-The development-version policy applies to `0.2.1`: old local experimental state is not automatically migrated. Clean up or re-add providers manually when moving from an older local experiment.
-
 ## Current Non-Goals
 
-`0.2.1` does not implement or reserve runtime code paths for:
+`0.3.0` does not implement or reserve runtime code paths for:
 
 - GitHub Copilot SDK integration.
 - GitHub device-flow login.
-- `login copilot`.
-- `add --copilot`.
 - HTTP proxy bridge or local bridge worker commands.
 - Background runtime services, bridge logs, or bridge runtime state.
 - Built-in third-party router packaging.
 - Account systems or cloud sync.
-- Automatic migration of old Copilot or bridge state.
-
-A future release may integrate a third-party router-like capability, but `0.2.1` makes no workflow, schema, or runtime guarantee for that.
+- Claude Code plugin marketplace management.
+- Generic "target" abstraction or pluggable provider type system.
 
 ## Development
 
@@ -162,6 +186,8 @@ npm pack --dry-run
 
 Current fact sources:
 
+- [PRD 0.3.0](./docs/PRD/codex-switch-prd-v0.3.0.md)
+- [Design 0.3.0](./docs/Design/codex-switch-v0.3.0-design.md)
 - [PRD 0.2.1](./docs/PRD/codex-switch-prd-v0.2.1.md)
 - [Design 0.2.1](./docs/Design/codex-switch-v0.2.1-design.md)
 - [CLI usage](./docs/cli-usage.md)

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.0 - 2026-07-18
+
+Claude Code provider switching release.
+
+### Added
+
+- Claude Code provider management via `--claude` flag on `add`, `switch`, `list`, `show`, `current`, `remove` commands.
+- `codexs add --claude <name> --from-file <settings.json>` imports a Claude Code settings file as a named profile.
+- `codexs switch --claude <name>` atomically replaces `~/.claude/settings.json` with the stored profile.
+- `codexs current --claude` detects which registered profile matches the active Claude settings.
+- `codexs list --claude` shows all Claude profiles with active detection.
+- `codexs show --claude <name>` displays full Claude profile details including env vars.
+- `codexs remove --claude <name>` removes a Claude profile from the registry.
+- Separate `claude-providers.json` storage in tool home directory.
+- `CODEXS_CLAUDE_DIR` environment variable to override the Claude Code directory.
+- PRD v0.3.0 and Design v0.3.0 fact sources.
+
+### Changed
+
+- Package description updated to reflect dual-target (Codex + Claude Code) support.
+- Help text for `add`, `switch`, `list`, `show`, `current`, `remove` updated with `--claude` usage.
+
+## 0.2.2 - 2026-07-15
+
+Version bump and command summary update.
+
 ## 0.2.1 - Unreleased
 
 Provider-management-only consolidation release.

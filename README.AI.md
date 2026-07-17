@@ -2,21 +2,25 @@
 
 This file is the current AI-facing fact sheet for `@minniexcode/codex-switch`.
 
-Current repository version: `0.2.1`
+Current repository version: `0.3.0`
 
 Current fact sources:
 
+- `docs/PRD/codex-switch-prd-v0.3.0.md`
+- `docs/Design/codex-switch-v0.3.0-design.md`
 - `docs/PRD/codex-switch-prd-v0.2.1.md`
 - `docs/Design/codex-switch-v0.2.1-design.md`
 - `docs/cli-usage.md`
 
 ## Product Positioning
 
-`codex-switch` is a local-first provider/model-provider management CLI for Codex. It manages local provider records, projects Codex `model_provider` sections, writes the active top-level `model` / `model_provider` route, and maintains backups around mutating commands.
+`codex-switch` is a local-first CLI for managing and switching Codex and Claude Code provider routing. It manages local provider records, projects Codex `model_provider` sections, writes the active top-level `model` / `model_provider` route, switches Claude Code `settings.json` profiles, and maintains backups around mutating commands.
 
-Do not describe the current product as a direct-vs-Copilot dual path. In `0.2.1`, there is only the provider-management workflow for OpenAI-compatible provider endpoints.
+In `0.3.0`, there are two managed workflows:
+1. **Codex providers** — OpenAI-compatible provider records projected into `config.toml` / `auth.json`.
+2. **Claude Code providers** (via `--claude` flag) — full `settings.json` profiles stored and switched atomically.
 
-## Primary Workflow
+## Primary Workflow (Codex)
 
 ```bash
 codexs init
@@ -28,6 +32,19 @@ codexs doctor
 
 `--profile` means managed `model_provider` id alias. It is not the legacy Codex top-level `profile` selector.
 
+## Claude Code Workflow
+
+```bash
+codexs add --claude <name> --from-file <settings.json>
+codexs switch --claude <name>
+codexs current --claude
+codexs list --claude
+codexs show --claude <name>
+codexs remove --claude <name> --force
+```
+
+Claude providers store the entire `settings.json` as an opaque blob. Switching replaces the whole file atomically with backup/rollback.
+
 ## Current Command Surface
 
 Document only these current commands:
@@ -35,16 +52,16 @@ Document only these current commands:
 ```text
 init
 migrate
-list
-show
-current
+list [--claude]
+show [--claude]
+current [--claude]
 status
 config show
 config list-profiles
-add
+add [--claude]
 edit
-switch
-remove
+switch [--claude]
+remove [--claude]
 import
 export
 backups list
@@ -60,9 +77,10 @@ setup
 Tool home:
 
 ```text
-~/.codex-switch/
+~/.config/codex-switch/
   codex-switch.json
   providers.json
+  claude-providers.json
   backups/
 ```
 
@@ -72,6 +90,13 @@ Target Codex directory:
 ~/.codex/
   config.toml
   auth.json
+```
+
+Target Claude Code directory:
+
+```text
+~/.claude/
+  settings.json
 ```
 
 Managed projection for current Codex versions is route-first:
@@ -85,24 +110,17 @@ Do not present top-level `profile` or `[profiles.*]` as the current managed runt
 
 ## Current Non-Goals
 
-`0.2.1` does not include:
+`0.3.0` does not include:
 
 - Copilot SDK integration.
 - GitHub device-flow login.
-- `login copilot`.
-- `add --copilot`.
-- `bridge start`, `bridge status`, or `bridge stop`.
 - HTTP proxy bridge or local bridge worker runtime.
-- `runtime/` or `runtimes/` managed service directories.
-- Bridge logs or bridge runtime state.
+- Background runtime services, bridge logs, or bridge runtime state.
 - Built-in third-party router packaging.
-- Automatic migration of old Copilot or bridge state.
-
-A future release may integrate a third-party router-like capability. Do not write current commands, schema, or runtime paths for that in `0.2.1` docs or code.
-
-## Development-Version Policy
-
-Treat `0.2.1` as development-version software unless the user explicitly declares a real release. Do not add automatic migration shims, dual-read/dual-write behavior, or compatibility preservation for old experimental local state unless asked in the current task.
+- Account systems or cloud sync.
+- Claude Code plugin marketplace management.
+- Generic "target" abstraction or pluggable provider type system.
+- Field-based Claude provider creation (only `--from-file` import is supported).
 
 ## Verification Commands
 

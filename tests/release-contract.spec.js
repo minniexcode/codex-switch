@@ -13,17 +13,17 @@ module.exports = {
   name: "release contract",
   tests: [
     {
-      name: "package metadata is 0.2.1",
+      name: "package metadata is 0.3.0",
       run() {
         const packageJson = require("../package.json");
         const packageLock = require("../package-lock.json");
-        assert.equal(packageJson.version, "0.2.1");
-        assert.equal(packageLock.version, "0.2.1");
-        assert.equal(packageLock.packages[""].version, "0.2.1");
+        assert.equal(packageJson.version, "0.3.0");
+        assert.equal(packageLock.version, "0.3.0");
+        assert.equal(packageLock.packages[""].version, "0.3.0");
       },
     },
     {
-      name: "current docs use 0.2.1 fact sources",
+      name: "current docs use 0.3.0 fact sources",
       run() {
         for (const relativePath of [
           "README.md",
@@ -36,12 +36,14 @@ module.exports = {
           "CHANGELOG.md",
         ]) {
           const content = read(relativePath);
-          assert.match(content, /0\.2\.1/, relativePath);
+          assert.match(content, /0\.2\.1|0\.3\.0/, relativePath);
         }
+        assert.ok(fs.existsSync(path.join(repoRoot, "docs/PRD/codex-switch-prd-v0.3.0.md")));
+        assert.ok(fs.existsSync(path.join(repoRoot, "docs/Design/codex-switch-v0.3.0-design.md")));
         assert.ok(fs.existsSync(path.join(repoRoot, "docs/PRD/codex-switch-prd-v0.2.1.md")));
         assert.ok(fs.existsSync(path.join(repoRoot, "docs/Design/codex-switch-v0.2.1-design.md")));
-        assert.match(read("README.md"), /provider-management-only consolidation release|provider-management-only/);
-        assert.match(read("README.AI.md"), /local-first provider\/model-provider management CLI/);
+        assert.match(read("README.md"), /Claude Code provider switching|managing and switching Codex and Claude Code/);
+        assert.match(read("README.AI.md"), /local-first CLI for managing and switching Codex and Claude Code/);
       },
     },
     {
@@ -75,11 +77,11 @@ module.exports = {
       },
     },
     {
-      name: "version command reports 0.2.1",
+      name: "version command reports 0.3.0",
       async run() {
         const result = await runBuiltCli(["--version"]);
         assert.equal(result.status, 0);
-        assert.equal(result.stdout.trim(), "0.2.1");
+        assert.equal(result.stdout.trim(), "0.3.0");
       },
     },
   ],

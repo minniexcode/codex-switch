@@ -40,6 +40,7 @@ import { findCodexDirCandidates, readStructuredConfig } from "../storage/config-
 import { createCodexPaths } from "../storage/codex-paths";
 import { mergeProviders, readProvidersFileIfExists } from "../storage/providers-repo";
 import { getSingleOption, hasFlag } from "./args";
+import { handleClaudeCommand, isClaudeCommand } from "./claude-handlers";
 import { CommandExecutionContext, ParsedCommand } from "./types";
 
 /**
@@ -50,6 +51,10 @@ export async function handleRegisteredCommand(
   parsed: ParsedCommand,
   runtime = createPromptRuntime()
 ): Promise<import("../app/types").CommandResult> {
+  if (isClaudeCommand(ctx.command, parsed.commandOptions)) {
+    return handleClaudeCommand(ctx, parsed, runtime);
+  }
+
   const packageVersion = (require("../../package.json") as { version?: string }).version ?? "0.0.0";
   if (!ctx.options.codexDir) {
     throw cliError("CODEX_DIR_NOT_FOUND", "No Codex directory could be resolved.");
