@@ -5,7 +5,6 @@ const os = require("node:os");
 const path = require("node:path");
 
 const repoRoot = path.resolve(__dirname, "..");
-const fixtureCodexDir = path.join(repoRoot, "dev-codex", "local-sandbox");
 
 /**
  * Every temporary directory this harness created and has not yet removed.
@@ -84,44 +83,72 @@ async function withEnv(overrides, run) {
 }
 
 /**
- * Creates a temporary copy of the repository Codex sandbox fixture.
+ * Creates a Codex directory fixture, replacing the gitignored `dev-codex/local-sandbox` copy.
+ *
+ * `modelProvider` adds the top-level `model_provider` selector. The managed-projection contract
+ * reads only that key — there is no fallback to the legacy top-level `profile` — so a fixture
+ * without it cannot resolve an active provider at all. `baseUrl` sets the matching
+ * `[model_providers.<id>]` section so a test can seed a deliberate mismatch.
+ *
+ * `legacyProfile` emits the legacy top-level `profile` selector, which is left off by default on
+ * purpose: as a trailing root key it overlaps the insertion point for a new top-level key, and
+ * `switch` then drops the first character of the text it inserts (`model_provider` → `odel_provider`).
+ * No existing test exercises that path; pass this only to reproduce the defect.
  */
-function makeSandboxCopy() {
-  const tempRoot = makeTempDir("codex-switch-cli-e2e-");
-  fs.cpSync(fixtureCodexDir, tempRoot, { recursive: true });
-  return tempRoot;
-}
+function makeCodexFixture({
+  modelProvider = null,
+  baseUrl = "https://free.example.com/v1",
+  legacyProfile = null,
+} = {}) {
+  const codexDir = makeTempDir("codex-switch-codex-");
+  const rootFields = [
+    modelProvider ? `model_provider = ${JSON.stringify(modelProvider)}` : null,
+    legacyProfile ? `profile = ${JSON.stringify(legacyProfile)}` : null,
+  ].filter(Boolean);
 
-/**
- * Creates an empty Codex directory for init-oriented tests.
- */
-function makeEmptyCodexDir() {
-  const codexDir = makeTempDir("codex-switch-empty-");
+  fs.writeFileSync(
+    path.join(codexDir, "config.toml"),
+    `${rootFields.length > 0 ? `${rootFields.join("\n")}\n\n` : ""}` +
+      `[profiles.packycode]\nmodel = "gpt-5"\nmodel_provider = "packycode"\n` +
+      `\n[profiles.freemodel]\nmodel = "gpt-5-mini"\nmodel_provider = "freemodel"\n` +
+      `\n[model_providers.packycode]\nbase_url = "https://relay.example.com/v1"\n` +
+      `\n[model_providers.${modelProvider ?? "freemodel"}]\nbase_url = ${JSON.stringify(baseUrl)}\n`,
+    "utf8"
+  );
+
+  // Any JSON object satisfies the auth file's validity check, and `switch` overwrites it.
+  fs.writeFileSync(path.join(codexDir, "auth.json"), `${JSON.stringify({ token: "fixture" }, null, 2)}\n`, "utf8");
   fs.mkdirSync(path.join(codexDir, "backups"), { recursive: true });
+
   return codexDir;
 }
 
 /**
  * Executes the built CLI entrypoint in-process and returns its rendered output.
  *
- * Calls `runCli` directly rather than mirroring the production dispatch ladder, so a change to
- * the entrypoint is reflected here instead of silently diverging (P1-3).
+ * Calls `runCli` directly rather than mirroring the production dispatch ladder, so a change
+ * to the entrypoint is reflected here instead of silently diverging (P1-3).
  */
 async function runBuiltCli(input) {
   const { runCli } = require("../dist/cli.js");
   const args = Array.isArray(input) ? input : input.args;
 
-  const codexDirIndex = args.indexOf("--codex-dir");
   const toolHomeDir = !Array.isArray(input) && input.toolHomeDir
     ? path.resolve(input.toolHomeDir)
-    : codexDirIndex >= 0 && args[codexDirIndex + 1]
-      ? path.resolve(args[codexDirIndex + 1])
-      : makeTempDir("codex-switch-tool-home-");
+    : makeTempDir("codex-switch-tool-home-");
+
+  // The Codex directory is never used as the tool home: `--codex-dir` names the target runtime
+  // a command operates on, while the tool home holds this tool's own state. A call that names
+  // neither is pointed at a temporary Codex directory so it cannot touch the real ~/.codex.
+  const overrides = { CODEXS_HOME: toolHomeDir };
+  if (!args.includes("--codex-dir")) {
+    overrides.CODEXS_CODEX_DIR = makeTempDir("codex-switch-codex-");
+  }
 
   const stdout = [];
   const stderr = [];
 
-  const status = await withEnv({ CODEXS_HOME: toolHomeDir }, () =>
+  const status = await withEnv(overrides, () =>
     runCli(args, {
       stdout: (line) => {
         stdout.push(line);
@@ -156,14 +183,12 @@ async function runJsonCli(input) {
 
 module.exports = {
   repoRoot,
-  fixtureCodexDir,
   makeTempDir,
   removeTempDir,
   cleanupTempDirs,
   withEnv,
   makeToolHomeWithManagedState,
-  makeSandboxCopy,
-  makeEmptyCodexDir,
+  makeCodexFixture,
   runBuiltCli,
   runJsonCli,
 };

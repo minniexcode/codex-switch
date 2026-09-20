@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
-  makeSandboxCopy,
+  makeCodexFixture,
   makeToolHomeWithManagedState,
   runBuiltCli,
   runJsonCli,
@@ -20,7 +20,7 @@ module.exports = {
     {
       name: "init add switch status doctor works through json envelope",
       async run() {
-        const codexDir = makeSandboxCopy();
+        const codexDir = makeCodexFixture();
         const toolHomeDir = makeToolHomeWithManagedState();
 
         let result = await runJsonCli({ toolHomeDir, args: ["init", "--json", "--codex-dir", codexDir] });
@@ -68,7 +68,9 @@ module.exports = {
     {
       name: "list human output omits provider type and reports ambiguous active provider",
       async run() {
-        const codexDir = makeSandboxCopy();
+        // The top-level selector is what makes the active provider resolvable at all; without it
+        // the renderer never reaches the ambiguity branch this test is about.
+        const codexDir = makeCodexFixture({ modelProvider: "freemodel" });
         const toolHomeDir = makeToolHomeWithManagedState();
         writeProviders(toolHomeDir, {
           first: { profile: "freemodel", apiKey: "sk-first", baseUrl: "https://free.example/v1", model: "gpt-5.4" },
@@ -85,7 +87,9 @@ module.exports = {
     {
       name: "doctor reports baseUrl drift as provider projection drift",
       async run() {
-        const codexDir = makeSandboxCopy();
+        // The fixture's `[model_providers.freemodel]` carries the generator's default base URL, so
+        // the seeded provider below differs from it and the drift is what the test observes.
+        const codexDir = makeCodexFixture({ modelProvider: "freemodel" });
         const toolHomeDir = makeToolHomeWithManagedState();
         writeProviders(toolHomeDir, {
           freemodel: { profile: "freemodel", apiKey: "sk-free", baseUrl: "https://drift.example/v1", model: "gpt-5.4" },
