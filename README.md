@@ -4,9 +4,11 @@
 
 It keeps `codex-switch` tool state separate from the target runtime directories, so managed providers, backups, and runtime projection are handled through explicit commands instead of manual file edits.
 
-Current package version: `0.3.0`
+Current package version: `0.3.1`
 
-`0.3.0` adds Claude Code provider switching via the `--claude` flag. The tool now supports both Codex (OpenAI-compatible providers projected into `config.toml`/`auth.json`) and Claude Code (full `settings.json` profile switching).
+`0.3.1` is a security patch for the `0.3.0` dual-target line. `show --claude` now masks secret env values unless `--reveal` is passed, error details are redacted recursively, managed files are written owner-only on macOS and Linux, and two write-safety defects are fixed. The `--claude` path, both registries, and the command surface are otherwise unchanged.
+
+`0.3.0` added Claude Code provider switching via the `--claude` flag. The tool supports both Codex (OpenAI-compatible providers projected into `config.toml`/`auth.json`) and Claude Code (full `settings.json` profile switching).
 
 ## Install
 
@@ -53,6 +55,8 @@ codexs add --claude copilot --from-file ~/.claude/settings-copilot.json
 codexs switch --claude copilot
 codexs current --claude
 codexs list --claude
+codexs show --claude copilot
+codexs show --claude copilot --reveal
 ```
 
 What the workflow does:
@@ -61,18 +65,45 @@ What the workflow does:
 - `switch --claude` atomically replaces `~/.claude/settings.json` with the stored profile.
 - `current --claude` detects which registered profile matches the active settings.
 - `list --claude` shows all Claude profiles with an active indicator.
+- `show --claude` prints one profile with secret env values masked and the raw `settings` blob withheld.
 
 Claude providers store the full `settings.json` content (env vars, model mappings, permissions, plugins) as an opaque blob. Switching replaces the entire file.
 
+### Reading secrets back
+
+`show --claude` masks any env value whose key looks like a credential (`*_TOKEN`, `*_API_KEY`,
+`*_SECRET`, `*_PASSWORD`, `*_CREDENTIAL`, anything containing `auth`) in both the human and `--json`
+output. Non-secret neighbours such as `ANTHROPIC_BASE_URL` print normally.
+
+`--reveal` is a global flag that prints the real values and includes the `settings` blob. It is an
+explicit escape hatch, so it is never applied by accident:
+
+```bash
+codexs show --claude copilot --reveal
+```
+
+Files this tool writes are created with owner-only permissions (`0600` for files, `0700` for
+directories it creates) on **macOS and Linux**. On Windows the permission tightening is skipped —
+NTFS has no group/other bits for `chmod` to set, so access there is decided by ACLs and this tool
+does not touch them.
+
+On macOS and Linux, files written before the upgrade keep their previous mode until the next write
+touches them. To fix them all at once:
+
+```bash
+# macOS / Linux only — this is a no-op on Windows.
+chmod -R go-rwx ~/.config/codex-switch ~/.codex/config.toml ~/.codex/auth.json ~/.claude/settings.json
+```
+
 ## Commands
 
-Current `0.3.0` command surface:
+Current `0.3.1` command surface:
 
 ```text
 codexs init
 codexs migrate
 codexs list [--claude]
-codexs show <provider> [--claude]
+codexs show <provider> [--claude] [--reveal]
 codexs current [--claude]
 codexs status
 codexs config show
@@ -160,7 +191,7 @@ codexs migrate --overwrite --codex-dir ~/.codex
 
 ## Current Non-Goals
 
-`0.3.0` does not implement or reserve runtime code paths for:
+`0.3.1` does not implement or reserve runtime code paths for:
 
 - GitHub Copilot SDK integration.
 - GitHub device-flow login.
@@ -186,6 +217,8 @@ npm pack --dry-run
 
 Current fact sources:
 
+- [PRD 0.3.1](./docs/PRD/codex-switch-prd-v0.3.1.md)
+- [Design 0.3.1](./docs/Design/codex-switch-v0.3.1-design.md)
 - [PRD 0.3.0](./docs/PRD/codex-switch-prd-v0.3.0.md)
 - [Design 0.3.0](./docs/Design/codex-switch-v0.3.0-design.md)
 - [PRD 0.2.1](./docs/PRD/codex-switch-prd-v0.2.1.md)

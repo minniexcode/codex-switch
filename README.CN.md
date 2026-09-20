@@ -4,9 +4,11 @@
 
 它把 `codex-switch` 自己的工具状态和目标运行时目录分开，让 provider 管理、备份和运行时投影通过明确命令完成，而不是手工编辑文件。
 
-当前包版本：`0.3.0`
+当前包版本：`0.3.1`
 
-`0.3.0` 新增了 Claude Code provider 切换功能（通过 `--claude` flag）。工具现在同时支持 Codex（OpenAI-compatible provider 投影到 `config.toml`/`auth.json`）和 Claude Code（完整 `settings.json` 配置切换）。
+`0.3.1` 是 `0.3.0` 双目标线的安全修复版。`show --claude` 默认掩码 secret 类 env 值（除非显式传 `--reveal`），错误详情改为递归脱敏，工具写入的文件在 macOS / Linux 上使用仅属主可读权限，并修复了两处写入安全问题。`--claude` 路径、两个 registry 和命令面没有其他变化。
+
+`0.3.0` 新增了 Claude Code provider 切换功能（通过 `--claude` flag）。工具同时支持 Codex（OpenAI-compatible provider 投影到 `config.toml`/`auth.json`）和 Claude Code（完整 `settings.json` 配置切换）。
 
 ## 安装
 
@@ -51,24 +53,46 @@ codexs add --claude copilot --from-file ~/.claude/settings-copilot.json
 codexs switch --claude copilot
 codexs current --claude
 codexs list --claude
+codexs show --claude copilot
+codexs show --claude copilot --reveal
 ```
 
 - `add --claude` 导入完整的 Claude Code `settings.json` 为一个命名配置。
 - `switch --claude` 原子替换 `~/.claude/settings.json` 为存储的配置。
 - `current --claude` 检测当前活跃的 Claude 配置。
 - `list --claude` 显示所有 Claude 配置及活跃标记。
+- `show --claude` 显示单个配置，secret 类 env 值被掩码，原始 `settings` blob 不返回。
 
 Claude provider 存储完整的 `settings.json` 内容（env 变量、模型映射、权限、插件），切换时替换整个文件。
 
+### 查看 secret
+
+`show --claude` 会掩码所有 key 名看起来像凭据的 env 值（`*_TOKEN`、`*_API_KEY`、`*_SECRET`、`*_PASSWORD`、`*_CREDENTIAL`，以及任何包含 `auth` 的 key），human 输出和 `--json` 输出都是如此。`ANTHROPIC_BASE_URL` 这类非 secret 的邻居字段照常显示。
+
+`--reveal` 是全局 flag，用于打印真实值并附带 `settings` blob。它是显式的逃生口，不会被默认应用：
+
+```bash
+codexs show --claude copilot --reveal
+```
+
+工具写入的文件在 **macOS 和 Linux** 上使用仅属主可读权限（文件 `0600`，工具自己创建的目录 `0700`）。Windows 上跳过权限收紧 —— NTFS 没有供 `chmod` 设置的 group/other 位，访问由 ACL 决定，本工具不触碰 ACL。
+
+在 macOS 和 Linux 上，升级前写入的文件会保持原有权限，直到下一次写入触及它。要一次性全部修正：
+
+```bash
+# 仅 macOS / Linux —— 在 Windows 上是 no-op。
+chmod -R go-rwx ~/.config/codex-switch ~/.codex/config.toml ~/.codex/auth.json ~/.claude/settings.json
+```
+
 ## 命令面
 
-`0.3.0` 当前命令：
+`0.3.1` 当前命令：
 
 ```text
 codexs init
 codexs migrate
 codexs list [--claude]
-codexs show <provider> [--claude]
+codexs show <provider> [--claude] [--reveal]
 codexs current [--claude]
 codexs status
 codexs config show
@@ -154,7 +178,7 @@ codexs migrate --overwrite --codex-dir ~/.codex
 
 ## 当前非目标
 
-`0.3.0` 不实现也不预留以下 runtime 代码路径：
+`0.3.1` 不实现也不预留以下 runtime 代码路径：
 
 - GitHub Copilot SDK 集成。
 - GitHub device-flow 登录。
@@ -178,6 +202,8 @@ npm pack --dry-run
 
 ## 当前事实源
 
+- [PRD 0.3.1](./docs/PRD/codex-switch-prd-v0.3.1.md)
+- [Design 0.3.1](./docs/Design/codex-switch-v0.3.1-design.md)
 - [PRD 0.3.0](./docs/PRD/codex-switch-prd-v0.3.0.md)
 - [Design 0.3.0](./docs/Design/codex-switch-v0.3.0-design.md)
 - [PRD 0.2.1](./docs/PRD/codex-switch-prd-v0.2.1.md)

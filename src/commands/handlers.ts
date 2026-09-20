@@ -37,6 +37,7 @@ import {
 } from "../interaction/interactive";
 import { createPromptRuntime } from "../interaction/prompt";
 import { findCodexDirCandidates, readStructuredConfig } from "../storage/config-repo";
+import { createClaudePaths } from "../storage/claude-paths";
 import { createCodexPaths } from "../storage/codex-paths";
 import { mergeProviders, readProvidersFileIfExists } from "../storage/providers-repo";
 import { getSingleOption, hasFlag } from "./args";
@@ -471,6 +472,10 @@ export async function handleRegisteredCommand(
       return rollbackBackup({
         latestBackupPath: paths.latestBackupPath,
         backupsDir: paths.backupsDir,
+        // Both targets share one backup directory, so a Codex rollback may legitimately
+        // restore a Claude settings file. The Claude root is resolved here, not read from
+        // the manifest, because the manifest is the untrusted input.
+        allowedRoots: [paths.toolHomeDir, paths.codexDir, createClaudePaths(paths.toolHomeDir).claudeDir],
         backupId: parsed.positionals[0] ?? null,
       });
     default:

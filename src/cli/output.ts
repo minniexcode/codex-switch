@@ -1,4 +1,5 @@
 import { CliErrorShape } from "../domain/errors";
+import { isSecretKey, maskSecret } from "../domain/secrets";
 import { printErrorDetails } from "../storage/fs-utils";
 import { CommandResult } from "../app/types";
 import { CommandExecutionContext } from "../commands/types";
@@ -389,11 +390,18 @@ function renderClaudeHumanSuccess(command: string, data: Record<string, unknown>
       if (Array.isArray(data.tags) && data.tags.length > 0) {
         lines.push(`  tags: ${(data.tags as string[]).join(", ")}`);
       }
+      // `revealed` comes from the payload instead of being re-derived, so this pass
+      // stays a genuine second line of defence if the service layer ever stops masking.
+      const revealed = data.revealed === true;
       const env = data.env as Record<string, string> | undefined;
       if (env && Object.keys(env).length > 0) {
         lines.push("  env:");
         for (const [key, value] of Object.entries(env)) {
-          lines.push(`    ${key}=${value}`);
+          const display = revealed || !isSecretKey(key) ? value : maskSecret(value);
+          lines.push(`    ${key}=${display}`);
+        }
+        if (!revealed) {
+          lines.push("  (secret values masked; pass --reveal to print them)");
         }
       }
       break;

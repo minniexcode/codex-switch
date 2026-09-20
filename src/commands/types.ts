@@ -3,6 +3,7 @@
  */
 export type GlobalOptions = {
   json: boolean;
+  reveal: boolean;
   codexDir: string | null;
   codexDirExplicit?: boolean;
 };

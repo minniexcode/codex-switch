@@ -2,10 +2,12 @@
 
 This file is the current AI-facing fact sheet for `@minniexcode/codex-switch`.
 
-Current repository version: `0.3.0`
+Current repository version: `0.3.1`
 
 Current fact sources:
 
+- `docs/PRD/codex-switch-prd-v0.3.1.md`
+- `docs/Design/codex-switch-v0.3.1-design.md`
 - `docs/PRD/codex-switch-prd-v0.3.0.md`
 - `docs/Design/codex-switch-v0.3.0-design.md`
 - `docs/PRD/codex-switch-prd-v0.2.1.md`
@@ -16,7 +18,7 @@ Current fact sources:
 
 `codex-switch` is a local-first CLI for managing and switching Codex and Claude Code provider routing. It manages local provider records, projects Codex `model_provider` sections, writes the active top-level `model` / `model_provider` route, switches Claude Code `settings.json` profiles, and maintains backups around mutating commands.
 
-In `0.3.0`, there are two managed workflows:
+In `0.3.1`, there are two managed workflows:
 1. **Codex providers** — OpenAI-compatible provider records projected into `config.toml` / `auth.json`.
 2. **Claude Code providers** (via `--claude` flag) — full `settings.json` profiles stored and switched atomically.
 
@@ -40,10 +42,13 @@ codexs switch --claude <name>
 codexs current --claude
 codexs list --claude
 codexs show --claude <name>
+codexs show --claude <name> --reveal
 codexs remove --claude <name> --force
 ```
 
 Claude providers store the entire `settings.json` as an opaque blob. Switching replaces the whole file atomically with backup/rollback.
+
+`show --claude` masks env values whose key matches `SECRET_KEY_PATTERN` and omits the raw `settings` blob, in both human and `--json` output. The payload carries `revealed` so renderers can tell masked from unmasked without re-deriving it. `--reveal` is a global flag that prints the real values and includes `settings`; it affects the Claude `show` path only, and is never applied by default. Codex `show --json` still returns the full `apiKey` — that is a documented automation contract and is unchanged.
 
 ## Current Command Surface
 
@@ -53,7 +58,7 @@ Document only these current commands:
 init
 migrate
 list [--claude]
-show [--claude]
+show [--claude] [--reveal]
 current [--claude]
 status
 config show
@@ -110,7 +115,7 @@ Do not present top-level `profile` or `[profiles.*]` as the current managed runt
 
 ## Current Non-Goals
 
-`0.3.0` does not include:
+`0.3.1` does not include:
 
 - Copilot SDK integration.
 - GitHub device-flow login.

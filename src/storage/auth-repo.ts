@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import { cliError, normalizeError } from "../domain/errors";
+import { writeTextFileAtomic } from "./fs-utils";
 
 export type AuthFileState = {
   exists: boolean;
@@ -80,5 +81,6 @@ export function writeOpenAiApiKeyAuth(authPath: string, apiKey: string): void {
 
   next.auth_mode = "apikey";
   next.OPENAI_API_KEY = apiKey;
-  fs.writeFileSync(authPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  // Goes through the atomic helper so a failed write cannot truncate the live key file.
+  writeTextFileAtomic(authPath, `${JSON.stringify(next, null, 2)}\n`);
 }

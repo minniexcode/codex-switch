@@ -1,4 +1,4 @@
-import { maskSecret } from "../domain/providers";
+import { maskSecret } from "../domain/secrets";
 import { readProviderRecord } from "../storage/providers-repo";
 import { CommandResult } from "./types";
 

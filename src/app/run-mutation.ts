@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { BackupManifest, FileBackupEntry } from "../domain/backup";
 import { cliError, normalizeError } from "../domain/errors";
 import { createBackup, restoreManifest, saveLatestManifest } from "../storage/backup-repo";
@@ -24,7 +25,7 @@ export function runMutation<TData extends Record<string, unknown>>(args: {
   files: ManagedFile[];
   mutate: (context: MutationContext) => TData;
 }): { data: TData & { backupPath: string; managedState: Record<string, unknown> } } {
-  const lockPath = args.lockPath ?? require("node:path").join(args.codexDir ?? process.cwd(), ".codex-switch.lock");
+  const lockPath = args.lockPath ?? path.join(args.codexDir ?? process.cwd(), ".codex-switch.lock");
   return withCodexLock(lockPath, args.operation, () => {
     const backup = createBackup(args.backupsDir, args.operation, args.files);
     try {
@@ -44,7 +45,7 @@ export function runMutation<TData extends Record<string, unknown>>(args: {
     } catch (error: unknown) {
       try {
         // Roll back the managed files to their pre-mutation state on any failure.
-        restoreManifest(backup);
+        restoreManifest(backup, buildAllowedRoots(args));
       } catch (rollbackError: unknown) {
         throw cliError("ROLLBACK_FAILED", `${capitalize(args.operation)} failed and rollback was not successful.`, {
           cause: normalizeError(error).message,
@@ -61,6 +62,21 @@ export function runMutation<TData extends Record<string, unknown>>(args: {
       });
     }
   });
+}
+
+/**
+ * Builds the directories a rollback for this mutation may write into.
+ *
+ * Sourced from the caller's file list and the backup directory's parent, never from the
+ * backup manifest, so a tampered manifest cannot redirect a restore outside the files
+ * this operation actually owns.
+ */
+function buildAllowedRoots(args: { backupsDir: string; files: ManagedFile[] }): string[] {
+  const roots = new Set<string>([path.dirname(args.backupsDir)]);
+  for (const file of args.files) {
+    roots.add(path.dirname(file.absolutePath));
+  }
+  return [...roots];
 }
 
 /**

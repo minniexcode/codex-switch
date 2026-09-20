@@ -25,10 +25,21 @@ export function exportProviders(args: {
   ensureDir(path.dirname(absoluteTarget));
   writeProvidersFile(absoluteTarget, providers);
 
+  const records = Object.values(providers.providers);
+  const secretCount = records.filter((provider) => Boolean(provider.apiKey)).length;
+
   return {
     data: {
       exportedTo: absoluteTarget,
-      count: Object.keys(providers.providers).length,
+      count: records.length,
+      secretCount,
+      containsSecrets: secretCount > 0,
     },
+    warnings:
+      secretCount > 0
+        ? [
+            `Exported ${secretCount} provider record${secretCount === 1 ? "" : "s"} containing API keys in plaintext. Do not commit this file.`,
+          ]
+        : undefined,
   };
 }

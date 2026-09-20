@@ -13,17 +13,17 @@ module.exports = {
   name: "release contract",
   tests: [
     {
-      name: "package metadata is 0.3.0",
+      name: "package metadata is 0.3.1",
       run() {
         const packageJson = require("../package.json");
         const packageLock = require("../package-lock.json");
-        assert.equal(packageJson.version, "0.3.0");
-        assert.equal(packageLock.version, "0.3.0");
-        assert.equal(packageLock.packages[""].version, "0.3.0");
+        assert.equal(packageJson.version, "0.3.1");
+        assert.equal(packageLock.version, "0.3.1");
+        assert.equal(packageLock.packages[""].version, "0.3.1");
       },
     },
     {
-      name: "current docs use 0.3.0 fact sources",
+      name: "current docs use 0.3.1 fact sources",
       run() {
         for (const relativePath of [
           "README.md",
@@ -36,8 +36,10 @@ module.exports = {
           "CHANGELOG.md",
         ]) {
           const content = read(relativePath);
-          assert.match(content, /0\.2\.1|0\.3\.0/, relativePath);
+          assert.match(content, /0\.2\.1|0\.3\.0|0\.3\.1/, relativePath);
         }
+        assert.ok(fs.existsSync(path.join(repoRoot, "docs/PRD/codex-switch-prd-v0.3.1.md")));
+        assert.ok(fs.existsSync(path.join(repoRoot, "docs/Design/codex-switch-v0.3.1-design.md")));
         assert.ok(fs.existsSync(path.join(repoRoot, "docs/PRD/codex-switch-prd-v0.3.0.md")));
         assert.ok(fs.existsSync(path.join(repoRoot, "docs/Design/codex-switch-v0.3.0-design.md")));
         assert.ok(fs.existsSync(path.join(repoRoot, "docs/PRD/codex-switch-prd-v0.2.1.md")));
@@ -77,11 +79,11 @@ module.exports = {
       },
     },
     {
-      name: "version command reports 0.3.0",
+      name: "version command reports 0.3.1",
       async run() {
         const result = await runBuiltCli(["--version"]);
         assert.equal(result.status, 0);
-        assert.equal(result.stdout.trim(), "0.3.0");
+        assert.equal(result.stdout.trim(), "0.3.1");
       },
     },
   ],

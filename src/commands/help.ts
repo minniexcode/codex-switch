@@ -47,6 +47,7 @@ export function buildHelpText(commandName?: string | null): string {
       "",
        "Global options:",
        "  --json             Output the standard JSON envelope and disable all prompts.",
+       "  --reveal           Print secret values instead of masking them (Claude provider show only).",
        "  --codex-dir <path> Target a specific Codex directory instead of ~/.codex.",
       "  --help             Show top-level or command-specific help.",
       "  --version          Print the current CLI version.",

@@ -171,6 +171,7 @@ export async function handleClaudeCommand(
       return claudeShowProvider({
         claudeProvidersPath: claudePaths.claudeProvidersPath,
         providerName,
+        reveal: ctx.options.reveal,
       });
     }
 

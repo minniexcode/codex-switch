@@ -8,6 +8,7 @@ import { resolveCommandFromArgv } from "./registry";
  */
 export function parseArgs(argv: string[]): ParsedCommand {
   let json = false;
+  let reveal = false;
   let codexDir: string | null = null;
   let codexDirExplicit = false;
   const remaining: string[] = [];
@@ -16,6 +17,13 @@ export function parseArgs(argv: string[]): ParsedCommand {
     const value = argv[index];
     if (value === "--json") {
       json = true;
+      continue;
+    }
+
+    if (value === "--reveal") {
+      // Parsed here, by exact token match, because the command-option pass below
+      // would treat `--reveal <providerName>` as a valued option and swallow the name.
+      reveal = true;
       continue;
     }
 
@@ -39,6 +47,7 @@ export function parseArgs(argv: string[]): ParsedCommand {
       positionals: [],
       globalOptions: {
         json,
+        reveal,
         codexDir,
         codexDirExplicit,
       },
@@ -53,6 +62,7 @@ export function parseArgs(argv: string[]): ParsedCommand {
   if (versionRequested) {
     return defaultParsed(null, {
       json,
+      reveal,
       codexDir,
       versionRequested: true,
     });
@@ -95,6 +105,7 @@ export function parseArgs(argv: string[]): ParsedCommand {
     positionals,
     globalOptions: {
       json,
+      reveal,
       codexDir,
       codexDirExplicit,
     },
@@ -112,6 +123,7 @@ function defaultParsed(
   command: CommandId | null,
   overrides?: {
     json?: boolean;
+    reveal?: boolean;
     codexDir?: string | null;
     helpRequested?: boolean;
     helpTarget?: string | null;
@@ -123,6 +135,7 @@ function defaultParsed(
     positionals: [],
     globalOptions: {
       json: overrides?.json ?? false,
+      reveal: overrides?.reveal ?? false,
       codexDir: overrides?.codexDir ?? null,
       codexDirExplicit: false,
     },

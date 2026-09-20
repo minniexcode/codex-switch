@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.3.1 - 2026-09-20
+
+Security patch release for the `0.3.0` dual-target line. No architecture change: the `--claude` path, both registries, and the command surface are unchanged.
+
+### Added
+
+- Global `--reveal` flag. `show --claude <name>` now masks credential-shaped env values by default; `--reveal` is the explicit opt-in that prints the real values and includes the raw `settings` blob.
+- `export` reports `secretCount` and `containsSecrets`, and emits a warning when exported provider records contain API keys in plaintext.
+- New `src/domain/secrets.ts` as the single source of truth for secret-key detection and masking; `maskSecret()` moved there from `src/domain/providers.ts`.
+- `ROLLBACK_PATH_REJECTED` error code.
+- `tests/secret-handling.spec.js` covering masking, `--reveal`, error-detail redaction, atomic writes, export warnings, and rollback containment.
+- PRD v0.3.1 and Design v0.3.1 fact sources.
+
+### Changed
+
+- Managed files are written with owner-only permissions (`0600` for files, `0700` for directories the tool creates) on macOS and Linux. The `chmod` is skipped on Windows, where access is governed by NTFS ACLs and `chmod` only toggles the read-only bit.
+- Error details are redacted by walking the whole detail tree against the shared secret-key pattern, instead of skipping only top-level keys containing `apikey`.
+- `restoreManifest()` requires an `allowedRoots` argument, sourced from the caller rather than the backup manifest, so a tampered manifest cannot redirect a restore outside the managed roots.
+- The `show --claude` payload gained `revealed`, and omits `settings` unless `--reveal` is passed.
+- Human `show --claude` output notes when values were masked so `--reveal` is discoverable.
+
+### Fixed
+
+- `writeTextFileAtomic()` no longer deletes the destination before renaming. The previous `rm`-then-`rename` left a window where the destination did not exist; `rename` alone already replaces an existing file on both platforms.
+- `auth.json` writes go through the atomic helper instead of a bare `fs.writeFileSync`, closing the last non-atomic write on the mutation path and bringing the file under the permission fix.
+
+### Security
+
+- `show --claude <name>` no longer returns live `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` values, in human or `--json` output.
+- Codex `show --json` still returns the full `apiKey` by design; it is a documented automation contract and is unchanged in this release.
+- On Windows, `chmod`-based permission tightening is inert. The exposure there is at the NTFS ACL layer and is documented as an operator action in `docs/codex-switch-2.x-roadmap.md` (P0-2).
+
 ## 0.3.0 - 2026-07-18
 
 Claude Code provider switching release.

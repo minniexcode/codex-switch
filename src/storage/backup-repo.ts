@@ -53,11 +53,33 @@ export function createBackup(
 }
 
 /**
- * Restores all files described by a backup manifest back into their original paths.
+ * Returns true when `targetPath` resolves inside one of the allowed roots.
  */
-export function restoreManifest(manifest: BackupManifest): void {
+function isWithinAllowedRoots(targetPath: string, allowedRoots: string[]): boolean {
+  const resolvedTarget = path.resolve(targetPath);
+  return allowedRoots.some((root) => {
+    const relative = path.relative(path.resolve(root), resolvedTarget);
+    return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+  });
+}
+
+/**
+ * Restores all files described by a backup manifest back into their original paths.
+ *
+ * `allowedRoots` must come from the caller rather than from the manifest: the manifest
+ * is a file on disk, so a root recorded inside it would be editable by the same change
+ * that redirects a restore path. Every entry must resolve inside one of the roots.
+ */
+export function restoreManifest(manifest: BackupManifest, allowedRoots: string[]): void {
   for (const entry of manifest.files) {
     const targetPath = entry.restorePath;
+    if (!isWithinAllowedRoots(targetPath, allowedRoots)) {
+      throw cliError("ROLLBACK_PATH_REJECTED", `Backup entry for "${entry.relativePath}" resolves outside the managed roots.`, {
+        relativePath: entry.relativePath,
+        restorePath: targetPath,
+      });
+    }
+
     if (!entry.existed) {
       if (fs.existsSync(targetPath)) {
         // Remove files that were created by the failed mutation but were absent before it.
