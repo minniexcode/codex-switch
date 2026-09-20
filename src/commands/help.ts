@@ -55,6 +55,7 @@ export function buildHelpText(commandName?: string | null): string {
        "Environment:",
        "  CODEXS_HOME        Override the codex-switch tool home directory.",
        "  CODEXS_CODEX_DIR   Default Codex directory when --codex-dir is not passed.",
+       "  CODEXS_CLAUDE_DIR  Override the Claude Code directory instead of ~/.claude.",
        "  NODE_ENV=development defaults to ./dev-codex/local-sandbox when no override is set.",
       "",
       "Interactive rules:",

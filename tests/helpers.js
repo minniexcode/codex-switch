@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const assert = require("node:assert/strict");
 
 const repoRoot = path.resolve(__dirname, "..");
 
@@ -80,6 +81,36 @@ async function withEnv(overrides, run) {
       }
     }
   }
+}
+
+/**
+ * Runs `callback` against a tool home and a Claude root that cannot reach the real `~/.claude`.
+ *
+ * The guard is structural rather than a convention each test has to remember. `switch` atomically
+ * replaces `<claudeDir>/settings.json`, and `resolveClaudeDir()` silently falls back to the real
+ * `~/.claude` when `CODEXS_CLAUDE_DIR` is unset — so a spec that forgets the variable overwrites
+ * the developer's live Claude Code settings. Every check below runs before the callback does, and
+ * the callback receives only the verified path.
+ */
+async function withClaudeEnv(settings, run) {
+  const toolHomeDir = makeToolHomeWithManagedState();
+  const rootDir = makeTempDir("codex-switch-claude-root-");
+  // Nested and not yet created, so the switch's directory-creation branch is exercised.
+  const claudeDir = path.resolve(rootDir, "nested", "claude");
+  const importFile = path.join(rootDir, "incoming-settings.json");
+  fs.writeFileSync(importFile, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+
+  assert.notEqual(
+    claudeDir,
+    path.resolve(os.homedir(), ".claude"),
+    "refusing to run a Claude command against the real ~/.claude"
+  );
+  assert.ok(
+    claudeDir.startsWith(path.resolve(rootDir)),
+    `Claude root must stay inside the test temp directory, got ${claudeDir}`
+  );
+
+  return withEnv({ CODEXS_CLAUDE_DIR: claudeDir }, () => run({ toolHomeDir, claudeDir, importFile }));
 }
 
 /**
@@ -188,6 +219,7 @@ module.exports = {
   cleanupTempDirs,
   withEnv,
   makeToolHomeWithManagedState,
+  withClaudeEnv,
   makeCodexFixture,
   runBuiltCli,
   runJsonCli,
