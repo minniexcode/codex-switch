@@ -11,8 +11,10 @@ Codex path was written with secret handling in mind (`maskSecret()`, a documente
 the Claude path was not. This release closes that asymmetry and fixes two write-safety defects that
 were found alongside it.
 
-Source of record for the findings: `docs/codex-switch-2.x-roadmap.md` §2 (P0-1, P0-2, P0-5, P0-7,
-P1-7, P1-8).
+Source of record for the findings: `docs/codex-switch-2.x-roadmap.md` §2 — `P0-1` (Claude token
+masking), `P1-7`, `P1-8`, plus the file-permission, non-atomic-write, and rollback-manifest
+findings. This release predates the roadmap's renumbering: the write and rollback findings are
+`P0-4` and `P0-6` in the current inventory, and the permission finding has since left it.
 
 ## Scope
 
@@ -478,7 +480,7 @@ Verified on the authoring machine after implementation.
   inherited from `~/.claude`'s own ACL rather than created by this tool.
 - Removing it needs `icacls "…\.claude" /remove:g "CodexSandboxUsers"`. That reaches into another
   tool's directory and is a judgement call about the Codex sandbox's intended reach, so it is left
-  to the operator and documented in `docs/codex-switch-2.x-roadmap.md` (P0-2) rather than in code.
+  to the operator and documented in this note rather than in code.
 
 The lesson worth carrying into Phase 2: on Windows, read `icacls`, not `stat`. A roadmap finding
 built on the POSIX mode display will be wrong in both directions — it invents an exposure that is

@@ -1,19 +1,26 @@
 # codex-switch 2.x Roadmap
 
-A review of `@minniexcode/codex-switch` as of `0.3.0`, plus a phased plan for the 0.3.x → 0.4.x line.
+A review of `@minniexcode/codex-switch` as of `0.3.1`, plus a phased plan for the 0.3.x → 0.4.x line.
 
 This is a **decision document**, not a fact source. It is deliberately not wired into the version
 assertions in `tests/release-contract.spec.js`.
 
 Every claim below cites `file:line` and was verified against the working tree, not inferred.
 
+**Issue IDs are cited from PRD and Design documents and must not be renumbered.** Findings that get
+fixed keep their ID and gain a **Fixed in** marker. This file previously handled that two different
+ways — the file-permission finding was *deleted* from this inventory when `0.3.1` fixed it, which
+shifted `P0-3`…`P0-7` up by one and silently invalidated every `P0-*` citation in the already-shipped
+`0.3.1` PRD and Design.
+
 ---
 
 ## 1. Where We Are
 
-**Version.** The repository, `package-lock.json`, and the npm `latest` dist-tag are all at **`0.3.0`**
-(`package.json:3`). `0.3.0` was published 2026-07-17 and is the "Claude Code provider switching
-release" (`CHANGELOG.md:3-23`). There is no 2.0; the project is on a 0.x line.
+**Version.** The repository, `package-lock.json`, and the npm `latest` dist-tag are all at **`0.3.1`**
+(`package.json:3`). `0.3.1` was published 2026-09-20 as the secret-handling patch over `0.3.0`
+(2026-07-17, the "Claude Code provider switching release"). There is no 2.0; the project is on a
+0.x line.
 
 **Shape.** 7,402 lines of TypeScript across 72 files. One runtime dependency: `inquirer`.
 The 0.1.x copilot-sdk / HTTP bridge / proxy runtime was fully removed in 0.2.1
@@ -34,11 +41,12 @@ This was a deliberate choice in the 0.3.0 design and this roadmap keeps it.
 
 **Observed state on a real machine.** These numbers drove several findings below:
 
-- `~/.config/codex-switch/backups/` holds **98 directories, 864 KB**.
+- `~/.config/codex-switch/backups/` holds **97 directories plus `latest.json`, 864 KB**.
 - `claude-providers.json` holds 4 profiles (`copilot`, `copilot-pool`, `copilot-gpt`, `deepseek`).
   **Every one contains `ANTHROPIC_AUTH_TOKEN`**; `deepseek` also contains `ANTHROPIC_API_KEY`.
 - `claude-providers.json` reports mode **`0666`** to MSYS `stat`. **That number is a synthetic
-  POSIX view, not a real permission** — see the correction in P0-2.
+  POSIX view, not a real permission** — the real exposure is an ACL one, described in the `0.3.1`
+  Design document's Implementation Notes. It was never in this inventory.
 - Leftovers from the removed integration are still on disk and are never read or cleaned up:
   `~/.config/codex-switch/github-token` (40 chars, shaped like a real GitHub PAT),
   `~/.config/codex-switch/runtime/copilot-bridge-state.json`, `.../copilot-bridge.log`.
@@ -50,6 +58,8 @@ This was a deliberate choice in the 0.3.0 design and this roadmap keeps it.
 ### P0 — Security and data correctness
 
 #### P0-1 · `show --claude` prints auth tokens in plaintext
+
+**Fixed in `0.3.1`.** Masked by default, with the global `--reveal` as the escape hatch.
 
 `claudeShowProvider()` returns the raw `env` map **and** the complete `settings` blob
 (`src/app/claude-show-provider.ts:25-26`), and the human renderer prints every env entry verbatim
@@ -65,57 +75,28 @@ piped logs, and CI output.
 
 **Fix (decided): mask by default, add `--reveal`.**
 
-#### P0-2 · Managed files are written with default file permissions
-
-There is **no `chmod` or `mode` call anywhere in `src/`** — the only `mode` match is an unrelated
-merge-mode string in `src/app/import-providers.ts:98`. Everything inherits the process umask
-(`src/storage/fs-utils.ts:15-24`), so the file mode is whatever the environment happens to hand out.
-
-**Correction — the original evidence for this finding was wrong.** The `0666` recorded in the
-first revision of this document was read from MSYS `stat` on Windows, where the POSIX mode is a
-synthetic view. Measured afterwards: `chmod -R go-rwx` exits 0 and leaves every mode unchanged, and
-`icacls` shows no `Everyone`, `BUILTIN\Users`, or `Authenticated Users` entry on
-`~/.config/codex-switch`. "Any local user can read API keys" was therefore **not** true of this
-machine; the real exposure is a different one (below). The underlying code gap is still real: on a
-POSIX host the umask alone decides, and a permissive umask on a shared host exposes every managed
-file.
-
-**The exposure that actually exists, found via ACLs rather than modes.**
-`C:\Users\A200477427\.claude` and `C:\Users\A200477427\.codex` each carry an **explicit**
-`CodexSandboxUsers:(OI)(CI)(RX)` ACE. That group's only members are `CodexSandboxOffline` and
-`CodexSandboxOnline` — the identities Codex's Windows sandbox runs commands as. So the Codex
-sandbox can read `~/.claude/settings.json`, i.e. `ANTHROPIC_AUTH_TOKEN`, in addition to
-`~/.codex/auth.json`.
-
-`~/.config/codex-switch` — `providers.json`, `claude-providers.json`, `github-token`, and all 98
-backup directories — carries **no** such ACE; only SYSTEM, Administrators, and the owner. The files
-this tool owns are the better-protected ones.
-
-**Attribution and fix.** The ACE was written by the Codex CLI when it installed its sandbox, not by
-codex-switch, and it is inherited by every file `switch --claude` writes into `~/.claude`. No
-per-file POSIX `chmod` can remove it; it needs `icacls "…\.claude" /remove:g "CodexSandboxUsers"`.
-Whether to remove it is a judgement call about the Codex sandbox's intended reach, so it is
-recorded here rather than folded into the code fix.
-
-#### P0-3 · Backups grow without bound and duplicate secrets
+#### P0-2 · Backups grow without bound and duplicate secrets
 
 There is no prune, retention, or cleanup logic — `grep -rn "prune\|retention\|maxBackups\|cleanup" src/`
 returns nothing. Every mutation copies the full previous state into a new directory
 (`src/storage/backup-repo.ts:11-53`), including `providers.json` and `auth.json`, which hold keys.
 
-**Impact.** 98 directories / 864 KB on the observed machine after a few months, containing an
+**Impact.** 97 directories / 864 KB on the observed machine after a few months, containing an
 unbounded plaintext key history. Nothing ever removes them.
 
-#### P0-4 · Backup directory names collide within the same second
+#### P0-3 · Backup directory names collide within the same second
 
-`createTimestamp()` has one-second resolution (`src/storage/backup-repo.ts:183-195`) and the backup
+`createTimestamp()` has one-second resolution (`src/storage/backup-repo.ts:205-217`) and the backup
 directory is `${timestamp}-${reason}` (`:17`). Two mutations with the same operation inside one
 second resolve to the same path, and `ensureDir` succeeds silently (`:19`), so the second run
 **overwrites the first backup's files and manifest**.
 
 **Impact.** Silent backup loss. `rollback` then restores a state that is not the one it claims.
 
-#### P0-5 · The "atomic" write is not atomic, and one write bypasses it entirely
+#### P0-4 · The "atomic" write is not atomic, and one write bypasses it entirely
+
+**Fixed in `0.3.1`.** The redundant `rmSync` is gone, and `writeOpenAiApiKeyAuth()` now goes
+through the helper.
 
 `writeTextFileAtomic()` deletes the target and then renames the temp file over it
 (`src/storage/fs-utils.ts:15-24`). The `rmSync` is what breaks atomicity — Node's `renameSync`
@@ -129,7 +110,7 @@ mutation path.
 **Impact.** A concurrent reader can observe a missing file. A failed write to `auth.json` leaves it
 truncated.
 
-#### P0-6 · A stale lock blocks every write forever
+#### P0-5 · A stale lock blocks every write forever
 
 `acquireLock()` records the owner's pid (`src/storage/lock-repo.ts:8-12`, `:30-49`) but nothing ever
 reads it for liveness. There is no TTL and no force-unlock path. If the process is killed between
@@ -139,7 +120,9 @@ acquire and release, the lock file persists and **every subsequent write command
 
 **Impact.** The user is locked out of their own tool with no supported way back.
 
-#### P0-7 · Backup manifests are trusted for absolute restore paths
+#### P0-6 · Backup manifests are trusted for absolute restore paths
+
+**Fixed in `0.3.1`.** `restoreManifest()` now requires a caller-supplied `allowedRoots`.
 
 `restoreManifest()` copies to whatever absolute path the manifest names
 (`src/storage/backup-repo.ts:58-81`), and `validateBackupManifest()` checks types only, never path
@@ -156,7 +139,7 @@ recorded target directories).
 #### P1-1 · Boolean flags are parsed as value-taking options
 
 The argument parser treats any `--x` followed by a non-`--` token as `--x <value>`
-(`src/commands/args.ts:75-88`). So:
+(`src/commands/args.ts:78-101`). So:
 
 ```
 codexs remove --force packycode     # "--force" swallows "packycode"
@@ -174,7 +157,7 @@ There is no notion of a boolean flag anywhere in the command registry.
 #### P1-2 · `getSingleOption`'s `required` parameter is dead
 
 ```ts
-return required ? null : null;   // src/commands/args.ts:149
+return required ? null : null;   // src/commands/args.ts:162
 ```
 
 Both branches return `null`. Callers that rely on the default (`required = true`) to enforce
@@ -194,7 +177,7 @@ trace instead of the structured failure envelope, breaking the `--json` automati
 
 #### P1-5 · `status` renders a field that is never populated
 
-`src/cli/output.ts:164` reads `data.storage.toolHome.root`, but `getStatus()` never returns a
+`src/cli/output.ts:165` reads `data.storage.toolHome.root`, but `getStatus()` never returns a
 `storage` key. The line always renders empty.
 
 #### P1-6 · A computed value in `import` is discarded
@@ -206,11 +189,15 @@ chain itself is dead.
 
 #### P1-7 · `export` writes plaintext keys with no warning
 
+**Fixed in `0.3.1`.** The payload reports `containsSecrets` and the command warns.
+
 `exportProviders()` serializes the whole registry — including `apiKey` — to any user-specified path
 with no caution (`src/app/export-providers.ts:11-34`); the result payload reports only
 `{ exportedTo, count }`.
 
 #### P1-8 · Error-detail masking only matches the substring `"apikey"`
+
+**Fixed in `0.3.1`.** Redaction walks the whole detail tree against the shared key pattern.
 
 `printErrorDetails()` skips detail keys whose lowercase name contains `apikey`
 (`src/storage/fs-utils.ts:52-66`). `token`, `authorization`, `secret`, `api_key`, `auth_token` all
@@ -291,8 +278,6 @@ Verified to have zero live callers:
   the catch-all fallback for Codex probe failures in `src/app/run-doctor.ts:94-97`.
 - `setCodexSpawnImplementation` / `resetCodexSpawnImplementation` (`src/runtime/codex-cli.ts:25-34`)
   exist for tests that no longer call them.
-- `AGENTS.md:33` still instructs contributors to keep Copilot runtime checks scoped to Copilot
-  workflows — guidance for a feature removed in 0.2.1.
 
 #### P2-4 · Unused parameters reveal a half-retired code path
 
@@ -325,10 +310,11 @@ of the function is a no-op.
 
 #### P2-6 · Documentation drift
 
-`docs/cli-usage.md:3,9`, `docs/codex-switch-product-overview.md:3`, and
-`docs/codex-switch-technical-architecture.md:3` all still declare `0.2.1` and contain no `--claude`
-content — yet `README.md:193` and `README.AI.md` list them as **current** fact sources. The release
-gate explicitly tolerates this: `tests/release-contract.spec.js:39` matches `/0\.2\.1|0\.3\.0/`.
+`docs/codex-switch-product-overview.md:3` and `docs/codex-switch-technical-architecture.md:3` still
+declare `0.2.1` and contain no `--claude` content — yet `README.md:193` and `README.AI.md` list them
+as **current** fact sources. (`docs/cli-usage.md:3,9` was brought up to the current version during
+the `0.3.1` release.) The release gate explicitly tolerates the remaining drift:
+`tests/release-contract.spec.js:39` matches `/0\.2\.1|0\.3\.0|0\.3\.1/`.
 
 `CHANGELOG.md:29` still marks 0.2.1 as "Unreleased" though 0.2.2 and 0.3.0 shipped after it; the same
 applies to the 0.1.2–0.1.5 entries.
@@ -458,53 +444,124 @@ recorded in the Design document's Implementation Notes:
 6. **Add a containment check to rollback.** `restoreManifest()` refuses to write outside the
    directory recorded in the manifest, or outside an allowlist of managed paths.
 
-### Phase 2 — `0.4.0` Stability
+### Phase 2 — `0.4.0` + `0.4.1` Stability
 
-The four items selected for this cycle.
+Split into two releases, ordered so the smaller stateless work proves out the reworked test harness
+before the stateful P0 work lands on top of it. **Phase 2a is `0.4.0`; Phase 2b is `0.4.1`.**
+
+**Designs: [`v0.4.0`](./Design/codex-switch-v0.4.0-design.md),
+[`v0.4.1`](./Design/codex-switch-v0.4.1-design.md).** The items below are the pre-design sketch: where
+an item disagrees with its Design, the Design is the settled record.
+
+#### Phase 2a — `0.4.0` Foundation and CLI contract
+
+Nothing here writes a new storage format or changes a recovery path. It exists to make the suite
+trustworthy first: exit codes cannot be tested at all until the harness stops re-implementing
+`main()`'s dispatch ladder by hand, and both remaining items are parser-level.
+
+1. **CI and test portability.**
+   - New `.github/workflows/ci.yml`: `npm ci` → `npx tsc --noEmit` → `npm test`, matrix of
+     `windows-latest` + `ubuntu-latest` × Node 20/22. Do **not** set `engine-strict`: both matrix
+     Node lines satisfy `inquirer`'s range, while `package.json` advertises `>=18`, which CI never
+     tests — `engine-strict` would turn that pre-existing inconsistency into an install failure.
+   - Replace the `dev-codex/local-sandbox` dependency with a fixture the tests generate themselves
+     (`tests/helpers.js:8`). Three tests are red on the author's machine today, not only on a fresh
+     clone, so this is not hypothetical portability work.
+   - Fix the temp-directory leaks. `runBuiltCli()` uses the **codex directory as `CODEXS_HOME`** when
+     `--codex-dir` appears, and the only cleanup is an unguarded `rmSync` inside a `finally` that
+     fires on exactly that path — so it can delete a directory the test is still using, or fail a
+     passing test on a Windows `EBUSY`.
+   - Extract `main()`'s ladder into `runCli(argv, io): number` so the harness calls it instead of
+     mirroring it. Exit codes are untestable today because `printHelp()`/`outputFailure()` call
+     `process.exit` and no test requires `dist/cli.js` at all.
+   - **New `tests/claude-provider-workflow.spec.js`** covering add → switch → list → current → show
+     → remove. It **must** set and assert `CODEXS_CLAUDE_DIR` up front: `claudeSwitchProvider()`
+     replaces `<claudeDir>/settings.json`, and that path resolves to the real `~/.claude` otherwise —
+     a missing variable makes `npm test` rewrite the developer's own settings file.
+   - **Acceptance:** `git clean -xdf && npm ci && npm test` passes on Windows and Linux, with no
+     leftover temporary directories.
+2. **Boolean flag parsing.**
+   - Add a `booleanFlags: string[]` field to `CommandDefinition` (`src/commands/types.ts:57-66`),
+     for `--claude`, `--force`, `--merge`, `--overwrite`, `--create-profile`.
+   - The set is applied as a **union in the parser's first pass**, alongside `--json`, `--reveal`,
+     and `--codex-dir`, while still recording the hit into `commandOptions` as `["true"]`. Consuming
+     it in the command-option pass cannot work: `resolveCommandFromArgv()` matches only at the head
+     of `remaining`, and `startIndex` derives from it (`src/commands/args.ts:76`). This also makes
+     `--claude` position-independent as a side effect.
+   - `--reveal` is deliberately excluded — it is already stripped by exact token in that same pass,
+     so listing it would be a no-op.
+   - **The compatibility claim is not true today.** `codexs add --claude copilot --from-file x`
+     currently yields `positionals: []` with `--claude: ["copilot"]`; `copilot` becomes a positional
+     only once this change lands. `resolveClaudeProviderName()`
+     (`src/commands/claude-handlers.ts:37-48`) prefers `positionals[0]`, so it can be deleted in the
+     same commit — but the parser fix and the deletion must ship together, and
+     `codexs remove --claude --force <name>` does not work at all today.
+   - Fix the `required` parameter of `getSingleOption()` or remove it (P1-2). Removing it is
+     correct: `add` relies on receiving `null` there in order to prompt.
+   - **Acceptance:** `codexs remove --force <name>` and `codexs remove --claude --force <name>` both
+     work; `resolveClaudeProviderName` no longer exists.
+3. **Exit codes and the error envelope.**
+   - Unknown command → exit 1. **The fix lands in the parser, not `src/cli.ts:52-55`**: the parse
+     result cannot distinguish "no command" from "unknown command" — eight distinct inputs produce an
+     identical `ParsedCommand`, because `startIndex` skips index 0 when nothing resolved. Naively
+     changing the `cli.ts` branch makes `codexs --help` exit 1.
+   - Wrap `main()`'s synchronous section in `try`/`catch` → `outputFailure` (`src/cli.ts:27-28`),
+     reading `--json` from the **raw argv** for that path: a thrown parse leaves no parsed options, so
+     the catch cannot otherwise tell whether the envelope was requested.
+   - Fix the empty `status` field (`src/cli/output.ts:165`) — it reads `data.storage.toolHome.root`
+     and `getStatus()` returns no `storage` key, so the line has always rendered empty.
+   - **Acceptance:** `codexs lst; echo $?` prints `1`; `codexs --json --codex-dir; echo $?` prints `1`
+     with a JSON envelope, not a stack trace; `codexs --help; echo $?` still prints `0`.
+
+#### Phase 2b — `0.4.1` Lock and backup safety
+
+Both items are P0 and both change lock discipline, so they ship together: lock takeover is what turns
+`releaseLock()`'s missing ownership check from a latent problem into two concurrent writers, and that
+same interleaving re-breaks the same-second backup fix and can race two writers onto `latest.json`.
+
+They land after Phase 2a on purpose — the lock work needs a deterministic crash fixture and a harness
+whose teardown does not delete the directory under test.
 
 1. **Stale-lock recovery.**
    - On conflict, `acquireLock()` reads the pid and probes it with `process.kill(pid, 0)`.
-   - Dead pid → take over, emit a warning, append an audit line.
-   - Add a TTL fallback for the case where the pid was recycled.
-   - Add `codexs unlock` as an explicit, documented escape hatch.
-   - **Acceptance:** `kill -9` a mutating command mid-flight, then confirm the next mutation
-     succeeds without manual file deletion.
+   - Dead pid, or an **unreadable** record, → take over with a warning naming what was removed. The
+     third state matters: a hard kill mid-`writeFileSync` leaves truncated JSON, which is the
+     likeliest residue of the very crash this recovers from.
+   - **No TTL fallback — settled against.** A TTL that can seize a lock from a live process will
+     eventually seize it from a slow `migrate`, and a false takeover corrupts state where a false
+     conflict only inconveniences. A recycled pid is therefore fail-closed, which is why the record
+     gains `hostname` and why `codexs unlock --force` is the documented way out.
+   - **No audit line — settled against.** There is no log sink in the tool home, and adding one
+     creates a new unbounded-growth and redaction surface. The takeover reports through the existing
+     result payload.
+   - `releaseLock()` re-reads and removes only a record it owns, and `acquireLock()` treats only
+     `EEXIST` as a conflict — today any thrown code, including `EACCES` and `EROFS`, is reported as
+     "another operation is running", which points at the wrong remedy on a read-only tool home.
+   - Add `codexs unlock [--force]`, and have `doctor` report an occupied or stale lock with the
+     owner, the operation, the age, and the remedy.
+   - **Acceptance:** a process that acquires the lock and exits inside the critical section leaves a
+     lock the next mutation takes over without manual file deletion. (The original `kill -9`
+     criterion is not executable here: `kill -9` does not exist in cmd or PowerShell, and Git Bash's
+     `kill` addresses MSYS pids. The Design substitutes a `process.exit(0)`-inside-the-lock fixture,
+     which `finally` does not unwind.)
 2. **Backup retention.**
    - `codexs backups prune [--keep N]`, default retention 20, newest-first.
-   - `createTimestamp()` gains millisecond precision (or a short random suffix) so same-second
-     mutations cannot collide (P0-4).
+   - The prune also runs automatically after every successful mutation, and reports how many
+     directories it removed. Settled — see §5.
+   - `createTimestamp()` gains zero-padded milliseconds, and creation becomes an **exclusive**
+     non-recursive `mkdirSync` with an `EEXIST` retry, so same-second mutations cannot collide
+     (P0-3). A check-then-act suffix bump is only race-free because of the shared lock, which the
+     item above is simultaneously loosening.
+   - Prune never deletes a directory that **any** surviving manifest still names as `backupDir` —
+     not merely the one under `latest.json`, because `rollback <id>` resolves through
+     `loadManifestById()` and then reads `manifest.backupDir` too.
    - `runMutation()` removes its own backup directory when the mutation fails (after restore), so
-     failed attempts stop accumulating.
-   - Clean up the 98 existing directories on this machine once `prune` exists.
+     failed attempts stop accumulating. The error payload reports that path, so the two must be
+     reconciled — see the `v0.4.1` Design.
+   - Clean up the 97 existing directories on this machine once `prune` exists. The automatic path
+     performs this reduction on the first mutation after upgrade, and reports the count.
    - **Acceptance:** after 25 mutations, `backups/` holds 20 directories; two mutations in the same
-     second produce two distinct directories.
-3. **Boolean flag parsing.**
-   - Add a `booleanFlags: string[]` field to `CommandDefinition` in `src/commands/registry.ts`
-     (`--claude`, `--force`, `--merge`, `--overwrite`, `--create-profile`, `--reveal`).
-   - `parseArgs()` stops consuming the next token for entries in that set
-     (`src/commands/args.ts:75-88`).
-   - **Backward compatibility is verified:** `resolveClaudeProviderName()`
-     (`src/commands/claude-handlers.ts:37-48`) already prefers `positionals[0]`, so
-     `codexs add --claude copilot --from-file x` keeps working with `copilot` landing as a
-     positional. The helper can then be deleted entirely.
-   - Fix the `required` parameter of `getSingleOption()` or remove it (P1-2).
-   - **Acceptance:** `codexs remove --force <name>` works for both targets;
-     `resolveClaudeProviderName` no longer exists.
-4. **Exit codes and the error envelope.**
-   - Unknown command → exit 1 (`src/cli.ts:52-55`).
-   - Wrap `main()`'s synchronous section in `try`/`catch` → `outputFailure` (`src/cli.ts:27-28`).
-   - Fix the empty `status` field (`src/cli/output.ts:164`).
-   - **Acceptance:** `codexs lst; echo $?` prints `1`; `codexs --codex-dir; echo $?` prints `1` with
-     a structured error, not a stack trace.
-5. **CI and test portability.**
-   - New `.github/workflows/ci.yml`: `npm ci` → `npx tsc --noEmit` → `npm test`, matrix of
-     `windows-latest` + `ubuntu-latest` × Node 20/22.
-   - Replace the `dev-codex/local-sandbox` dependency with a sandbox the tests generate themselves
-     (`tests/helpers.js:8`), so a fresh clone can run the suite.
-   - Fix the temp-directory leaks in `makeSandboxCopy()` and `runBuiltCli()`.
-   - **New `tests/claude-provider-workflow.spec.js`** covering add → switch → list → current → show
-     → remove, plus the P0-1 masking behaviour and the `--reveal` path.
-   - **Acceptance:** `git clean -xdf && npm ci && npm test` passes on Windows and Linux.
+     second produce two distinct directories; no-argument `rollback` still resolves after a prune.
 
 ### Phase 3 — `0.4.x` Maintainability
 
@@ -513,7 +570,7 @@ The four items selected for this cycle.
 2. **Resync the docs.** Bring `docs/cli-usage.md`, `docs/codex-switch-product-overview.md`, and
    `docs/codex-switch-technical-architecture.md` to the current version with `--claude` sections, and
    tighten `tests/release-contract.spec.js:39` to a single current version so drift fails the build.
-   Remove the Copilot paragraph from `AGENTS.md:33`. Fix the "Unreleased" markers in `CHANGELOG.md`.
+   Fix the "Unreleased" markers in `CHANGELOG.md`.
    Add a Claude section to top-level help (`src/commands/help.ts:32-81`). Document the
    currently-undocumented flags in the registry usage strings.
 3. **Packaging.** Move `engines.node` to `>=20.12` (or pin a compatible `inquirer`). Add
@@ -564,5 +621,9 @@ single-user local tool. Recorded as a non-goal in the v0.3.1 design.
 Per-command registration would collide with the greedy `--flag value` rule (P1-1) and make
 `codexs show --reveal <name>` swallow the provider name. Settled in the v0.3.1 design, §1.
 
-**Still open — should `backups prune` run automatically** after every mutation, or only on demand?
-Automatic caps growth with no user action; on-demand keeps mutations side-effect-free. Phase 2.
+**Decided — `backups prune` runs automatically after every successful mutation**, with
+`codexs backups prune [--keep N]` as the manual control. Automatic caps growth with no user action.
+The automatic path also performs the one-time reduction of the 97 existing directories on this
+machine, which is irreversible: those copies contain plaintext keys, so removing them is the point of
+P0-2, but the command must report how many it removed rather than doing it silently. Settled for
+Phase 2b; see the `0.4.1` Design.
