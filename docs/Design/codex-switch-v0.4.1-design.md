@@ -60,14 +60,22 @@ the correct direction: a false "alive" is a recoverable annoyance, a false "dead
 
 Non-integer and negative pids are treated as a malformed record rather than probed.
 
-### Three record states, not two
+### Four record states, not two
 
-A record is **live**, **dead**, or **unreadable**. The third exists because `writeFileSync` of a
-JSON record is not atomic across a hard kill: a truncated file parses to nothing, and
-`readLockRecord()` already returns `null` for that case. If an unreadable record fell into the
-fail-closed branch, the permanent lockout `P0-5` describes would survive this fix in exactly the
-situation most likely to produce it. An unreadable record is treated as recoverable — the same
+A record is **live**, **dead**, **unreadable**, or **malformed**. The third exists because
+`writeFileSync` of a JSON record is not atomic across a hard kill: a truncated file parses to
+nothing, and `readLockRecord()` already returns `null` for that case. If an unreadable record fell
+into the fail-closed branch, the permanent lockout `P0-5` describes would survive this fix in exactly
+the situation most likely to produce it. An unreadable record is treated as recoverable — the same
 remedy as an absent one.
+
+A **malformed** record — one that parses but whose `pid` could not have been written by a running
+process, so not a positive integer — is recoverable for the same reason, and this is the one state
+the probe table above does not by itself decide. `writeLockRecord()` only ever writes `process.pid`,
+so a pid the writer would never produce cannot belong to a live writer; a torn write lands in
+`unreadable` instead, because the JSON does not parse. Malformed therefore means hand-edited or
+corrupted, and routing it to the fail-closed branch would restore the permanent lockout for a record
+no live process can own.
 
 ### Takeover protocol
 
@@ -114,6 +122,18 @@ unrecoverable without help, so:
   would otherwise name a foreign machine's pid that resolves as alive locally;
 - the `LOCK_CONFLICT` message names the recycled-pid possibility and `codexs unlock --force`
   explicitly, since that is the only way out.
+
+`hostname` sharpens the first of those into a state of its own. A record whose `hostname` differs
+from `os.hostname()` is **foreign**: its pid cannot be probed here at all, so it is neither taken
+over automatically nor trusted as alive. It is refused with `LOCK_CONFLICT` naming the foreign host
+and pointing at `codexs unlock --force`. A record with **no** `hostname` predates the field and is
+treated as local, which is what keeps existing lock files recoverable.
+
+This is the fail-closed reading, and it is deliberate rather than incidental. A tool home shared
+between machines therefore costs one explicit `codexs unlock --force` instead of an automatic
+takeover racing a genuine write on the other machine — the same trade the recycled pid makes, and
+the same escape hatch. `codexs doctor` reports the state as `LOCK_OCCUPIED` so it is discoverable
+before a write fails on it.
 
 ### `codexs unlock`
 
@@ -309,6 +329,44 @@ falsify. That is the concrete reason this release follows `0.4.0` rather than pr
 
 ## Implementation Notes
 
-To be filled in when the work lands: deviations from this design, and what the machine actually
-showed. The `0.3.1` Design's equivalent section is where the Windows ACL finding and the
-`--reveal`-as-global-flag decision are recorded, and it is the reason those are not re-litigated.
+Filled in when the work landed.
+
+### Deviations from this design
+
+**No SKIP path was needed for `migrate`, and the plan to report one was wrong.** The design assumed
+its happy path needed a real `codex` binary and would be environment-dependent. It does not:
+non-interactive `migrate` always throws, because it needs a TTY rather than a CLI, so its **entire
+non-interactive surface is deterministic** and is covered outright — including
+`MIGRATE_NO_ADOPTABLE_PROFILES`. The runner still prints a skip count, because a silently skipped
+case would hide exactly what this suite exists to expose, but nothing uses it today.
+
+**The stale-lock takeover reports through `warnings`, as designed, and `doctor` reports the two
+states under separate codes.** `LOCK_STALE` (owner gone, recoverable) and `LOCK_OCCUPIED` (owner
+running) are **issue** codes, not error codes — `unlock`'s refusal is `LOCK_CONFLICT`. Naming them
+apart is what lets the renderer's next step differ: the stale case names `codexs unlock`, the
+occupied case warns against `--force` unless nothing is actually running.
+
+**`--keep` needed its own validation rather than reusing a numeric coercion.** Missing value,
+`true`, `0`, negative, and non-integer are all rejected with `INVALID_ARGUMENT`. `0` is rejected
+rather than treated as "delete everything", which is the reading that would turn a typo into data
+loss.
+
+### What the machine showed
+
+**Retention and takeover both had to be proved against a tree the checkout cannot supply**, which is
+the concrete debt `0.4.0` paid off: a killed process is simulated with a pid that cannot exist
+(`999999999`), and a same-second collision with two mutations issued back to back.
+
+**The `backups list` / `backups prune` asymmetry on an empty tree** — nothing found versus `kept 0`
+and exit 0 — is asserted rather than left implicit, because "prune deleted nothing" and "prune
+failed" must not look alike to a caller.
+
+**A tampered manifest must be rejected before its contents are read as a path**, and the test for it
+had to read the manifest file rather than the `backups list` summary items. The summary is a
+projection, not the manifest, so asserting on it proved the wrong thing: the failure came back
+`ROLLBACK_FAILED` instead of `ROLLBACK_PATH_REJECTED`. The containment itself was correct; the first
+test of it was not.
+
+**Retention is a one-time reduction for existing users.** The first mutating command run against a
+tool home with more than 20 backups prunes to 20, irreversibly, and nothing offers to defer it. That
+is the policy working as designed and it is why the E2E suite never points at a real tool home.

@@ -4,11 +4,13 @@
 
 It keeps `codex-switch` tool state separate from the target runtime directories, so managed providers, backups, and runtime projection are handled through explicit commands instead of manual file edits.
 
-Current package version: `0.3.1`
+Current package version: `0.4.1`
 
-`0.3.1` is a security patch for the `0.3.0` dual-target line. `show --claude` now masks secret env values unless `--reveal` is passed, error details are redacted recursively, managed files are written owner-only on macOS and Linux, and two write-safety defects are fixed. The `--claude` path, both registries, and the command surface are otherwise unchanged.
+`0.4.1` is the stateful-recovery release. It adds `codexs unlock [--force]` for a lock whose owner no longer exists, and `codexs backups prune [--keep N]` plus automatic retention for a backups directory that previously grew without bound. Same-second mutations no longer overwrite each other's backup, `doctor` reports an occupied or stale lock, and two flags that had never worked now do: `--create-profile` writes the legacy `[profiles.<id>]` section it always claimed to, and `--claude` on a command with no Claude path is refused instead of being ignored.
 
-`0.3.0` added Claude Code provider switching via the `--claude` flag. The tool supports both Codex (OpenAI-compatible providers projected into `config.toml`/`auth.json`) and Claude Code (full `settings.json` profile switching).
+`0.4.0` is the foundation release. It parses `--claude`, `--force`, `--merge`, `--overwrite`, and `--create-profile` as real boolean flags, makes an unrecognized command exit `1` with a structured error instead of exiting `0` with help, reports the tool-home root in `status`, and moves the whole suite onto a single `runCli(argv, io)` entry ladder that runs on Windows and Linux against Node 20 and 22.
+
+`0.3.x` added Claude Code provider switching via the `--claude` flag and the `0.3.1` secret-handling changes. The tool supports both Codex (OpenAI-compatible providers projected into `config.toml`/`auth.json`) and Claude Code (full `settings.json` profile switching).
 
 ## Install
 
@@ -97,7 +99,7 @@ chmod -R go-rwx ~/.config/codex-switch ~/.codex/config.toml ~/.codex/auth.json ~
 
 ## Commands
 
-Current `0.3.1` command surface:
+Current `0.4.1` command surface:
 
 ```text
 codexs init
@@ -108,14 +110,16 @@ codexs current [--claude]
 codexs status
 codexs config show
 codexs config list-profiles
-codexs add <provider> --profile <id> --model <model> --api-key <key> [--base-url <url>]
+codexs add <provider> --profile <id> --model <model> --api-key <key> [--base-url <url>] [--create-profile]
 codexs add --claude <name> --from-file <settings.json>
-codexs edit <provider> [options]
+codexs edit <provider> [options] [--create-profile]
 codexs switch <provider> [--claude]
 codexs remove <provider> [--claude] --force
 codexs import <file>
 codexs export <file>
 codexs backups list
+codexs backups prune [--keep N]
+codexs unlock [--force]
 codexs rollback [backup-id]
 codexs doctor
 codexs setup
@@ -123,7 +127,7 @@ codexs setup
 
 `setup` is deprecated and exists only as a pointer to `init` for fresh state or `migrate` for advanced adoption of existing Codex config.
 
-All commands accept `--json` for the standard JSON envelope where supported by the parser, and `--codex-dir <path>` to target a specific Codex directory.
+All commands accept `--json` for the standard JSON envelope where supported by the parser, and `--codex-dir <path>` to target a specific Codex directory. `--codex-dir` requires a path: a following token that starts with `-` is refused rather than taken as the value.
 
 ## Runtime Projection
 
@@ -142,7 +146,7 @@ wire_api = "responses"
 requires_openai_auth = true
 ```
 
-`codex-switch` intentionally does not write legacy `[profiles.*]` sections for new managed providers, and it removes legacy `env_key`/`env_key_instructions` fields from managed model-provider projections when it writes them.
+`codex-switch` does not write legacy `[profiles.*]` sections for new managed providers by default. `--create-profile` is the explicit opt-in that also writes the matching `[profiles.<id>]` section for older Codex builds that route through it, and it removes legacy `env_key`/`env_key_instructions` fields from managed model-provider projections when it writes them.
 
 Authentication is projected into the target Codex `auth.json` as API-key mode with `OPENAI_API_KEY`. Do not commit real keys or private provider exports.
 
@@ -156,6 +160,7 @@ Tool home:
   providers.json
   claude-providers.json
   backups/
+  .codex-switch.lock
 ```
 
 Target Codex directory:
@@ -189,9 +194,31 @@ codexs migrate
 codexs migrate --overwrite --codex-dir ~/.codex
 ```
 
+## Locks And Backup Retention
+
+Every write command takes one lock, shared by both targets, and snapshots the files it touches into `backups/` first.
+
+A process killed mid-write leaves that lock behind. `codexs unlock` clears it, but only after proving the recorded owner is gone — a live owner is refused, because taking a lock from a running process corrupts state where refusing only inconveniences:
+
+```bash
+codexs unlock
+codexs unlock --force   # a recycled pid you know is not the original owner
+```
+
+There is no timeout-based takeover: a slow `migrate` can outlast any timer, so a pid that looks live is treated as live. `--force` is the deliberate override for the case where it is not.
+
+Backups are retained to the newest 20 by default. Retention runs automatically after every successful mutation, and `backups prune` is the manual path:
+
+```bash
+codexs backups prune
+codexs backups prune --keep 5
+```
+
+A directory that any surviving manifest still references is never deleted, so a rollback route stays intact even when the backup that created it is old. Directories whose manifest is missing or unreadable are reported rather than deleted. Codex and Claude operations share one `backups/` directory and one `latest.json`.
+
 ## Current Non-Goals
 
-`0.3.1` does not implement or reserve runtime code paths for:
+`0.4.1` does not implement or reserve runtime code paths for:
 
 - GitHub Copilot SDK integration.
 - GitHub device-flow login.
@@ -201,22 +228,34 @@ codexs migrate --overwrite --codex-dir ~/.codex
 - Account systems or cloud sync.
 - Claude Code plugin marketplace management.
 - Generic "target" abstraction or pluggable provider type system.
+- A TTL-based lock takeover. A slow `migrate` can exceed any timer, so a recycled pid is fail-closed and `codexs unlock --force` is the way out.
+- An audit log for lock takeovers; the takeover reports through the existing result payload.
+- An exit-code taxonomy. Success is `0` and failure is `1`; there is no `2` for usage errors and no code map.
+- Deleting the dead code trees. `src/infra/` and the dead `src/cli/` shims are Phase 3 (`P2-1`).
+- A change to `engines.node`. It still advertises `>=18` while the sole runtime dependency requires `>=20.12`, and CI does not test Node 18 — green CI must not be read as "the advertised floor is supported".
 
 ## Development
 
 ```bash
 npm run build
 npx tsc --noEmit
-npm test
+npm test          # in-process suite; silence means green
+npm run test:e2e  # real child processes against sandboxed roots; prints passed/failed/skipped
 node dist/cli.js --help
 node dist/cli.js --version
 npm pack --dry-run
 ```
 
+`npm test` runs every `tests/*.spec.js` through one in-process harness and prints nothing when it passes. `npm run test:e2e` builds the CLI and drives the real binary as a child process, with `CODEXS_HOME`, `CODEXS_CODEX_DIR`, and `CODEXS_CLAUDE_DIR` all pointing inside a sandbox that the runner refuses to leave. It is a separate command and a separate CI step: it costs a process spawn per case, and it covers what the in-process suite structurally cannot — exit codes, real pipes, and environment isolation.
+
 ## Fact Sources
 
 Current fact sources:
 
+- [PRD 0.4.1](./docs/PRD/codex-switch-prd-v0.4.1.md)
+- [Design 0.4.1](./docs/Design/codex-switch-v0.4.1-design.md)
+- [PRD 0.4.0](./docs/PRD/codex-switch-prd-v0.4.0.md)
+- [Design 0.4.0](./docs/Design/codex-switch-v0.4.0-design.md)
 - [PRD 0.3.1](./docs/PRD/codex-switch-prd-v0.3.1.md)
 - [Design 0.3.1](./docs/Design/codex-switch-v0.3.1-design.md)
 - [PRD 0.3.0](./docs/PRD/codex-switch-prd-v0.3.0.md)

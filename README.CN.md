@@ -4,11 +4,13 @@
 
 它把 `codex-switch` 自己的工具状态和目标运行时目录分开，让 provider 管理、备份和运行时投影通过明确命令完成，而不是手工编辑文件。
 
-当前包版本：`0.3.1`
+当前包版本：`0.4.1`
 
-`0.3.1` 是 `0.3.0` 双目标线的安全修复版。`show --claude` 默认掩码 secret 类 env 值（除非显式传 `--reveal`），错误详情改为递归脱敏，工具写入的文件在 macOS / Linux 上使用仅属主可读权限，并修复了两处写入安全问题。`--claude` 路径、两个 registry 和命令面没有其他变化。
+`0.4.1` 是状态恢复版本。新增 `codexs unlock [--force]` 用于处理持锁进程已不存在的锁，新增 `codexs backups prune [--keep N]` 及自动保留策略来约束此前无限增长的 `backups/`。同一秒内的多次变更不再互相覆盖备份，`doctor` 会报告被占用或陈旧的锁。另外两个此前从未真正生效的 flag 现在生效了：`--create-profile` 会写入它一直声称要写的旧 `[profiles.<id>]` 段；在不支持 Claude 的命令上传 `--claude` 会被拒绝，而不是被静默忽略。
 
-`0.3.0` 新增了 Claude Code provider 切换功能（通过 `--claude` flag）。工具同时支持 Codex（OpenAI-compatible provider 投影到 `config.toml`/`auth.json`）和 Claude Code（完整 `settings.json` 配置切换）。
+`0.4.0` 是基础版本。`--claude`、`--force`、`--merge`、`--overwrite`、`--create-profile` 变成真正的 boolean flag；无法识别的命令以退出码 `1` 加结构化错误结束，而不是以退出码 `0` 打印帮助；`status` 报告工具 home 根目录；整个测试套件收敛到唯一的 `runCli(argv, io)` 入口，并在 Windows 和 Linux 的 Node 20 / 22 上运行。
+
+`0.3.x` 通过 `--claude` flag 增加了 Claude Code provider 切换，`0.3.1` 完成了 secret 处理相关修复。工具同时支持 Codex（OpenAI-compatible provider 投影到 `config.toml`/`auth.json`）和 Claude Code（完整 `settings.json` 配置切换）。
 
 ## 安装
 
@@ -86,7 +88,7 @@ chmod -R go-rwx ~/.config/codex-switch ~/.codex/config.toml ~/.codex/auth.json ~
 
 ## 命令面
 
-`0.3.1` 当前命令：
+`0.4.1` 当前命令：
 
 ```text
 codexs init
@@ -97,20 +99,24 @@ codexs current [--claude]
 codexs status
 codexs config show
 codexs config list-profiles
-codexs add <provider> --profile <id> --model <model> --api-key <key> [--base-url <url>]
+codexs add <provider> --profile <id> --model <model> --api-key <key> [--base-url <url>] [--create-profile]
 codexs add --claude <name> --from-file <settings.json>
-codexs edit <provider> [options]
+codexs edit <provider> [options] [--create-profile]
 codexs switch <provider> [--claude]
 codexs remove <provider> [--claude] --force
 codexs import <file>
 codexs export <file>
 codexs backups list
+codexs backups prune [--keep N]
+codexs unlock [--force]
 codexs rollback [backup-id]
 codexs doctor
 codexs setup
 ```
 
 `setup` 已废弃，只保留为指向 `init` 或 `migrate` 的兼容入口。
+
+所有命令都接受 `--json` 标准 JSON envelope（以解析器支持为限），以及用于指定目标 Codex 目录的 `--codex-dir <path>`。`--codex-dir` 必须跟路径：紧随其后以 `-` 开头的 token 会被拒绝，而不是被当作路径。
 
 ## Runtime 投影
 
@@ -129,7 +135,7 @@ wire_api = "responses"
 requires_openai_auth = true
 ```
 
-`codex-switch` 不为新受管 provider 写入旧 `[profiles.*]`，并会在写入受管投影时清理旧 `env_key` / `env_key_instructions` 字段。
+`codex-switch` 默认不为新受管 provider 写入旧 `[profiles.*]`。`--create-profile` 是显式开关，用于额外写入对应的 `[profiles.<id>]` 段，供仍通过该段路由的旧 Codex 版本使用；写入受管投影时它会清理旧 `env_key` / `env_key_instructions` 字段。
 
 认证会投影到目标 Codex `auth.json`，使用 API-key 模式和 `OPENAI_API_KEY`。不要提交真实 API key、`auth.json` 或私有 provider 导出。
 
@@ -143,6 +149,7 @@ requires_openai_auth = true
   providers.json
   claude-providers.json
   backups/
+  .codex-switch.lock
 ```
 
 目标 Codex 目录：
@@ -176,9 +183,31 @@ codexs migrate
 codexs migrate --overwrite --codex-dir ~/.codex
 ```
 
+## 锁与备份保留
+
+每个写入命令都会获取同一把锁（两个目标共用），并先把要改动的文件快照到 `backups/`。
+
+写入过程中被 kill 的进程会把锁留下。`codexs unlock` 可以清除它，但只会在确认记录的持有者确实已消失之后才清除 —— 持有者仍存活时会被拒绝，因为从运行中的进程手里抢锁会破坏状态，而拒绝只是带来不便：
+
+```bash
+codexs unlock
+codexs unlock --force   # 用于你确认已被复用的 pid
+```
+
+这里没有基于超时的接管：慢速 `migrate` 可以超过任何计时器，所以看起来存活的 pid 一律按存活处理。`--force` 是针对"它其实不是原持有者"这一情况的显式覆盖。
+
+备份默认保留最新的 20 个。每次成功变更后都会自动执行保留策略，`backups prune` 是手动入口：
+
+```bash
+codexs backups prune
+codexs backups prune --keep 5
+```
+
+任何仍被幸存 manifest 引用的目录都不会被删除，因此即使创建它的备份本身很旧，回滚路径依然完整。manifest 缺失或不可读的目录只会被报告，不会被删除。Codex 和 Claude 共用同一个 `backups/` 目录和同一个 `latest.json`。
+
 ## 当前非目标
 
-`0.3.1` 不实现也不预留以下 runtime 代码路径：
+`0.4.1` 不实现也不预留以下 runtime 代码路径：
 
 - GitHub Copilot SDK 集成。
 - GitHub device-flow 登录。
@@ -188,20 +217,32 @@ codexs migrate --overwrite --codex-dir ~/.codex
 - 账号系统或云同步。
 - Claude Code 插件市场管理。
 - 泛化的 "target" 抽象或可插拔 provider 类型系统。
+- 基于 TTL 的锁接管。慢速 `migrate` 可以超过任何计时器，因此被复用的 pid 一律 fail-closed，出口是 `codexs unlock --force`。
+- 锁接管的审计日志；接管结果通过现有的结果 payload 报告。
+- 退出码分类体系。成功为 `0`，失败为 `1`；没有用于用法错误的 `2`，也没有 code map。
+- 删除死代码树。`src/infra/` 和死掉的 `src/cli/` shim 属于 Phase 3（`P2-1`）。
+- 修改 `engines.node`。它仍声明 `>=18`，而唯一的运行时依赖要求 `>=20.12`，且 CI 不测试 Node 18 —— CI 全绿不能被理解为"声明的最低版本已受支持"。
 
 ## 开发
 
 ```bash
 npm run build
 npx tsc --noEmit
-npm test
+npm test          # 进程内测试套件；静默即通过
+npm run test:e2e  # 真实子进程 + 沙箱根目录；打印 passed/failed/skipped
 node dist/cli.js --help
 node dist/cli.js --version
 npm pack --dry-run
 ```
 
+`npm test` 通过唯一的进程内 harness 运行所有 `tests/*.spec.js`，通过时不打印任何内容。`npm run test:e2e` 先构建 CLI，再把真实二进制作为子进程驱动，`CODEXS_HOME`、`CODEXS_CODEX_DIR`、`CODEXS_CLAUDE_DIR` 全部指向运行器拒绝离开的沙箱。它是独立命令、也是独立的 CI 步骤：每个用例都要付一次进程启动成本，而它覆盖的是进程内套件在结构上无法覆盖的部分 —— 退出码、真实管道、环境隔离。
+
 ## 当前事实源
 
+- [PRD 0.4.1](./docs/PRD/codex-switch-prd-v0.4.1.md)
+- [Design 0.4.1](./docs/Design/codex-switch-v0.4.1-design.md)
+- [PRD 0.4.0](./docs/PRD/codex-switch-prd-v0.4.0.md)
+- [Design 0.4.0](./docs/Design/codex-switch-v0.4.0-design.md)
 - [PRD 0.3.1](./docs/PRD/codex-switch-prd-v0.3.1.md)
 - [Design 0.3.1](./docs/Design/codex-switch-v0.3.1-design.md)
 - [PRD 0.3.0](./docs/PRD/codex-switch-prd-v0.3.0.md)

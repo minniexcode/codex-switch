@@ -13,17 +13,17 @@ module.exports = {
   name: "release contract",
   tests: [
     {
-      name: "package metadata is 0.3.1",
+      name: "package metadata is 0.4.1",
       run() {
         const packageJson = require("../package.json");
         const packageLock = require("../package-lock.json");
-        assert.equal(packageJson.version, "0.3.1");
-        assert.equal(packageLock.version, "0.3.1");
-        assert.equal(packageLock.packages[""].version, "0.3.1");
+        assert.equal(packageJson.version, "0.4.1");
+        assert.equal(packageLock.version, "0.4.1");
+        assert.equal(packageLock.packages[""].version, "0.4.1");
       },
     },
     {
-      name: "current docs use 0.3.1 fact sources",
+      name: "current docs use 0.4.1 fact sources",
       run() {
         for (const relativePath of [
           "README.md",
@@ -36,14 +36,20 @@ module.exports = {
           "CHANGELOG.md",
         ]) {
           const content = read(relativePath);
-          assert.match(content, /0\.2\.1|0\.3\.0|0\.3\.1/, relativePath);
+          // The overview and architecture docs deliberately lag a release or two, so the regex
+          // spans the whole 0.x line rather than pinning the current version.
+          assert.match(content, /0\.2\.1|0\.3\.0|0\.3\.1|0\.4\.0|0\.4\.1/, relativePath);
         }
-        assert.ok(fs.existsSync(path.join(repoRoot, "docs/PRD/codex-switch-prd-v0.3.1.md")));
-        assert.ok(fs.existsSync(path.join(repoRoot, "docs/Design/codex-switch-v0.3.1-design.md")));
-        assert.ok(fs.existsSync(path.join(repoRoot, "docs/PRD/codex-switch-prd-v0.3.0.md")));
-        assert.ok(fs.existsSync(path.join(repoRoot, "docs/Design/codex-switch-v0.3.0-design.md")));
-        assert.ok(fs.existsSync(path.join(repoRoot, "docs/PRD/codex-switch-prd-v0.2.1.md")));
-        assert.ok(fs.existsSync(path.join(repoRoot, "docs/Design/codex-switch-v0.2.1-design.md")));
+        for (const version of ["0.4.1", "0.4.0", "0.3.1", "0.3.0", "0.2.1"]) {
+          assert.ok(
+            fs.existsSync(path.join(repoRoot, `docs/PRD/codex-switch-prd-v${version}.md`)),
+            `missing docs/PRD/codex-switch-prd-v${version}.md`
+          );
+          assert.ok(
+            fs.existsSync(path.join(repoRoot, `docs/Design/codex-switch-v${version}-design.md`)),
+            `missing docs/Design/codex-switch-v${version}-design.md`
+          );
+        }
         assert.match(read("README.md"), /Claude Code provider switching|managing and switching Codex and Claude Code/);
         assert.match(read("README.AI.md"), /local-first CLI for managing and switching Codex and Claude Code/);
       },
@@ -69,6 +75,10 @@ module.exports = {
           "import",
           "export",
           "backups list",
+          // Both were missing before 0.4.1, so a regression that dropped either from `--help`
+          // would have passed this test — the list asserted 18 of the 20 commands.
+          "backups prune",
+          "unlock",
           "rollback",
           "doctor",
           "setup",
@@ -79,11 +89,11 @@ module.exports = {
       },
     },
     {
-      name: "version command reports 0.3.1",
+      name: "version command reports 0.4.1",
       async run() {
         const result = await runBuiltCli(["--version"]);
         assert.equal(result.status, 0);
-        assert.equal(result.stdout.trim(), "0.3.1");
+        assert.equal(result.stdout.trim(), "0.4.1");
       },
     },
   ],

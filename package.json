@@ -1,6 +1,6 @@
 {
   "name": "@minniexcode/codex-switch",
-  "version": "0.3.1",
+  "version": "0.4.1",
   "description": "Local-first CLI for managing and switching Codex and Claude Code provider routing.",
   "license": "MIT",
   "type": "commonjs",
@@ -39,7 +39,8 @@
     "build": "node scripts/build.cjs",
     "prepare": "npm run build",
     "start": "node ./dist/cli.js",
-    "test": "npm run build && node tests/run-tests.js"
+    "test": "npm run build && node tests/run-tests.js",
+    "test:e2e": "npm run build && node tests/e2e/run-e2e.js"
   },
   "devDependencies": {
     "@types/node": "^24.12.3",

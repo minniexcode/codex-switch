@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.4.1 - 2026-09-20
+
+Stateful-recovery release. Two commands added, both aimed at a state the tool could previously enter and not leave: a lock whose owner no longer exists, and a backups directory that grows without bound.
+
+### Added
+
+- `codexs unlock [--force]` — clears a lock left behind by a process that is provably gone. Idempotent: a missing lock is success. Refuses when the recorded owner is still alive, and names it; `--force` is the documented override.
+- `codexs backups prune [--keep N]` — deletes backup directories newest-first, keeping `N` (default 20). Never deletes a directory that a surviving manifest still names, so a rollback route is protected by every backup that references it, not only the newest.
+- Automatic retention: every mutating command prunes to the default depth and reports how many backups it removed.
+- `doctor` reports an occupied or stale lock as a finding, with the owning pid.
+- `LOCK_STALE` error code and a stale-lock takeover path in `runMutation()`.
+- `tests/lock-recovery.spec.js`, `tests/backup-retention.spec.js`, `tests/atomic-write.spec.js`, `tests/arg-parsing.spec.js`, `tests/cli-process.spec.js`, and the `tests/e2e/` real-process suite with its own runner and CI step.
+- PRD v0.4.0/Design v0.4.0 and PRD v0.4.1/Design v0.4.1 fact sources.
+
+### Changed
+
+- Backup directory names gain zero-padded milliseconds and are created exclusively, so two mutations in the same second no longer overwrite each other's backup. The created directory reports its own path rather than being re-derived from the timestamp.
+- A mutation that fails and rolls back successfully no longer leaves its own backup directory behind.
+- Windows: `writeTextFileAtomic()` retries a rename that fails with `EPERM`/`EACCES`/`EBUSY`. Those codes are what an antivirus or indexer produces by holding the destination open for a moment, and treating them as permanent aborted a mutation that would have succeeded.
+- `add --create-profile` and `edit --create-profile` now actually write the `[profiles.<id>]` section. The flag was parsed, threaded to both app services, and then dropped, so it had never had an effect; the interactive `add` collector, which prompts for the model and base URL precisely because it believes it writes that section, was writing nothing.
+- `--claude` on a command with no Claude path is refused (`INVALID_ARGUMENT`, naming the supported commands) instead of being silently ignored. `codexs status --claude` used to report Codex state under a flag that asked about Claude.
+
+### Fixed
+
+- `--codex-dir` no longer accepts a flag as its value. `codexs list --codex-dir --json` resolved a directory literally named `--json`, dropped the JSON request, and reported an empty provider list as success.
+
+## 0.4.0 - 2026-09-20
+
+Foundation release: no new command and no storage change. It makes the failure surface honest to scripts and makes the suite runnable where it is checked out.
+
+### Added
+
+- CI on Windows and Linux against Node 20 and 22: install, type-check, `npm test`.
+- `runCli(argv, io)` as the single implementation of the entry ladder. It takes line-oriented sinks and returns an exit code instead of calling `process.exit`, so the in-process tests exercise the real dispatch rather than a hand-written mirror of it.
+- Temporary-directory registry with an `exit` backstop; `makeCodexFixture()` generates the Codex `config.toml` / `auth.json` per test instead of copying a gitignored directory.
+- `--claude` runtime coverage end to end: `tests/claude-provider-workflow.spec.js`, driven through `withClaudeEnv()` so it cannot reach a real `~/.claude`.
+- `tests/release-contract.spec.js` asserts the version in `package.json`, both `package-lock.json` fields, and `--version` output, and that the PRD/Design pair for each line exists.
+
+### Changed
+
+- `--claude`, `--force`, `--merge`, `--overwrite`, and `--create-profile` are true boolean flags and no longer consume the token after them. `--claude` is position-independent, so `codexs --claude list` resolves.
+- An unrecognized command exits `1` with `INVALID_ARGUMENT` instead of exiting `0` with the top-level help. A bare group root (`codexs config`) still prints that group's help and exits `0`.
+- A synchronous parse failure produces the structured error envelope when `--json` is present, instead of escaping as a stack trace.
+- `status` reports the tool-home root in both human and JSON output. The field was populated only in the JSON payload under a path the human renderer never read, so the human view printed an empty string.
+- `resolveClaudeProviderName()` deleted; Claude provider names arrive as positionals like the Codex ones.
+- `getSingleOption()`'s `required` parameter deleted — both of its branches returned `null`.
+
+### Security
+
+- Codex `show --json` continues to return the full `apiKey` by design. It is a documented automation contract and is unchanged by this release; Claude `show` still masks in both modes.
+
 ## 0.3.1 - 2026-09-20
 
 Security patch release for the `0.3.0` dual-target line. No architecture change: the `--claude` path, both registries, and the command surface are unchanged.

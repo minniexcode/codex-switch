@@ -346,6 +346,69 @@ Beyond the existing suite:
 
 ## Implementation Notes
 
-To be filled in when the work lands: deviations from this design, and what the machine actually
-showed. The `0.3.1` Design's equivalent section is where the Windows ACL finding and the
-`--reveal`-as-global-flag decision are recorded, and it is the reason those are not re-litigated.
+Filled in when the work landed. Deviations first, then what the machine showed.
+
+### Deviations from this design
+
+**`--codex-dir` now rejects a flag as its value, which the PRD listed as recorded-but-not-changed.**
+The PRD's non-goal says the fix is "scoped to boolean flags and the command-resolution order it
+depends on", and names `--codex-dir` consuming `--json` as a path as something that stays. It had to
+change instead. Once exit codes became observable, `codexs list --codex-dir --json` resolved a
+directory literally named `--json`, dropped the JSON request, and then **reported an empty provider
+list as success** — exit `0` with a plausible-looking answer. A wrong answer is worse than a
+refusal, and this release is specifically about failures becoming visible, so shipping a
+success-shaped wrong answer inside it was not defensible. The branch reads raw `argv`, so the guard
+is a `startsWith("-")` check on the next token; a directory whose name really starts with a dash can
+still be written with a `./` prefix. `--version` matching anywhere in `argv` is unchanged, as the
+PRD says.
+
+**A refusal for `--claude` on commands with no Claude path is new behaviour, not in this design.**
+`--claude` is global, so the parser accepts it anywhere. Ignoring it made `codexs status --claude`
+report Codex state under a flag that asked about Claude, and nothing in the output said so. The
+rejection is `INVALID_ARGUMENT` and carries `supportedCommands`, so the error names the six commands
+that do have a Claude path. It is placed after the `isClaudeCommand` early return, so the Claude
+commands themselves are untouched.
+
+**`getSingleOption()`'s `required` parameter was deleted as designed, but the third argument had to
+be dropped at every call site rather than made to throw.** As the design predicted, `handlers.ts`
+depends on receiving `null` to fall through to the interactive collector, and `codexs add` with no
+flags is a documented usage form. No call site relied on the old parameter.
+
+**`tests/cli-process.spec.js` was added to the in-process suite, which this design does not mention.**
+The acceptance criteria require a test that observes a real process exit code, and the in-process
+harness structurally cannot produce one. Putting it in the main suite rather than deferring it to
+the E2E suite keeps `npm test` satisfying the written contract on its own, so a contributor who runs
+one command still gets it.
+
+### What the machine showed
+
+**A dead flag, found by the E2E suite and fixed here.** `--create-profile` was parsed in
+`handlers.ts`, threaded into both `addProvider` and `editProvider`, and then dropped: neither app
+service ever passed `upsertProfiles` to `createConfigMutationPlan`. `git show HEAD` confirms it was
+inert at HEAD as well — the flag appeared in `handlers.ts` and both app files but nowhere in
+`registry.ts`. The interactive `add` collector was the worse half: it prompts for a model and a base
+URL precisely *because* it believes it is writing that section, and it was writing nothing at all.
+Both `add` and `edit` now pass `upsertProfiles`, and `edit`'s guard counts `--create-profile` as an
+action in its own right so `codexs edit p --create-profile` is not refused as an empty update.
+
+**`migrate` is the one command that ignores `CODEXS_CODEX_DIR`.** `codexDirExplicit` is set only by a
+literal `--codex-dir`, so a spec that sets the environment variable and calls `migrate` resolves
+candidates against its own defaults. This is why the E2E suite's guard is structural — it asserts
+every root inside the sandbox before a child process runs — rather than a convention each spec is
+trusted to follow.
+
+**`backups list` and `backups prune` are asymmetric on an empty tree.** `list` reports nothing found;
+`prune` reports `kept 0` and exits 0. Both are correct, and the asymmetry is now asserted rather
+than discovered by a user, because "prune deleted nothing" and "prune failed" must not look alike.
+
+**Windows renames are transiently refused under load.** `writeTextFileAtomic()` aborted a mutation
+with `EPERM` on a destination that Defender or the indexer was momentarily holding open, which
+rolled the mutation back for no reason. `renameWithRetryOnWindows()` retries `EPERM`/`EACCES`/`EBUSY`
+with a short backoff and rethrows anything else immediately; `tests/atomic-write.spec.js` pins the
+retry count, the permanent-failure path, and the no-retry path. The `chmod`-skipped-on-Windows
+finding from `0.3.1` is unchanged and is not re-litigated here.
+
+**The suite now runs where it is checked out.** `makeCodexFixture()` generates the Codex files per
+test, so `dev-codex/local-sandbox` — gitignored, and absent on a fresh clone — is never read. This
+is what lets the four CI legs be green without a checked-in fixture directory, and it is the
+precondition for `0.4.1`, whose specs need to construct crash states the checkout cannot supply.
