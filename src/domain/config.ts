@@ -613,10 +613,14 @@ export function planConfigMutation(
   }
 
   if (args.deleteLegacyProfile && document.legacyProfileLineRange) {
+    // The range already ends past its own terminator, so it is used as-is and the blank line that
+    // follows is left alone. Widening it with `expandLineDeletionStart` would reach into that blank
+    // line, which is exactly where `findTopLevelInsertIndex` inserts a new top-level key — and the
+    // delete is applied after the insert, so the overlap would truncate the inserted text.
     operations.push({
       kind: "delete-range",
       start: document.legacyProfileLineRange.start,
-      end: expandLineDeletionStart(document.rawText, document.legacyProfileLineRange.start, document.legacyProfileLineRange.end),
+      end: document.legacyProfileLineRange.end,
     });
   }
 
@@ -917,10 +921,13 @@ function planRootFieldMutation(
   }
   if (nextValue === null) {
     if (currentLineRange) {
+      // Used as-is rather than expanded, for the reason given on the legacy-profile deletion in
+      // `createConfigMutationPlan`: the range already covers its terminator, and swallowing the
+      // following blank line would overlap the insertion point for a new top-level key.
       operations.push({
         kind: "delete-range",
         start: currentLineRange.start,
-        end: expandLineDeletionStart(document.rawText, currentLineRange.start, currentLineRange.end),
+        end: currentLineRange.end,
       });
     }
     return;

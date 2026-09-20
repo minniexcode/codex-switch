@@ -45,5 +45,4 @@ Do not add tests for removed `0.2.1` runtime experiments such as Copilot SDK int
 
 ## Known Gaps
 
-- The legacy top-level `profile` selector has no write-path coverage. `makeCodexFixture()` accepts `legacyProfile` but leaves it unset by default: when that line is the last root-level key, its deletion range overlaps the insertion point for a new top-level key, and `switch` writes a truncated `model_provider` (`odel_provider`). `switch`'s legacy-cleanup path therefore cannot be asserted green until that overlap is fixed. No shipped test covers it, and no test should until the defect is resolved.
 - The POSIX permission assertions in `tests/secret-handling.spec.js` return early on Windows, so the `0600` / `0700` code path has no executable coverage on that platform. The `ubuntu-latest` leg of `.github/workflows/ci.yml` is the only place it runs.

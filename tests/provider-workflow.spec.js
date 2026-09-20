@@ -101,6 +101,48 @@ module.exports = {
       },
     },
     {
+      name: "switch rewrites a trailing legacy profile line without truncating the projection",
+      async run() {
+        // A trailing root-level `profile` line is removed at the same boundary where the new
+        // top-level keys are inserted. When those two ranges overlapped, the deletion consumed the
+        // first character of the inserted text, so `model_provider` landed as `odel_provider` and
+        // the active provider could no longer be resolved.
+        const codexDir = makeCodexFixture({ legacyProfile: "packycode" });
+        const toolHomeDir = makeToolHomeWithManagedState();
+
+        await runJsonCli({ toolHomeDir, args: ["init", "--json", "--codex-dir", codexDir] });
+        await runJsonCli({
+          toolHomeDir,
+          args: [
+            "add",
+            "gamma",
+            "--profile",
+            "gamma",
+            "--model",
+            "gpt-5-mini",
+            "--api-key",
+            "sk-gamma",
+            "--base-url",
+            "https://gamma.example/v1",
+            "--json",
+            "--codex-dir",
+            codexDir,
+          ],
+        });
+
+        const switched = await runJsonCli({ toolHomeDir, args: ["switch", "gamma", "--json", "--codex-dir", codexDir] });
+        assert.equal(switched.payload.ok, true);
+
+        const status = await runJsonCli({ toolHomeDir, args: ["status", "--json", "--codex-dir", codexDir] });
+        assert.equal(status.payload.data.currentModelProvider, "gamma");
+
+        const config = fs.readFileSync(path.join(codexDir, "config.toml"), "utf8");
+        assert.match(config, /^model_provider = "gamma"$/m);
+        assert.doesNotMatch(config, /^odel_provider/m, "inserted key must not be truncated");
+        assert.doesNotMatch(config, /^profile = /m, "the legacy selector must be removed");
+      },
+    },
+    {
       name: "setup remains deprecated pointer",
       async run() {
         const result = await runBuiltCli(["setup"]);

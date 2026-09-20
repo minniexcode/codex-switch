@@ -121,10 +121,9 @@ async function withClaudeEnv(settings, run) {
  * without it cannot resolve an active provider at all. `baseUrl` sets the matching
  * `[model_providers.<id>]` section so a test can seed a deliberate mismatch.
  *
- * `legacyProfile` emits the legacy top-level `profile` selector, which is left off by default on
- * purpose: as a trailing root key it overlaps the insertion point for a new top-level key, and
- * `switch` then drops the first character of the text it inserts (`model_provider` → `odel_provider`).
- * No existing test exercises that path; pass this only to reproduce the defect.
+ * `legacyProfile` emits the legacy top-level `profile` selector. As the last root-level key it sits
+ * on the boundary where a new top-level key is inserted, which is what
+ * `provider-workflow.spec.js` needs to cover the legacy-cleanup write path.
  */
 function makeCodexFixture({
   modelProvider = null,
