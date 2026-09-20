@@ -156,6 +156,7 @@ export async function migrateCodex(args: {
     configPath: args.configPath,
     providersPath: args.providersPath,
     authPath: args.authPath,
+    lockPath: args.lockPath,
   });
 
   return {
@@ -163,6 +164,8 @@ export async function migrateCodex(args: {
       ...result.data,
       doctor: doctor.data,
     },
-    warnings: doctor.warnings,
+    // The mutation's own warnings come first: they describe what this command did (a lock
+    // takeover, retention removals), while the doctor warnings describe what it found after.
+    warnings: [...result.warnings, ...(doctor.warnings ?? [])],
   };
 }

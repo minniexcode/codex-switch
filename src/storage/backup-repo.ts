@@ -3,7 +3,12 @@ import * as path from "node:path";
 import { BackupManifest, FileBackupEntry } from "../domain/backup";
 import { sortBackupList, toBackupListItem, validateBackupManifest } from "../domain/backups";
 import { cliError, normalizeError } from "../domain/errors";
-import { ensureDir, writeTextFileAtomic } from "./fs-utils";
+import { SECURE_DIR_MODE, ensureDir, writeTextFileAtomic } from "./fs-utils";
+
+/**
+ * How many suffixed names to try before giving up on finding a free backup directory.
+ */
+const MAX_BACKUP_DIR_ATTEMPTS = 100;
 
 /**
  * Creates a point-in-time backup for the managed files involved in a mutation.
@@ -14,9 +19,8 @@ export function createBackup(
   files: Array<{ absolutePath: string; relativePath: string }>
 ): BackupManifest {
   try {
-    const backupDir = path.join(backupsDir, `${createTimestamp()}-${reason}`);
     ensureDir(backupsDir);
-    ensureDir(backupDir);
+    const backupDir = createExclusiveBackupDir(backupsDir, reason);
 
     const entries: FileBackupEntry[] = [];
     for (const file of files) {
@@ -200,11 +204,139 @@ export function listBackups(backupsDir: string): {
 }
 
 /**
+ * What one retention pass did, for reporting through the command result.
+ */
+export type PruneResult = {
+  removed: string[];
+  protectedDirs: string[];
+  unreadable: string[];
+  warnings: string[];
+};
+
+/**
+ * Deletes backup directories beyond the retention count, newest first.
+ *
+ * Lock-free by design. The command wrapper takes the shared lock, but the automatic call
+ * inside a mutation already holds it — and that lock is a non-reentrant exclusive create,
+ * so a wrapper here would always receive EEXIST. The caller would then swallow it as
+ * best-effort and automatic retention would silently never run.
+ *
+ * This deliberately does not reuse `listBackups()`: that throws when the directory holds no
+ * valid manifest, so a clean machine would exit non-zero for having nothing to do, and it
+ * skips unreadable entries — exactly the crash residue worth reporting.
+ */
+export function pruneBackups(args: {
+  backupsDir: string;
+  latestBackupPath: string;
+  keep: number;
+}): PruneResult {
+  const result: PruneResult = { removed: [], protectedDirs: [], unreadable: [], warnings: [] };
+  if (!fs.existsSync(args.backupsDir)) {
+    return result;
+  }
+
+  const candidates: Array<{ dirPath: string; manifest: BackupManifest }> = [];
+  for (const entry of fs.readdirSync(args.backupsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const dirPath = path.join(args.backupsDir, entry.name);
+    const manifestPath = path.join(dirPath, "manifest.json");
+    if (!fs.existsSync(manifestPath)) {
+      result.unreadable.push(entry.name);
+      result.warnings.push(`Kept backup "${entry.name}" because manifest.json is missing.`);
+      continue;
+    }
+
+    try {
+      candidates.push({
+        dirPath,
+        manifest: validateBackupManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8"))),
+      });
+    } catch (error: unknown) {
+      // Reported rather than deleted: an unvalidatable directory cannot be shown to be
+      // expendable, and skipping it would leave the unbounded growth in place for the one
+      // case a crash produces most often.
+      result.unreadable.push(entry.name);
+      result.warnings.push(`Kept backup "${entry.name}" because manifest.json is invalid: ${normalizeError(error).message}`);
+    }
+  }
+
+  // Ordering is by the manifest's createdAt, never by directory name: with suffixed
+  // retries in play, "…-switch-10" sorts before "…-switch-9" lexically.
+  const ordered = candidates
+    .map((candidate) => ({ ...candidate, createdAt: candidate.manifest.createdAt }))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const retained = ordered.slice(0, args.keep);
+  const deletable = ordered.slice(args.keep);
+
+  // The protected set is derived from the manifests that SURVIVE this prune. A manifest
+  // lives inside its own backup directory, so it is removed together with that directory;
+  // what survives is the retained directories plus latest.json, which is a top-level file.
+  // Deriving the set from every manifest instead would protect every directory and leave
+  // nothing deletable at all.
+  const protectedPaths = new Set<string>();
+  for (const candidate of retained) {
+    protectedPaths.add(path.resolve(candidate.dirPath));
+    // rollback <id> resolves through loadManifestById() and then reads manifest.backupDir,
+    // so a retained manifest naming some other directory keeps that directory alive too.
+    protectedPaths.add(path.resolve(candidate.manifest.backupDir));
+  }
+
+  const latest = readLatestManifestQuietly(args.latestBackupPath);
+  if (latest) {
+    // latest.json is what a no-argument rollback resolves through, and it is not recreated
+    // by a prune, so whatever it names must stay resolvable.
+    protectedPaths.add(path.resolve(latest.backupDir));
+  }
+
+  for (const candidate of deletable) {
+    const name = path.basename(candidate.dirPath);
+    if (protectedPaths.has(path.resolve(candidate.dirPath))) {
+      result.protectedDirs.push(name);
+      result.warnings.push(`Kept backup "${name}" because a surviving manifest still references it.`);
+      continue;
+    }
+
+    try {
+      fs.rmSync(candidate.dirPath, { recursive: true, force: true });
+      result.removed.push(name);
+    } catch (error: unknown) {
+      // One directory that cannot be removed (Windows EBUSY, an antivirus hold) must not
+      // fail the whole prune, but it is reported rather than swallowed.
+      result.warnings.push(`Could not remove backup "${name}": ${normalizeError(error).message}`);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Reads the latest-rollback manifest, or null when it is missing or unusable.
+ */
+function readLatestManifestQuietly(latestBackupPath: string): BackupManifest | null {
+  if (!fs.existsSync(latestBackupPath)) {
+    return null;
+  }
+
+  try {
+    return validateBackupManifest(JSON.parse(fs.readFileSync(latestBackupPath, "utf8")));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Formats a filesystem-safe timestamp for backup directory names.
+ *
+ * Milliseconds are included so two mutations in the same second cannot resolve to the
+ * same name. Uniqueness is still enforced by the exclusive create below rather than by
+ * the timestamp: a clock that steps backwards must not be able to lose a backup.
  */
 function createTimestamp(): string {
   const now = new Date();
-  const pad = (value: number) => value.toString().padStart(2, "0");
+  const pad = (value: number, width = 2) => value.toString().padStart(width, "0");
   return [
     now.getFullYear().toString(),
     pad(now.getMonth() + 1),
@@ -213,5 +345,33 @@ function createTimestamp(): string {
     pad(now.getHours()),
     pad(now.getMinutes()),
     pad(now.getSeconds()),
+    pad(now.getMilliseconds(), 3),
   ].join("");
+}
+
+/**
+ * Creates a backup directory no other mutation can share.
+ *
+ * `ensureDir` is recursive and therefore silent when the directory already exists, which is
+ * how two mutations in the same second used to overwrite each other's files and manifest.
+ * A non-recursive create is exclusive on its own property rather than on the shared lock's,
+ * so it stays correct while the lock's failure modes are being loosened.
+ */
+function createExclusiveBackupDir(backupsDir: string, reason: string): string {
+  const baseName = `${createTimestamp()}-${reason}`;
+
+  for (let attempt = 0; attempt < MAX_BACKUP_DIR_ATTEMPTS; attempt += 1) {
+    const candidate = path.join(backupsDir, attempt === 0 ? baseName : `${baseName}-${attempt}`);
+    try {
+      fs.mkdirSync(candidate, { mode: SECURE_DIR_MODE });
+      return candidate;
+    } catch (error: unknown) {
+      // Only a name already in use is retried; anything else is a real failure.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(`Could not find an unused backup directory name for "${baseName}".`);
 }

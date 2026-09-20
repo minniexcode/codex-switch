@@ -10,6 +10,14 @@ export type BackupListItem = {
 };
 
 /**
+ * Backups retained after a mutation and by `backups prune` when `--keep` is not given.
+ *
+ * The number is a retention policy, not a guarantee: a directory a surviving manifest still
+ * references is kept regardless, so the count on disk can exceed this.
+ */
+export const DEFAULT_BACKUP_RETENTION = 20;
+
+/**
  * Returns the explicit backup identifier derived from the backup directory name.
  */
 export function getBackupId(backupDir: string): string {

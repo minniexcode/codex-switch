@@ -10,6 +10,7 @@ import { CommandResult } from "./types";
  * Reports the current on-disk runtime state and how it maps back to managed providers.
  */
 export async function getStatus(
+  toolHomeRoot: string,
   codexDir: string,
   configPath: string,
   providersPath: string,
@@ -51,6 +52,11 @@ export async function getStatus(
   return {
     warnings,
     data: {
+      // Flat, alongside every other field here. The renderer used to read a nested
+      // `storage.toolHome.root` that this payload never carried, so the human view printed an
+      // empty string; `docs/cli-usage.md` documents the line, so the field is populated rather
+      // than the line dropped.
+      toolHomeRoot,
       codexDir,
       configExists,
       providersExists,

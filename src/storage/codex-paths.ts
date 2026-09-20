@@ -81,9 +81,20 @@ export function createCodexPaths(args: { codexDir: string; toolHomeDir?: string 
     providersPath: path.join(toolHomeDir, "providers.json"),
     backupsDir: path.join(toolHomeDir, "backups"),
     latestBackupPath: path.join(toolHomeDir, "backups", "latest.json"),
-    lockPath: path.join(toolHomeDir, ".codex-switch.lock"),
+    lockPath: resolveLockPath(toolHomeDir),
     codexDir,
     configPath: path.join(codexDir, "config.toml"),
     authPath: path.join(codexDir, "auth.json"),
   };
+}
+
+/**
+ * Resolves the shared lock path from the tool home alone.
+ *
+ * Codex and Claude operations share one lock file, and it lives in the tool home rather than
+ * in a target runtime. Commands that only touch tool-home state therefore need this rather
+ * than a full `CodexPaths`, which cannot be built without a Codex directory.
+ */
+export function resolveLockPath(toolHomeDir?: string): string {
+  return path.join(resolveCodexSwitchHome(toolHomeDir), ".codex-switch.lock");
 }

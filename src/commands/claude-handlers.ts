@@ -22,29 +22,25 @@ import { readClaudeSettings } from "../storage/claude-providers-repo";
 const CLAUDE_COMMANDS = new Set(["add", "switch", "list", "show", "current", "remove"]);
 
 /**
+ * Returns true when the command has a Claude Code path at all.
+ */
+export function supportsClaudeTarget(command: string | null): boolean {
+  return command !== null && CLAUDE_COMMANDS.has(command);
+}
+
+/**
+ * The Claude-capable command ids, for a refusal that can name them.
+ */
+export function getClaudeCommandNames(): string[] {
+  return [...CLAUDE_COMMANDS].sort();
+}
+
+/**
  * Returns true when the parsed command targets Claude Code instead of Codex.
  */
 export function isClaudeCommand(command: string | null, commandOptions: Map<string, string[]>): boolean {
   if (!command) return false;
   return CLAUDE_COMMANDS.has(command) && commandOptions.has("--claude");
-}
-
-/**
- * Extracts the provider name from either the positional or the --claude flag value.
- * The arg parser may consume the next token as --claude's value when the user types
- * `codexs add --claude <name>`. This helper normalizes both orderings.
- */
-function resolveClaudeProviderName(parsed: ParsedCommand): string | null {
-  const positional = parsed.positionals[0] ?? null;
-  if (positional) return positional;
-
-  const claudeValues = parsed.commandOptions.get("--claude") ?? [];
-  const firstValue = claudeValues[0];
-  if (firstValue && firstValue !== "true") {
-    return firstValue;
-  }
-
-  return null;
 }
 
 /**
@@ -63,9 +59,11 @@ export async function handleClaudeCommand(
 
   switch (ctx.command) {
     case "add": {
-      let providerName = resolveClaudeProviderName(parsed);
-      const fromFile = getSingleOption(parsed.commandOptions, "--from-file", false);
-      const note = getSingleOption(parsed.commandOptions, "--note", false);
+      // `--claude` is a boolean flag, so it never claims the following token: the name is a
+      // positional in every ordering, including `codexs --claude add <name>`.
+      let providerName: string | null = parsed.positionals[0] ?? null;
+      const fromFile = getSingleOption(parsed.commandOptions, "--from-file");
+      const note = getSingleOption(parsed.commandOptions, "--note");
       const tags = parsed.commandOptions.get("--tag") ?? [];
 
       if (!providerName) {
@@ -125,7 +123,9 @@ export async function handleClaudeCommand(
     }
 
     case "switch": {
-      let providerName = resolveClaudeProviderName(parsed);
+      // `--claude` is a boolean flag, so it never claims the following token: the name is a
+      // positional in every ordering, including `codexs --claude add <name>`.
+      let providerName: string | null = parsed.positionals[0] ?? null;
       if (!providerName && canPrompt(runtime, ctx.options.json)) {
         providerName = await promptForClaudeProviderSelection(
           claudePaths.claudeProvidersPath,
@@ -155,7 +155,9 @@ export async function handleClaudeCommand(
       });
 
     case "show": {
-      let providerName = resolveClaudeProviderName(parsed);
+      // `--claude` is a boolean flag, so it never claims the following token: the name is a
+      // positional in every ordering, including `codexs --claude add <name>`.
+      let providerName: string | null = parsed.positionals[0] ?? null;
       if (!providerName && canPrompt(runtime, ctx.options.json)) {
         providerName = await promptForClaudeProviderSelection(
           claudePaths.claudeProvidersPath,
@@ -182,7 +184,9 @@ export async function handleClaudeCommand(
       });
 
     case "remove": {
-      let providerName = resolveClaudeProviderName(parsed);
+      // `--claude` is a boolean flag, so it never claims the following token: the name is a
+      // positional in every ordering, including `codexs --claude add <name>`.
+      let providerName: string | null = parsed.positionals[0] ?? null;
       const force = hasFlag(parsed.commandOptions, "--force");
 
       if (!providerName && canPrompt(runtime, ctx.options.json)) {

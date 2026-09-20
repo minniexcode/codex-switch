@@ -141,7 +141,7 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
     case "status":
       lines.push("Status summary:");
       lines.push(`  target runtime: ${String(data?.codexDir ?? "")}`);
-      lines.push(`  tool home: ${String(((data?.storage as Record<string, unknown> | undefined)?.toolHome as Record<string, unknown> | undefined)?.root ?? "")}`);
+      lines.push(`  tool home: ${String(data?.toolHomeRoot ?? "")}`);
       lines.push(`  current model: ${String(data?.currentModel ?? "(none)")}`);
       lines.push(`  current model provider: ${String(data?.currentModelProvider ?? "(none)")}`);
       lines.push(`  mapped provider: ${renderStatusMappedProvider(data)}`);
@@ -232,6 +232,39 @@ function renderHumanSuccess(command: string, data: Record<string, unknown> | nul
       const backups = (data?.backups as Array<Record<string, unknown>>) ?? [];
       for (const backup of backups) {
         lines.push(`${backup.backupId} ${backup.reason} ${backup.createdAt}`);
+      }
+      break;
+    }
+    case "backups-prune": {
+      const removed = Array.isArray(data?.removed) ? (data?.removed as string[]) : [];
+      lines.push(`Retention kept ${String(data?.keep ?? "")} backup(s) and removed ${removed.length}.`);
+      for (const backupId of removed) {
+        lines.push(`- removed ${backupId}`);
+      }
+      // Counts of what was deliberately left alone are surfaced here rather than only in the
+      // warnings, so the retained total is explicable instead of looking like a bug.
+      const protectedCount = Number(data?.protectedCount ?? 0);
+      const unreadableCount = Number(data?.unreadableCount ?? 0);
+      if (protectedCount > 0) {
+        lines.push(`Kept ${protectedCount} backup(s) that a surviving manifest still references.`);
+      }
+      if (unreadableCount > 0) {
+        lines.push(`Kept ${unreadableCount} backup(s) whose manifest is missing or unreadable.`);
+      }
+      break;
+    }
+    case "unlock": {
+      const removed = Boolean(data?.removed);
+      lines.push(
+        removed
+          ? `Cleared the codex-switch lock (${String(data?.reason ?? "removed")}).`
+          : `No codex-switch lock to clear (${String(data?.reason ?? "absent")}).`
+      );
+      const owner = data?.owner as Record<string, unknown> | null | undefined;
+      if (owner) {
+        lines.push(
+          `  previous owner: pid ${String(owner.pid ?? "unknown")}, operation "${String(owner.operation ?? "unknown")}", started ${String(owner.createdAt ?? "unknown")}`
+        );
       }
       break;
     }
@@ -333,6 +366,10 @@ function renderDoctorIssueNextStep(issue: Record<string, unknown>): string {
       return "rerun `codexs switch <provider>` to project top-level model/model_provider and remove legacy fields";
     case "PROVIDER_BASE_URL_MISMATCH":
       return "rerun `codexs edit <provider> --base-url <url>` or `codexs switch <provider>` to repair the runtime projection";
+    case "LOCK_STALE":
+      return "the next write command clears it automatically, or run `codexs unlock`";
+    case "LOCK_OCCUPIED":
+      return "wait for the running operation, or run `codexs unlock --force` if it is a recycled pid";
     default:
       return "inspect the issue details and rerun `codexs doctor` after fixing the state";
   }

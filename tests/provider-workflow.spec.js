@@ -2,6 +2,7 @@
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const {
   makeCodexFixture,
@@ -98,6 +99,53 @@ module.exports = {
         const result = await runJsonCli({ toolHomeDir, args: ["doctor", "--json", "--codex-dir", codexDir] });
         assert.equal(result.payload.ok, true);
         assert.ok(result.payload.data.issues.some((issue) => issue.code === "PROVIDER_BASE_URL_MISMATCH"));
+      },
+    },
+    {
+      name: "doctor distinguishes a stale lock from a live one and stays quiet when there is none",
+      async run() {
+        const codexDir = makeCodexFixture({ modelProvider: "freemodel" });
+        const toolHomeDir = makeToolHomeWithManagedState();
+        writeProviders(toolHomeDir, {
+          freemodel: { profile: "freemodel", apiKey: "sk-free", baseUrl: "https://free.example/v1", model: "gpt-5.4" },
+        });
+        const lockPath = path.join(toolHomeDir, ".codex-switch.lock");
+        const writeLock = (pid) =>
+          fs.writeFileSync(
+            lockPath,
+            `${JSON.stringify({ pid, operation: "switch", createdAt: new Date().toISOString(), hostname: os.hostname() }, null, 2)}\n`,
+            "utf8"
+          );
+
+        const issueCodes = (payload) => payload.data.issues.map((issue) => issue.code);
+
+        // A dead owner is recoverable, so it is reported as stale: the next write clears it.
+        writeLock(999999999);
+        let result = await runJsonCli({ toolHomeDir, args: ["doctor", "--json", "--codex-dir", codexDir] });
+        let issue = result.payload.data.issues.find((entry) => entry.code === "LOCK_STALE");
+        assert.ok(issue, `expected LOCK_STALE, got ${JSON.stringify(issueCodes(result.payload))}`);
+        assert.equal(issue.activeOperation, "switch");
+        assert.equal(issue.lockStatus, "dead");
+        assert.match(issue.remedy, /codexs unlock/);
+
+        // A live owner is not recoverable. Every write command fails while it is present, which
+        // is why doctor has to surface it rather than leaving the user to hit the error blind.
+        writeLock(process.pid);
+        result = await runJsonCli({ toolHomeDir, args: ["doctor", "--json", "--codex-dir", codexDir] });
+        issue = result.payload.data.issues.find((entry) => entry.code === "LOCK_OCCUPIED");
+        assert.ok(issue, `expected LOCK_OCCUPIED, got ${JSON.stringify(issueCodes(result.payload))}`);
+        assert.equal(issue.activePid, process.pid);
+        assert.equal(issue.lockStatus, "live");
+        assert.match(issue.remedy, /unlock --force/);
+
+        // Reporting "absent" as a finding would make every healthy run look like it had
+        // something to fix.
+        fs.rmSync(lockPath, { force: true });
+        result = await runJsonCli({ toolHomeDir, args: ["doctor", "--json", "--codex-dir", codexDir] });
+        assert.equal(
+          issueCodes(result.payload).some((code) => code === "LOCK_STALE" || code === "LOCK_OCCUPIED"),
+          false
+        );
       },
     },
     {

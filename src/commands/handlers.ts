@@ -9,6 +9,7 @@ import { importProviders } from "../app/import-providers";
 import { listConfigProfilesView } from "../app/list-config-profiles";
 import { listBackupEntries } from "../app/list-backups";
 import { listProviders } from "../app/list-providers";
+import { pruneBackupEntries, resolveBackupRetention } from "../app/prune-backups";
 import { removeProvider } from "../app/remove-provider";
 import { rollbackBackup } from "../app/rollback-backup";
 import { runDoctor } from "../app/run-doctor";
@@ -16,6 +17,7 @@ import { migrateCodex } from "../app/setup-codex";
 import { showConfig } from "../app/show-config";
 import { showProvider } from "../app/show-provider";
 import { switchProvider } from "../app/switch-provider";
+import { unlockLock } from "../app/unlock-lock";
 import { buildManagedProfileViews } from "../domain/config";
 import { cliError } from "../domain/errors";
 import { collectMigrateAdoptability, SetupProviderDetails } from "../domain/setup";
@@ -38,10 +40,10 @@ import {
 import { createPromptRuntime } from "../interaction/prompt";
 import { findCodexDirCandidates, readStructuredConfig } from "../storage/config-repo";
 import { createClaudePaths } from "../storage/claude-paths";
-import { createCodexPaths } from "../storage/codex-paths";
+import { createCodexPaths, resolveLockPath } from "../storage/codex-paths";
 import { mergeProviders, readProvidersFileIfExists } from "../storage/providers-repo";
 import { getSingleOption, hasFlag } from "./args";
-import { handleClaudeCommand, isClaudeCommand } from "./claude-handlers";
+import { getClaudeCommandNames, handleClaudeCommand, isClaudeCommand, supportsClaudeTarget } from "./claude-handlers";
 import { CommandExecutionContext, ParsedCommand } from "./types";
 
 /**
@@ -54,6 +56,27 @@ export async function handleRegisteredCommand(
 ): Promise<import("../app/types").CommandResult> {
   if (isClaudeCommand(ctx.command, parsed.commandOptions)) {
     return handleClaudeCommand(ctx, parsed, runtime);
+  }
+
+  // `--claude` is a global boolean, so the parser accepts it on any command. Ignoring it when the
+  // command has no Claude path would answer the wrong question: `codexs status --claude` would
+  // report Codex state under a flag that asked about Claude, and nothing in the output would say
+  // so. Refused instead, naming the commands that do support it.
+  if (parsed.commandOptions.has("--claude") && !supportsClaudeTarget(ctx.command)) {
+    throw cliError("INVALID_ARGUMENT", `"${ctx.command}" does not support --claude.`, {
+      command: ctx.command,
+      supportedCommands: getClaudeCommandNames(),
+    });
+  }
+
+  // The lock lives in the tool home rather than in a Codex directory, so unlock has to run
+  // before the codexDir guard below. Requiring a Codex directory to clear a lock would make
+  // the command unusable in the situation it exists for.
+  if (ctx.command === "unlock") {
+    return unlockLock({
+      lockPath: resolveLockPath(),
+      force: hasFlag(parsed.commandOptions, "--force"),
+    });
   }
 
   const packageVersion = (require("../../package.json") as { version?: string }).version ?? "0.0.0";
@@ -84,7 +107,7 @@ export async function handleRegisteredCommand(
     case "current":
       return getCurrentProfile(paths.configPath, paths.providersPath);
     case "status":
-      return getStatus(paths.codexDir, paths.configPath, paths.providersPath, paths.authPath);
+      return getStatus(setupPaths.toolHomeDir, paths.codexDir, paths.configPath, paths.providersPath, paths.authPath);
     case "init": {
       return initCodex({
         toolHomeDir: setupPaths.toolHomeDir,
@@ -181,9 +204,9 @@ export async function handleRegisteredCommand(
       let providerName = parsed.positionals[0] ?? null;
       let profile = getSingleOption(parsed.commandOptions, "--profile");
       let apiKey = getSingleOption(parsed.commandOptions, "--api-key");
-      let baseUrl = getSingleOption(parsed.commandOptions, "--base-url", false);
-      let model = getSingleOption(parsed.commandOptions, "--model", false);
-      let note = getSingleOption(parsed.commandOptions, "--note", false);
+      let baseUrl = getSingleOption(parsed.commandOptions, "--base-url");
+      let model = getSingleOption(parsed.commandOptions, "--model");
+      let note = getSingleOption(parsed.commandOptions, "--note");
       let tags = parsed.commandOptions.get("--tag") ?? [];
       let createProfile = hasFlag(parsed.commandOptions, "--create-profile");
 
@@ -245,24 +268,29 @@ export async function handleRegisteredCommand(
         throw cliError("INVALID_ARGUMENT", "Missing provider name for edit command.");
       }
 
-      let profile: string | undefined = getSingleOption(parsed.commandOptions, "--profile", false) ?? undefined;
-      let apiKey: string | undefined = getSingleOption(parsed.commandOptions, "--api-key", false) ?? undefined;
-      let baseUrl: string | undefined = getSingleOption(parsed.commandOptions, "--base-url", false) ?? undefined;
-      let model: string | undefined = getSingleOption(parsed.commandOptions, "--model", false) ?? undefined;
-      let note: string | undefined = getSingleOption(parsed.commandOptions, "--note", false) ?? undefined;
+      let profile: string | undefined = getSingleOption(parsed.commandOptions, "--profile") ?? undefined;
+      let apiKey: string | undefined = getSingleOption(parsed.commandOptions, "--api-key") ?? undefined;
+      let baseUrl: string | undefined = getSingleOption(parsed.commandOptions, "--base-url") ?? undefined;
+      let model: string | undefined = getSingleOption(parsed.commandOptions, "--model") ?? undefined;
+      let note: string | undefined = getSingleOption(parsed.commandOptions, "--note") ?? undefined;
       let tags: string[] | undefined = parsed.commandOptions.has("--tag") ? parsed.commandOptions.get("--tag") ?? [] : undefined;
       const createProfile = hasFlag(parsed.commandOptions, "--create-profile");
-      const switchToProfile = getSingleOption(parsed.commandOptions, "--switch-to", false) ?? undefined;
+      const switchToProfile = getSingleOption(parsed.commandOptions, "--switch-to") ?? undefined;
 
-      if (
-        profile === undefined &&
-        apiKey === undefined &&
-        baseUrl === undefined &&
-        model === undefined &&
-        note === undefined &&
-        tags === undefined &&
-        canPrompt(runtime, ctx.options.json)
-      ) {
+      // `--create-profile` is an action in its own right, because it writes a section the default
+      // projection does not. Counting it here keeps `codexs edit p --create-profile` from being
+      // refused as an empty update, and suppresses the interactive collector — prompting for fields
+      // after an explicit flag would be the command second-guessing the invocation.
+      const hasEditAction =
+        profile !== undefined ||
+        apiKey !== undefined ||
+        baseUrl !== undefined ||
+        model !== undefined ||
+        note !== undefined ||
+        tags !== undefined ||
+        createProfile;
+
+      if (!hasEditAction && canPrompt(runtime, ctx.options.json)) {
         const provider = readProvidersFileIfExists(paths.providersPath).providers[providerName];
         if (!provider) {
           throw cliError("PROVIDER_NOT_FOUND", `Provider "${providerName}" was not found.`);
@@ -276,7 +304,7 @@ export async function handleRegisteredCommand(
         tags = prompted.tags;
       }
 
-      if (profile === undefined && apiKey === undefined && baseUrl === undefined && model === undefined && note === undefined && tags === undefined) {
+      if (!hasEditAction) {
         throw cliError("INVALID_ARGUMENT", "edit requires at least one field to update.");
       }
 
@@ -302,7 +330,7 @@ export async function handleRegisteredCommand(
     case "remove": {
       let providerName = parsed.positionals[0] ?? null;
       const force = hasFlag(parsed.commandOptions, "--force");
-      const switchToProfile = getSingleOption(parsed.commandOptions, "--switch-to", false) ?? undefined;
+      const switchToProfile = getSingleOption(parsed.commandOptions, "--switch-to") ?? undefined;
 
       if (!providerName && canPrompt(runtime, ctx.options.json)) {
         providerName = await promptForProviderSelection(runtime, paths.providersPath, paths.configPath, "Choose a provider to remove");
@@ -337,6 +365,7 @@ export async function handleRegisteredCommand(
         configPath: paths.configPath,
         providersPath: paths.providersPath,
         authPath: paths.authPath,
+        lockPath: paths.lockPath,
       });
     case "migrate": {
       let codexDir = ctx.options.codexDir;
@@ -462,6 +491,13 @@ export async function handleRegisteredCommand(
       });
     case "backups-list":
       return listBackupEntries(paths.backupsDir);
+    case "backups-prune":
+      return pruneBackupEntries({
+        lockPath: paths.lockPath,
+        backupsDir: paths.backupsDir,
+        latestBackupPath: paths.latestBackupPath,
+        keep: resolveBackupRetention(getSingleOption(parsed.commandOptions, "--keep")),
+      });
     case "rollback":
       if (parsed.positionals.length > 1) {
         throw cliError("INVALID_ARGUMENT", "rollback accepts at most one backup id.");

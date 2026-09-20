@@ -7,6 +7,7 @@ import { normalizeError } from "../domain/errors";
 import { CommandResult } from "./types";
 import { probeCodexRuntime } from "../runtime/codex-probe";
 import { readAuthFileState } from "../storage/auth-repo";
+import { describeLockOwner, inspectLock, isRecoverableLock } from "../storage/lock-repo";
 import { MIN_SUPPORTED_CODEX_VERSION } from "../runtime/codex-version";
 
 /**
@@ -17,6 +18,7 @@ export async function runDoctor(args: {
   configPath: string;
   providersPath: string;
   authPath: string;
+  lockPath: string;
 }): Promise<CommandResult> {
   const issues: Array<Record<string, unknown>> = [];
   let currentModelProvider: string | null = null;
@@ -78,6 +80,31 @@ export async function runDoctor(args: {
   }
 
   const drift = inspectLiveStateDrift(currentModelProvider, providers);
+
+  // A stuck lock is reported only when a record is actually present. Reporting "absent" as a
+  // finding would make every healthy run look like it had something to fix, and would drown
+  // the issues that do need attention.
+  const lockState = inspectLock(args.lockPath);
+  if (lockState.status !== "absent") {
+    const recoverable = isRecoverableLock(lockState);
+    issues.push({
+      code: recoverable ? "LOCK_STALE" : "LOCK_OCCUPIED",
+      message: recoverable
+        ? `A lock is present but its owner is gone: ${describeLockOwner(lockState)}.`
+        : `A lock is held by a running operation: ${describeLockOwner(lockState)}.`,
+      file: args.lockPath,
+      lockStatus: lockState.status,
+      activePid: lockState.record?.pid ?? null,
+      activeOperation: lockState.record?.operation ?? "unknown",
+      activeSince: lockState.record?.createdAt ?? null,
+      activeHost: lockState.record?.hostname ?? null,
+      // Every write command fails while this is present, which is why it belongs in doctor
+      // rather than only in the lock error the user would otherwise hit by surprise.
+      remedy: recoverable
+        ? "The next write command clears it automatically, or run `codexs unlock`."
+        : "Run `codexs unlock --force` only if no codex-switch operation is actually running.",
+    });
+  }
 
   const codexCheck = probeCodexRuntime(MIN_SUPPORTED_CODEX_VERSION);
   if (!codexCheck.ok) {

@@ -175,6 +175,15 @@ async function runBuiltCli(input) {
     overrides.CODEXS_CODEX_DIR = makeTempDir("codex-switch-codex-");
   }
 
+  // Claude commands replace `settings.json` wholesale, and `resolveClaudeDir()` falls back to
+  // the real `~/.claude` when `CODEXS_CLAUDE_DIR` is unset — so a spec that names `--claude`
+  // without arranging the root overwrites the developer's live settings. Guarded here, beside
+  // the Codex equivalent, so it does not depend on each spec remembering.
+  // `withClaudeEnv()` sets the variable before calling in and is left alone.
+  if (args.includes("--claude") && !process.env.CODEXS_CLAUDE_DIR) {
+    overrides.CODEXS_CLAUDE_DIR = makeTempDir("codex-switch-claude-");
+  }
+
   const stdout = [];
   const stderr = [];
 

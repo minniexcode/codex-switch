@@ -42,3 +42,15 @@ jobs:
       # skips `chmod` on Windows and access is governed by NTFS ACLs there. The ubuntu leg is
       # therefore the only place that POSIX permission path executes at all.
       - run: npm test
+
+      # A separate step, not part of `npm test`, because it costs a process spawn and a build per
+      # case and would slow the fast suite down for everyone. It is not merely slower though: it
+      # runs the built binary as a real child process with real pipes, which is the coverage the
+      # in-process suite structurally cannot provide — exit codes, stdout truncation, env
+      # isolation. `tests/e2e/` sits outside the main runner's discovery for the same reason.
+      #
+      # No environment-dependent skips are needed: `migrate`'s happy path needs a TTY and
+      # `doctor`'s codex-found branch is driven by an emptied PATH, so both are deterministic on a
+      # runner that has no codex CLI. The runner still prints a skip count, unlike `run-tests.js`,
+      # because a silently skipped case here would hide exactly what this suite exists to expose.
+      - run: npm run test:e2e

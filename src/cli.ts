@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { CommandExecutionContext } from "./commands/types";
+import { CommandExecutionContext, ParsedCommand } from "./commands/types";
 import { parseArgs } from "./commands/args";
 import { buildHelpText, getKnownCommandNames, isKnownCommandNameForHelp } from "./commands/help";
 import { cliError, normalizeError } from "./domain/errors";
@@ -44,7 +44,24 @@ function emit(rendered: RenderedOutput, io: CliIo): number {
  * stream, so emitting both preserves the original ordering.
  */
 export async function runCli(argv: string[], io: CliIo = processIo): Promise<number> {
-  const parsed = parseArgs(argv);
+  let parsed: ParsedCommand;
+  try {
+    parsed = parseArgs(argv);
+  } catch (error: unknown) {
+    // `parseArgs()` threw, so there is no parsed result to read `--json` from. Reading the flag
+    // off the raw argv is the only way this path can honour the envelope contract — without it
+    // `codexs --json --codex-dir` would print a plain-text error, which is precisely the case
+    // the envelope exists to serve. "help" is the existing stand-in for "no command resolved";
+    // the unknown-help-topic failure below uses the same one.
+    const json = argv.includes("--json");
+    return emit(
+      renderFailure(
+        { command: "help", options: { json, reveal: false, codexDir: null } },
+        normalizeError(error)
+      ),
+      io
+    );
+  }
 
   if (parsed.versionRequested) {
     io.stdout(VERSION);
@@ -71,8 +88,36 @@ export async function runCli(argv: string[], io: CliIo = processIo): Promise<num
   }
 
   if (!parsed.command) {
-    io.stdout(buildHelpText());
-    return 0;
+    const unresolved = parsed.positionals[0] ?? null;
+
+    // Bucket 2: a recognized command-group root with no subcommand, such as `codexs config`.
+    // The help-topic predicate is the correct one here and the command-name predicate is not:
+    // the latter is keyed on ids and joined tokens, so bare `config` is absent from it while it
+    // is a help topic. `buildHelpText` renders the group's subcommands for it.
+    if (unresolved && isKnownCommandNameForHelp(unresolved)) {
+      io.stdout(buildHelpText(unresolved));
+      return 0;
+    }
+
+    // Bucket 1: nothing to resolve at all.
+    if (!unresolved) {
+      io.stdout(buildHelpText());
+      return 0;
+    }
+
+    // Bucket 3: a token that resolved to nothing. Until the parser stopped skipping index 0,
+    // this was indistinguishable from `--help` and both printed help with exit 0.
+    return emit(
+      renderFailure(
+        { command: "help", options: parsed.globalOptions },
+        normalizeError(
+          cliError("INVALID_ARGUMENT", `Unknown command: ${unresolved}`, {
+            availableCommands: getKnownCommandNames(),
+          })
+        )
+      ),
+      io
+    );
   }
 
   const ctx: CommandExecutionContext = {

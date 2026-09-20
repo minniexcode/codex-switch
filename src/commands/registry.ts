@@ -54,6 +54,7 @@ export const COMMANDS: CommandDefinition[] = [
     group: "write",
     summary: "Adopt existing Codex runtime profiles into managed providers.json state.",
     usage: ["codexs migrate [--json] [--codex-dir <path>] [--merge|--overwrite]"],
+    booleanFlags: ["--merge", "--overwrite"],
     details: [
       "Reads legacy config.toml profiles, collects complete provider records, then writes providers.json under managed backup flow.",
       "TTY mode can collect missing provider details and choose merge or overwrite when providers.json already exists.",
@@ -84,6 +85,7 @@ export const COMMANDS: CommandDefinition[] = [
     group: "read",
     summary: "List managed providers with model-provider routing and current-state hints.",
     usage: ["codexs list [--claude] [--json] [--codex-dir <path>]"],
+    booleanFlags: ["--claude"],
     details: [
       "Reads providers.json and prints provider-to-model-provider mappings.",
       "When the active model_provider is shared by multiple providers, list surfaces the ambiguity instead of inventing one current provider.",
@@ -99,6 +101,7 @@ export const COMMANDS: CommandDefinition[] = [
     group: "read",
     summary: "Show one provider record from providers.json.",
     usage: ["codexs show <provider> [--claude] [--json] [--reveal] [--codex-dir <path>]"],
+    booleanFlags: ["--claude"],
     details: [
       "Human-readable output masks apiKey by default.",
       "TTY mode can select a missing provider interactively before showing its record.",
@@ -115,6 +118,7 @@ export const COMMANDS: CommandDefinition[] = [
     group: "read",
     summary: "Show the active top-level model/model_provider route from config.toml.",
     usage: ["codexs current [--claude] [--json] [--codex-dir <path>]"],
+    booleanFlags: ["--claude"],
     details: ["Reads the currently active top-level model and model_provider.", "Use --claude to detect the active Claude Code profile.", "Fails when config.toml is missing or has no top-level model_provider."],
     examples: ["codexs current", "codexs current --claude", "codexs current --json"],
   },
@@ -140,15 +144,17 @@ export const COMMANDS: CommandDefinition[] = [
     group: "write",
     summary: "Update fields on a single provider record.",
     usage: [
-      "codexs edit <provider> [--profile <model-provider-id>] [--api-key <key>] [--base-url <url>] [--model <name>] [--note <text>] [--tag <tag> ...] [--json] [--codex-dir <path>]",
+      "codexs edit <provider> [--profile <model-provider-id>] [--api-key <key>] [--base-url <url>] [--model <name>] [--note <text>] [--tag <tag> ...] [--create-profile] [--json] [--codex-dir <path>]",
       "codexs edit <provider> --profile <model-provider-id> --model <name> --base-url <url>",
     ],
+    booleanFlags: ["--create-profile"],
     details: [
       "Passed flags replace only the selected fields and keep the rest unchanged.",
       "TTY mode can first select a provider, then prompt for fields when no editable options were provided.",
       "Interactive tags use preset multi-select only.",
       "--profile is a CLI alias for the stored model_provider id.",
       "When rebinding to a new direct model_provider id, the command must be able to project base_url from --base-url, the provider record, or an existing model_providers section.",
+      "Use --create-profile to also write the legacy profiles section for the bound model_provider id.",
       "Backs up providers.json and config.toml before writing.",
     ],
     examples: ["codexs edit packycode --note primary", "codexs edit packycode --tag daily --tag paid --json"],
@@ -162,8 +168,9 @@ export const COMMANDS: CommandDefinition[] = [
     usage: [
       "codexs add <provider> --profile <model-provider-id> --model <name> --api-key <key> [--base-url <url>] [--note <text>] [--tag <tag> ...]",
       "codexs add --claude <name> --from-file <settings.json> [--note <text>] [--tag <tag> ...]",
-      "codexs add [--profile <model-provider-id>] [--model <name>] [--api-key <key>] [--base-url <url>] [--note <text>] [--tag <tag> ...]",
+      "codexs add [--profile <model-provider-id>] [--model <name>] [--api-key <key>] [--base-url <url>] [--note <text>] [--tag <tag> ...] [--create-profile]",
     ],
+    booleanFlags: ["--claude", "--create-profile"],
     details: [
       "Prompts only for missing required values when stdin/stdout are TTYs and --json is not set.",
       "Interactive add collects provider name, model_provider id, model, and apiKey progressively as plain text inputs.",
@@ -171,7 +178,7 @@ export const COMMANDS: CommandDefinition[] = [
       "Interactive tags use preset multi-select only.",
       "Automation and non-TTY environments must pass all required values explicitly.",
       "--profile is a CLI alias for the stored model_provider id.",
-      "The command projects only model_providers sections and does not create legacy profiles sections.",
+      "The command projects only model_providers sections unless --create-profile is passed, which also writes the matching legacy profiles section.",
       "Use --claude to add a Claude Code provider profile from an existing settings file.",
     ],
     examples: [
@@ -187,6 +194,7 @@ export const COMMANDS: CommandDefinition[] = [
     group: "write",
     summary: "Switch the active runtime to a managed provider.",
     usage: ["codexs switch <provider> [--claude] [--json] [--codex-dir <path>]"],
+    booleanFlags: ["--claude"],
     details: [
       "When <provider> is omitted in a TTY, an interactive provider selector is shown.",
       "When <provider> is passed explicitly, switch proceeds directly without extra confirmation.",
@@ -204,6 +212,7 @@ export const COMMANDS: CommandDefinition[] = [
     group: "write",
     summary: "Remove a provider from providers.json.",
     usage: ["codexs remove <provider> [--claude] [--force] [--switch-to <provider>] [--json] [--codex-dir <path>]"],
+    booleanFlags: ["--claude", "--force"],
     details: [
       "TTY mode can select a missing provider interactively and always asks for deletion confirmation.",
       "Non-TTY and --json automation still require both <provider> and --force.",
@@ -220,7 +229,8 @@ export const COMMANDS: CommandDefinition[] = [
     handler: handleRegisteredCommand,
     group: "write",
     summary: "Replace providers.json with an external JSON file.",
-    usage: ["codexs import <file> [--json] [--codex-dir <path>]"],
+    usage: ["codexs import <file> [--merge] [--json] [--codex-dir <path>]"],
+    booleanFlags: ["--merge"],
     details: [
       "The file path is always explicit; there is no path wizard in this release.",
       "TTY mode asks for confirmation before replacing or merging into the current providers registry.",
@@ -235,6 +245,7 @@ export const COMMANDS: CommandDefinition[] = [
     group: "write",
     summary: "Export the current providers.json to another file.",
     usage: ["codexs export <file> [--force] [--json] [--codex-dir <path>]"],
+    booleanFlags: ["--force"],
     details: [
       "The file path is always explicit; there is no path wizard in this release.",
       "TTY mode asks before overwriting an existing target when --force is not supplied.",
@@ -256,6 +267,21 @@ export const COMMANDS: CommandDefinition[] = [
     examples: ["codexs backups list", "codexs backups list --json"],
   },
   {
+    id: "backups-prune",
+    tokens: ["backups", "prune"],
+    handler: handleRegisteredCommand,
+    group: "recovery",
+    summary: "Delete old backup directories beyond the retention count.",
+    usage: ["codexs backups prune [--keep <count>] [--json] [--codex-dir <path>]"],
+    details: [
+      "Keeps the newest backups and deletes the rest, defaulting to 20.",
+      "A directory that any surviving manifest still references is never deleted, because rollback resolves through it.",
+      "Directories whose manifest is missing or unreadable are reported rather than deleted.",
+      "Retention also runs automatically after every successful mutation.",
+    ],
+    examples: ["codexs backups prune", "codexs backups prune --keep 5 --json"],
+  },
+  {
     id: "doctor",
     tokens: ["doctor"],
     handler: handleRegisteredCommand,
@@ -269,6 +295,22 @@ export const COMMANDS: CommandDefinition[] = [
     examples: ["codexs doctor", "codexs doctor --json"],
   },
   {
+    id: "unlock",
+    tokens: ["unlock"],
+    handler: handleRegisteredCommand,
+    group: "recovery",
+    summary: "Clear a lock left behind by a process that no longer exists.",
+    usage: ["codexs unlock [--force] [--json]"],
+    booleanFlags: ["--force"],
+    details: [
+      "Clears the lock only when the recorded owner is provably gone; a live owner is refused.",
+      "--force clears it regardless, which is the documented path for a recycled pid.",
+      "Succeeds as a no-op when no lock is present.",
+      "Runs without a Codex directory, because the lock lives in the tool home.",
+    ],
+    examples: ["codexs unlock", "codexs unlock --force --json"],
+  },
+  {
     id: "rollback",
     tokens: ["rollback"],
     handler: handleRegisteredCommand,
@@ -280,7 +322,7 @@ export const COMMANDS: CommandDefinition[] = [
       "Non-TTY and --json runs stay non-interactive and execute immediately.",
       "Use after a failed or undesired managed mutation.",
     ],
-    examples: ["codexs rollback", "codexs rollback 20260511-221457-switch --json"],
+    examples: ["codexs rollback", "codexs rollback 20260511-221457123-switch --json"],
   },
 ];
 

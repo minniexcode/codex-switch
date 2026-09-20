@@ -13,13 +13,63 @@ const SECURE_FILE_MODE = 0o600;
  * that do not already exist, so a pre-existing `~/.codex` or `~/.claude` is never
  * re-permissioned.
  */
-const SECURE_DIR_MODE = 0o700;
+export const SECURE_DIR_MODE = 0o700;
 
 /**
  * Creates a directory tree when it does not already exist.
  */
 export function ensureDir(directoryPath: string): void {
   fs.mkdirSync(directoryPath, { recursive: true, mode: SECURE_DIR_MODE });
+}
+
+/**
+ * Error codes a Windows rename raises when the destination is momentarily held open by another
+ * process, rather than because the operation is actually forbidden.
+ */
+const WINDOWS_TRANSIENT_RENAME_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+/**
+ * Blocks the current thread, for the rename retry below. `writeTextFileAtomic` is synchronous and
+ * is called from synchronous mutation bodies, so the wait cannot be a promise.
+ */
+function sleepSync(milliseconds: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+/**
+ * Renames `from` onto `to`, retrying briefly on Windows when the destination is held open.
+ *
+ * `MoveFileEx` fails with EPERM/EACCES/EBUSY while any other process has the destination open,
+ * which on a real machine means an antivirus scanner or the search indexer reading the file the
+ * previous command just wrote. Observed live: an `add` aborted on EPERM, rolled the mutation back,
+ * and failed for no reason the user could act on. The retry is bounded and rethrows the original
+ * error, so a genuine permission failure is still reported as itself — just a few hundred
+ * milliseconds later.
+ */
+function renameWithRetryOnWindows(from: string, to: string): void {
+  if (process.platform !== "win32") {
+    fs.renameSync(from, to);
+    return;
+  }
+
+  let lastError: unknown = null;
+  for (const delay of [0, 20, 40, 80, 160]) {
+    if (delay > 0) {
+      sleepSync(delay);
+    }
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (!WINDOWS_TRANSIENT_RENAME_CODES.has(code)) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 /**
@@ -34,7 +84,7 @@ export function writeTextFileAtomic(filePath: string, contents: string): void {
   // Use the current process id in the temp name to reduce collision risk.
   const tempPath = `${filePath}.tmp-${process.pid}`;
   fs.writeFileSync(tempPath, contents, { encoding: "utf8", mode: SECURE_FILE_MODE });
-  fs.renameSync(tempPath, filePath);
+  renameWithRetryOnWindows(tempPath, filePath);
   if (process.platform !== "win32") {
     // The mode passed to writeFileSync is masked by the umask, so it is a floor
     // rather than an exact value. chmod is exact. On Windows chmod only toggles

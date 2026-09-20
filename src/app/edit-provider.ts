@@ -82,6 +82,15 @@ export function editProvider(args: {
     [newProfile]: buildModelProviderProjection(newProfile, resolvedBaseUrl),
   };
 
+  // Same contract as `add`: the projection writes `[model_providers.<id>]` only, and
+  // `--create-profile` adds the legacy `[profiles.<id>]` section beside it. An existing section is
+  // left in place and its fields updated, which is what the domain layer already does when the
+  // name is present in the document.
+  const upsertProfiles =
+    args.createProfile && nextModel
+      ? { [newProfile]: { model: nextModel, modelProvider: newProfile } }
+      : undefined;
+
   const nextRecord = cleanProviderRecord({
     profile: newProfile,
     apiKey: args.apiKey ?? current.apiKey,
@@ -103,6 +112,7 @@ export function editProvider(args: {
     ],
     mutate: () => {
       const configPlan = createConfigMutationPlan(document, {
+        upsertProfiles,
         upsertModelProviders,
         setCurrentModel: isActive ? nextModel ?? document.currentModel : undefined,
         setCurrentModelProvider: isActive ? newProfile : undefined,

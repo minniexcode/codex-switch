@@ -28,7 +28,9 @@ export type CommandId =
   | "import"
   | "export"
   | "backups-list"
+  | "backups-prune"
   | "doctor"
+  | "unlock"
   | "rollback";
 
 /**
@@ -62,6 +64,16 @@ export type CommandDefinition = {
   usage: string[];
   details: string[];
   examples: string[];
+  /**
+   * Declares which of this command's flags take no value.
+   *
+   * This is declaration and help metadata, not the parser's input: the set is applied globally
+   * in the parser's first pass, because `--claude` has to be understood before the command is
+   * even known. Declaring it here is what keeps a second source of truth from being useful —
+   * a test asserts every name listed across the registry is one the parser actually strips, so
+   * a flag declared boolean but unknown to the parser cannot silently swallow the next token.
+   */
+  booleanFlags?: string[];
   handler: CommandHandler;
 };
 

@@ -68,6 +68,15 @@ export async function addProvider(args: {
     ),
   };
 
+  // The default projection writes only `[model_providers.<id>]`; `--create-profile` additionally
+  // writes the matching `[profiles.<id>]` section that older Codex builds route through. Without
+  // this the flag was parsed, threaded this far, and dropped — and the interactive collector, which
+  // asks for a model and base_url precisely because it believes it is creating that section, was
+  // silently writing nothing.
+  const upsertProfiles = args.createProfile
+    ? { [args.profile]: { model: providerModel, modelProvider: args.profile } }
+    : undefined;
+
   const next = {
     providers: {
       ...providers.providers,
@@ -93,6 +102,7 @@ export async function addProvider(args: {
     ],
     mutate: () => {
       const configPlan = createConfigMutationPlan(document, {
+        upsertProfiles,
         upsertModelProviders,
         scrubModelProviderEnvKeys: [args.profile],
       });
