@@ -2,9 +2,8 @@
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
-const { makeToolHomeWithManagedState, runBuiltCli, runJsonCli } = require("./helpers");
+const { makeTempDir, makeToolHomeWithManagedState, runBuiltCli, runJsonCli } = require("./helpers");
 
 const AUTH_TOKEN = "sk-ant-oat01-REALTOKENVALUE123456";
 const API_KEY = "sk-ant-api03-REALKEYVALUE098765";
@@ -12,15 +11,11 @@ const BASE_URL = "https://api.deepseek.example/anthropic";
 const PROVIDER_NAME = "deepseek";
 
 /**
- * Creates a temporary directory that is removed when `run` settles.
+ * Runs `callback` against a fresh temporary directory. Removal is owned by the helper
+ * registry, so a failure here cannot leave the directory behind or delete it too early.
  */
-async function withTempDir(prefix, run) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  try {
-    return await run(directory);
-  } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
+function withTempDir(prefix, run) {
+  return run(makeTempDir(prefix));
 }
 
 /**
@@ -48,7 +43,6 @@ async function withClaudeToolHome(run) {
     } else {
       process.env.CODEXS_CLAUDE_DIR = previousClaudeDir;
     }
-    fs.rmSync(toolHomeDir, { recursive: true, force: true });
   }
 }
 
@@ -212,36 +206,32 @@ module.exports = {
       name: "export reports containsSecrets and warns about plaintext keys",
       async run() {
         const toolHomeDir = makeToolHomeWithManagedState();
-        try {
-          fs.writeFileSync(
-            path.join(toolHomeDir, "providers.json"),
-            `${JSON.stringify(
-              {
-                providers: {
-                  alpha: { profile: "alpha", apiKey: "sk-alpha-secret", baseUrl: "https://alpha.example/v1" },
-                  beta: { profile: "beta", apiKey: "sk-beta-secret", baseUrl: "https://beta.example/v1" },
-                },
+        fs.writeFileSync(
+          path.join(toolHomeDir, "providers.json"),
+          `${JSON.stringify(
+            {
+              providers: {
+                alpha: { profile: "alpha", apiKey: "sk-alpha-secret", baseUrl: "https://alpha.example/v1" },
+                beta: { profile: "beta", apiKey: "sk-beta-secret", baseUrl: "https://beta.example/v1" },
               },
-              null,
-              2
-            )}\n`,
-            "utf8"
-          );
+            },
+            null,
+            2
+          )}\n`,
+          "utf8"
+        );
 
-          await withTempDir("codex-switch-export-", async (tempDir) => {
-            const target = path.join(tempDir, "exported.json");
-            const result = await runJsonCli({ toolHomeDir, args: ["export", target, "--json"] });
-            assert.equal(result.payload.ok, true);
-            assert.equal(result.payload.data.count, 2);
-            assert.equal(result.payload.data.secretCount, 2);
-            assert.equal(result.payload.data.containsSecrets, true);
-            assert.equal(result.payload.warnings.length, 1);
-            assert.match(result.payload.warnings[0], /plaintext/);
-            assert.match(result.payload.warnings[0], /Do not commit this file/);
-          });
-        } finally {
-          fs.rmSync(toolHomeDir, { recursive: true, force: true });
-        }
+        await withTempDir("codex-switch-export-", async (tempDir) => {
+          const target = path.join(tempDir, "exported.json");
+          const result = await runJsonCli({ toolHomeDir, args: ["export", target, "--json"] });
+          assert.equal(result.payload.ok, true);
+          assert.equal(result.payload.data.count, 2);
+          assert.equal(result.payload.data.secretCount, 2);
+          assert.equal(result.payload.data.containsSecrets, true);
+          assert.equal(result.payload.warnings.length, 1);
+          assert.match(result.payload.warnings[0], /plaintext/);
+          assert.match(result.payload.warnings[0], /Do not commit this file/);
+        });
       },
     },
     {
