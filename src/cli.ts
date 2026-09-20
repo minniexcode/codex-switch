@@ -3,55 +3,76 @@ import { CommandExecutionContext } from "./commands/types";
 import { parseArgs } from "./commands/args";
 import { buildHelpText, getKnownCommandNames, isKnownCommandNameForHelp } from "./commands/help";
 import { cliError, normalizeError } from "./domain/errors";
-import { outputFailure, outputSuccess } from "./cli/output";
+import { RenderedOutput, renderFailure, renderSuccess } from "./cli/output";
 
 const VERSION = (require("../package.json") as { version?: string }).version ?? "0.0.0";
 
 /**
- * Prints the command help text to stdout.
+ * Line-oriented output sinks. Injected so tests drive the real dispatch ladder instead of
+ * re-implementing it (P1-3).
  */
-export function printHelp(commandName?: string | null): void {
-  process.stdout.write(`${buildHelpText(commandName)}\n`);
+export type CliIo = {
+  stdout: (line: string) => void;
+  stderr: (line: string) => void;
+};
+
+const processIo: CliIo = {
+  stdout: (line) => {
+    process.stdout.write(`${line}\n`);
+  },
+  stderr: (line) => {
+    process.stderr.write(`${line}\n`);
+  },
+};
+
+/**
+ * Writes rendered output through the injected sinks and reports its exit code.
+ */
+function emit(rendered: RenderedOutput, io: CliIo): number {
+  for (const line of rendered.stdout) {
+    io.stdout(line);
+  }
+  for (const line of rendered.stderr) {
+    io.stderr(line);
+  }
+  return rendered.exitCode;
 }
 
 /**
- * Prints the current CLI version to stdout.
+ * Runs one CLI invocation and returns its exit code rather than exiting, so exit codes are
+ * observable from tests (P1-3). `renderSuccess`/`renderFailure` always populate exactly one
+ * stream, so emitting both preserves the original ordering.
  */
-export function printVersion(): void {
-  process.stdout.write(`${VERSION}\n`);
-}
-
-/**
- * Parses arguments, dispatches the selected command, and renders the final output.
- */
-export function main(): void {
-  const parsed = parseArgs(process.argv.slice(2));
+export async function runCli(argv: string[], io: CliIo = processIo): Promise<number> {
+  const parsed = parseArgs(argv);
 
   if (parsed.versionRequested) {
-    printVersion();
-    process.exit(0);
+    io.stdout(VERSION);
+    return 0;
   }
 
   if (parsed.helpRequested) {
     if (parsed.helpTarget && !isKnownCommandNameForHelp(parsed.helpTarget)) {
-      outputFailure(
-        { command: "help", options: parsed.globalOptions },
-        normalizeError(
-          cliError("INVALID_ARGUMENT", `Unknown help topic: ${parsed.helpTarget}`, {
-            availableCommands: getKnownCommandNames(),
-          })
-        )
+      return emit(
+        renderFailure(
+          { command: "help", options: parsed.globalOptions },
+          normalizeError(
+            cliError("INVALID_ARGUMENT", `Unknown help topic: ${parsed.helpTarget}`, {
+              availableCommands: getKnownCommandNames(),
+            })
+          )
+        ),
+        io
       );
-      return;
     }
 
-    printHelp(parsed.helpTarget);
-    process.exit(0);
+    io.stdout(buildHelpText(parsed.helpTarget));
+    return 0;
   }
 
   if (!parsed.command) {
-    printHelp();
-    process.exit(0);
+    io.stdout(buildHelpText());
+    return 0;
   }
 
   const ctx: CommandExecutionContext = {
@@ -59,16 +80,19 @@ export function main(): void {
     options: parsed.globalOptions,
   };
 
-  import("./commands/dispatch")
-    .then(({ executeCommand }) => executeCommand(ctx, parsed))
-    .then((result) => {
-      outputSuccess(ctx, result);
-    })
-    .catch((error: unknown) => {
-      outputFailure(ctx, normalizeError(error));
-    });
+  try {
+    const { executeCommand } = await import("./commands/dispatch");
+    const result = await executeCommand(ctx, parsed);
+    return emit(renderSuccess(ctx, result), io);
+  } catch (error: unknown) {
+    return emit(renderFailure(ctx, normalizeError(error)), io);
+  }
 }
 
 if (require.main === module) {
-  main();
+  // `process.exitCode` rather than `process.exit`: exiting right after a write to a pipe can
+  // truncate stdout on POSIX, and the resulting exit code is identical either way.
+  void runCli(process.argv.slice(2)).then((exitCode) => {
+    process.exitCode = exitCode;
+  });
 }

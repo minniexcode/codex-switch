@@ -74,27 +74,6 @@ export function renderFailure(ctx: CommandExecutionContext, error: CliErrorShape
 }
 
 /**
- * Writes successful command output to stdout.
- */
-export function outputSuccess(ctx: CommandExecutionContext, result: CommandResult): void {
-  const rendered = renderSuccess(ctx, result);
-  for (const line of rendered.stdout) {
-    printText(line);
-  }
-}
-
-/**
- * Writes failure output to stderr and exits with the rendered status code.
- */
-export function outputFailure(ctx: CommandExecutionContext, error: CliErrorShape): void {
-  const rendered = renderFailure(ctx, error);
-  for (const line of rendered.stderr) {
-    printText(line, true);
-  }
-  process.exit(rendered.exitCode);
-}
-
-/**
  * Builds the plain-text success view for interactive terminal usage.
  */
 function renderHumanSuccess(command: string, data: Record<string, unknown> | null, warnings: string[]): string[] {
@@ -445,16 +424,4 @@ function renderClaudeHumanSuccess(command: string, data: Record<string, unknown>
   }
 
   return lines;
-}
-
-/**
- * Writes one rendered line to either stdout or stderr.
- */
-function printText(message: string, toStderr = false): void {
-  if (toStderr) {
-    process.stderr.write(`${message}\n`);
-    return;
-  }
-
-  process.stdout.write(`${message}\n`);
 }

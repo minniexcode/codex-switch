@@ -20,11 +20,17 @@ function makeToolHomeWithManagedState() {
   return toolHomeDir;
 }
 
-function withToolHome(toolHomeDir, run) {
+/**
+ * Runs `callback` with `CODEXS_HOME` pointed at the given tool home, restoring it afterwards.
+ */
+async function withToolHome(toolHomeDir, run) {
   const previous = process.env.CODEXS_HOME;
   process.env.CODEXS_HOME = toolHomeDir;
   try {
-    return run();
+    // `await` so the restore runs after the callback settles. Without it the `finally` fires as
+    // soon as `run()` hands back its promise, and the async dispatch then resolves paths against
+    // the real machine state instead of the temporary tool home.
+    return await run();
   } finally {
     if (previous === undefined) {
       delete process.env.CODEXS_HOME;
@@ -53,15 +59,13 @@ function makeEmptyCodexDir() {
 }
 
 /**
- * Executes the built CLI entrypoint logic in-process and returns rendered output.
+ * Executes the built CLI entrypoint in-process and returns its rendered output.
+ *
+ * Calls `runCli` directly rather than mirroring the production dispatch ladder, so a change to
+ * the entrypoint is reflected here instead of silently diverging (P1-3).
  */
 async function runBuiltCli(input) {
-  const { executeCommand } = require("../dist/commands/dispatch.js");
-  const { parseArgs } = require("../dist/commands/args.js");
-  const { buildHelpText, getKnownCommandNames, isKnownCommandNameForHelp } = require("../dist/commands/help.js");
-  const { cliError, normalizeError } = require("../dist/domain/errors.js");
-  const { renderFailure, renderSuccess } = require("../dist/cli/output.js");
-  const packageJson = require("../package.json");
+  const { runCli } = require("../dist/cli.js");
   const args = Array.isArray(input) ? input : input.args;
 
   const codexDirIndex = args.indexOf("--codex-dir");
@@ -69,75 +73,27 @@ async function runBuiltCli(input) {
     ? path.resolve(input.toolHomeDir)
     : codexDirIndex >= 0 && args[codexDirIndex + 1]
       ? path.resolve(args[codexDirIndex + 1])
-    : makeToolHomeRoot("codex-switch-tool-home-");
-  return withToolHome(toolHomeDir, async () => {
-    const parsed = parseArgs(args);
-    if (parsed.versionRequested) {
-      return {
-        status: 0,
-        stdout: `${packageJson.version}\n`,
-        stderr: "",
-      };
-    }
-  
-    if (parsed.helpRequested) {
-      if (parsed.helpTarget && !isKnownCommandNameForHelp(parsed.helpTarget)) {
-        const rendered = renderFailure(
-          { command: "help", options: parsed.globalOptions },
-          normalizeError(
-            cliError("INVALID_ARGUMENT", `Unknown help topic: ${parsed.helpTarget}`, {
-              availableCommands: getKnownCommandNames(),
-            })
-          )
-        );
-        return {
-          status: rendered.exitCode,
-          stdout: rendered.stdout.join("\n"),
-          stderr: rendered.stderr.join("\n"),
-        };
-      }
+      : makeToolHomeRoot("codex-switch-tool-home-");
 
-      return {
-        status: 0,
-        stdout: `${buildHelpText(parsed.helpTarget)}\n`,
-        stderr: "",
-      };
-    }
+  const stdout = [];
+  const stderr = [];
 
-    if (!parsed.command) {
-      return {
-        status: 0,
-        stdout: `${buildHelpText()}\n`,
-        stderr: "",
-      };
-    }
+  const status = await withToolHome(toolHomeDir, () =>
+    runCli(args, {
+      stdout: (line) => {
+        stdout.push(line);
+      },
+      stderr: (line) => {
+        stderr.push(line);
+      },
+    })
+  );
 
-    const ctx = {
-      command: parsed.command,
-      options: parsed.globalOptions,
-    };
-
-    try {
-      const result = await executeCommand(ctx, parsed);
-      const rendered = renderSuccess(ctx, result);
-      return {
-        status: rendered.exitCode,
-        stdout: rendered.stdout.join("\n"),
-        stderr: rendered.stderr.join("\n"),
-      };
-    } catch (error) {
-      const rendered = renderFailure(ctx, normalizeError(error));
-      return {
-        status: rendered.exitCode,
-        stdout: rendered.stdout.join("\n"),
-        stderr: rendered.stderr.join("\n"),
-      };
-    } finally {
-      if ((Array.isArray(input) && codexDirIndex < 0) || (!Array.isArray(input) && !input.toolHomeDir)) {
-        fs.rmSync(toolHomeDir, { recursive: true, force: true });
-      }
-    }
-  });
+  return {
+    status,
+    stdout: stdout.join("\n"),
+    stderr: stderr.join("\n"),
+  };
 }
 
 /**
