@@ -2,7 +2,9 @@
 
 Current version: `0.3.1`
 
-The test suite is plain Node.js. `npm test` rebuilds the CLI and runs `tests/run-tests.js`, which discovers `tests/*.spec.js` files. Each spec exports `{ name, tests: [{ name, run() }] }`; a spec whose tests throw is reported and the runner continues with the next one.
+The test suite is plain Node.js. `npm test` rebuilds the CLI and runs `tests/run-tests.js`, which discovers `tests/*.spec.js` files. Each spec exports `{ name, tests: [{ name, run() }] }`; a spec whose tests throw is reported and the runner continues with the next one. A spec that throws while being loaded is reported the same way, and the run continues.
+
+Every temporary directory is created through `makeTempDir()` in `tests/helpers.js`, which registers it for removal. `run-tests.js` calls `cleanupTempDirs()` after each suite and a `process.on("exit")` backstop covers the failure path, so a full run leaves nothing behind. Nothing calls `fs.rmSync` on a test directory directly.
 
 ## Commands
 
@@ -15,7 +17,7 @@ node dist/cli.js --version
 npm pack --dry-run
 ```
 
-## Required Coverage For 0.3.1
+## Required Coverage
 
 Focus on the dual-target contract and the `0.3.1` secret-handling guarantees:
 
@@ -36,10 +38,12 @@ Focus on the dual-target contract and the `0.3.1` secret-handling guarantees:
 - `writeTextFileAtomic` leaves the destination present and intact at rename time.
 - `restoreManifest` rejects a restore path outside the allowed roots and leaves the named file untouched.
 - On POSIX, a managed write lands at `0600` for files and `0700` for created directories.
+- The suite runs green with no `dev-codex/` present; Codex fixtures are generated per test by `makeCodexFixture()`.
+- The Claude provider workflow (`add`, `switch`, `list`, `current`, `show`, `remove`) runs end to end against a `CODEXS_CLAUDE_DIR` that is verified to sit inside a temporary directory.
 
 Do not add tests for removed `0.2.1` runtime experiments such as Copilot SDK integration, GitHub login, `add --copilot`, or bridge commands.
 
 ## Known Gaps
 
-- `tests/provider-workflow.spec.js` cannot run on a fresh clone. Its three tests copy `dev-codex/local-sandbox`, which is gitignored and therefore absent, so they fail with `ENOENT` until the fixture is rebuilt programmatically. Tracked as roadmap P1-9 (Phase 2).
-- The POSIX permission assertions in `tests/secret-handling.spec.js` return early on Windows, so the `0600` / `0700` code path has no executable coverage on that platform. It is exercised only on macOS and Linux.
+- The legacy top-level `profile` selector has no write-path coverage. `makeCodexFixture()` accepts `legacyProfile` but leaves it unset by default: when that line is the last root-level key, its deletion range overlaps the insertion point for a new top-level key, and `switch` writes a truncated `model_provider` (`odel_provider`). `switch`'s legacy-cleanup path therefore cannot be asserted green until that overlap is fixed. No shipped test covers it, and no test should until the defect is resolved.
+- The POSIX permission assertions in `tests/secret-handling.spec.js` return early on Windows, so the `0600` / `0700` code path has no executable coverage on that platform. The `ubuntu-latest` leg of `.github/workflows/ci.yml` is the only place it runs.

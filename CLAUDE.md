@@ -30,7 +30,9 @@ node tests/run-tests.js
 
 The runner reports failures only — a passing test prints nothing, and the runner continues after a failure. **Silence means green.**
 
-`npm test` on a fresh clone always reports 3 failures in `provider-workflow`: `dev-codex/local-sandbox` is gitignored and absent, so its `cpSync` fixture copy throws `ENOENT`. Pre-existing and tracked as roadmap P1-9; do not chase it.
+The suite is green on a fresh clone (`.github/workflows/ci.yml` runs it on Linux and Windows against Node 20 and 22). No fixture directory is needed: `makeCodexFixture()` writes a temporary `config.toml` / `auth.json` per test, so `dev-codex/local-sandbox` — gitignored and absent — is never read.
+
+Temporary directories are created only through `makeTempDir()`, which registers them for removal; `run-tests.js` calls `cleanupTempDirs()` after every suite, with a `process.on("exit")` backstop. **Never call `fs.rmSync` on a test directory directly** — removal has to stay owned by the registry, so a directory cannot be deleted while another suite still points at it.
 
 ## Live vs. Dead Source Trees
 
@@ -74,7 +76,9 @@ src/interaction/        Interactive prompts (inquirer-based)
 src/runtime/            Codex CLI detection/probing
 ```
 
-`src/cli.ts` imports `commands/dispatch` **dynamically**, so `--help`, `--version`, and flag errors never load `inquirer` or the command services. Tests exploit this: `tests/helpers.js` requires `dist/cli/output.js` and `dist/commands/*.js` directly and re-implements the `main()` dispatch loop in-process rather than spawning a child process.
+`src/cli.ts` imports `commands/dispatch` **dynamically**, so `--help`, `--version`, and flag errors never load `inquirer` or the command services. `runCli(argv, io)` is the whole entry ladder — it takes line-oriented `{ stdout, stderr }` sinks and returns an exit code instead of calling `process.exit`. Tests call `runCli` directly through `runBuiltCli()`, so the dispatch ladder has exactly one implementation: there is no in-process mirror to keep in sync, and a change to `src/cli.ts` is immediately visible to the suite.
+
+Output rendering is pure: `renderSuccess` / `renderFailure` in `src/cli/output.ts` return `{ stdout, stderr, exitCode }` and never write. Never add a `process.exit` to the library path — `src/cli.ts` sets `process.exitCode` after the promise settles, because exiting right after a write to a POSIX pipe can truncate stdout.
 
 ### Dual-Target Model
 
@@ -132,11 +136,11 @@ Pass 1 strips exactly three tokens by exact equality: `--json`, `--reveal`, `--c
 ## Testing
 
 - Plain Node specs using `node:assert/strict`
-- Fixture directory: `dev-codex/local-sandbox/` (gitignored — see the 3 known failures above)
-- Test helpers in `tests/helpers.js`: `makeToolHomeWithManagedState()`, `makeSandboxCopy()`, `makeEmptyCodexDir()`, `runBuiltCli()`, `runJsonCli()`
-- `runBuiltCli()` swaps `CODEXS_HOME` and calls `dist/` modules in-process; `runJsonCli()` additionally parses the JSON envelope from stdout on success or stderr on failure
-- Newer suites construct their tool home programmatically with `fs.mkdtempSync` instead of using the sandbox fixture — prefer this, it works on a fresh clone
-- Use `--codex-dir` with sandbox directories for mutating command tests
+- Test helpers in `tests/helpers.js`: `makeTempDir()`, `withEnv()`, `makeToolHomeWithManagedState()`, `withClaudeEnv()`, `makeCodexFixture()`, `runBuiltCli()`, `runJsonCli()`
+- `runBuiltCli()` swaps `CODEXS_HOME` and calls `runCli` in-process; `runJsonCli()` additionally parses the JSON envelope from stdout on success or stderr on failure. Both accept `--codex-dir` in `args`
+- `runBuiltCli()` points `CODEXS_CODEX_DIR` at a temporary directory whenever the call passes no `--codex-dir`, so a spec that forgets it cannot operate on the real `~/.codex`
+- Use `makeCodexFixture()` for any Codex target; there is no checked-in fixture directory
+- `withClaudeEnv()` is the only safe way to run a Claude command: it verifies `CODEXS_CLAUDE_DIR` resolves inside a temp directory before running anything, because `switch --claude` replaces `settings.json` and would otherwise hit the real `~/.claude`. **Pass `--json` on every Claude spec invocation** — `canPrompt()` is true whenever the suite runs in a terminal, so a missing `--json` blocks on an inquirer prompt and hangs the suite instead of failing it
 - POSIX-only assertions (file modes) must `return` early on `win32`
 
 ## Security
